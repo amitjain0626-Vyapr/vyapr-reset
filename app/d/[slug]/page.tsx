@@ -1,30 +1,29 @@
-import { createClient } from '../../utils/supabase/server'
-import { notFound } from 'next/navigation'
-
-export default async function Page(props: any) {
-  const slug = props?.params?.slug
-  if (!slug) return notFound()
-
-  const supabase = createClient()
-  const { data, error } = await supabase
-    .from('dentists')
-    .select('*')
-    .eq('slug', slug)
-    .single()
-
-  if (error || !data) {
-    console.error("❌ Supabase error or no data:", error)
-    return notFound()
+export default function Page() {
+  const data = {
+    name: "Dr. Amit Jain",
+    profile_pic_url: "https://i.pravatar.cc/150?img=3",
+    specialization: "Dentist",
+    location: "South Delhi",
+    bio: "Experienced dental surgeon",
+    instagram: "https://instagram.com/damit",
+    linkedIn: "https://linkedin.com/in/amitjaininsead",
+    website: "https://amitjain.com",
   }
 
   return (
-  <main className="p-4">
-    <h1 className="text-xl font-bold mb-4">DEBUG MODE</h1>
-    <pre className="bg-gray-900 text-white p-4 rounded text-sm">
-      {JSON.stringify(data, null, 2)}
-    </pre>
-  </main>
-)
-
+    <main className="p-4">
+      <h1 className="text-xl font-bold">Welcome, {data.name}</h1>
+      <img
+        src={data.profile_pic_url}
+        alt="Profile"
+        className="my-2 w-24 h-24 rounded-full"
+      />
+      <p><strong>Specialization:</strong> {data.specialization}</p>
+      <p><strong>Location:</strong> {data.location}</p>
+      <p><strong>Bio:</strong> {data.bio}</p>
+      <p><strong>Instagram:</strong> {data.instagram}</p>
+      <p><strong>LinkedIn:</strong> {data.linkedIn}</p>
+      <p><strong>Website:</strong> {data.website}</p>
+    </main>
   )
 }
