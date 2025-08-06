@@ -1,8 +1,11 @@
 import { createClient } from '@/app/utils/supabase/server';
 import { notFound } from 'next/navigation';
 
-// No params typed here — avoid Promise<any> inference
-export default async function SlugPage({ params }: any) {
+export default async function SlugPage({
+  params,
+}: {
+  params: { slug: string };
+}) {
   const supabase = createClient();
 
   const { data, error } = await supabase
