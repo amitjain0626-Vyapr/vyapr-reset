@@ -1,51 +1,31 @@
-import { createClient } from '@/app/utils/supabase/server'
-import { notFound } from 'next/navigation'
+// app/d/[slug]/page.tsx
+import { createClient } from "@/app/utils/supabase/server";
+import { notFound } from "next/navigation";
 
 type Props = {
-  params: { slug: string }
-}
+  params: {
+    slug: string;
+  };
+};
 
 export default async function Page({ params }: Props) {
-  const supabase = createClient()
+  const supabase = createClient();
 
-  try {
-    const { data, error } = await supabase
-      .from('dentists')
-      .select('*')
-      .eq('slug', params.slug)
-      .single()
+  const { data: dentist, error } = await supabase
+    .from("dentists") // ✅ Use exact table name here
+    .select("*")
+    .eq("slug", params.slug)
+    .single();
 
-    if (error) {
-      console.error('❌ Supabase error:', error.message)
-      return (
-        <main className="p-4">
-          <h1>Something went wrong</h1>
-          <p>{error.message}</p>
-        </main>
-      )
-    }
-
-    if (!data) {
-      console.warn('⚠️ No dentist found for slug:', params.slug)
-      return notFound()
-    }
-
-    return (
-      <main className="p-4">
-        <h1>Welcome, Dr. {data.name || params.slug}</h1>
-        <h2>🪥 Speciality: {data.speciality || 'N/A'}</h2>
-        <pre className="bg-gray-100 p-2 mt-4 rounded">
-          {JSON.stringify(data, null, 2)}
-        </pre>
-      </main>
-    )
-  } catch (err: any) {
-    console.error('💥 Unexpected crash:', err.message)
-    return (
-      <main className="p-4">
-        <h1>Unexpected Error</h1>
-        <p>{err.message}</p>
-      </main>
-    )
+  if (error || !dentist) {
+    console.error("Slug fetch error:", error);
+    notFound(); // 🔥 Failsafe to avoid blank page
   }
+
+  return (
+    <div className="p-6">
+      <h1 className="text-2xl font-semibold">Welcome, Dr. {dentist.name}</h1>
+      <p className="text-gray-600 mt-2">This is your microsite.</p>
+    </div>
+  );
 }
