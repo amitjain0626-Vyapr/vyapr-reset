@@ -30,8 +30,13 @@ export async function generateMetadata({
   };
 }
 
-export default async function SlugPage({ params }: { params: { slug: string } }) {
+export default async function SlugPage({
+  params,
+}: {
+  params: { slug: string };
+}) {
   const supabase = await createClient();
+
   const { data, error } = await supabase
     .from('Dentists')
     .select('*')
@@ -40,6 +45,20 @@ export default async function SlugPage({ params }: { params: { slug: string } })
 
   if (error || !data) return notFound();
 
+  // Track clicks via API route
+  const trackClick = async (source: 'whatsapp' | 'razorpay') => {
+    'use client';
+    const client = createClient();
+    try {
+      await client.from('Leads').insert({
+        source,
+        slug: params.slug,
+      });
+    } catch (err) {
+      console.error('Lead logging failed:', err);
+    }
+  };
+
   return (
     <div className="p-6">
       <h1 className="text-3xl font-bold mb-2">{data.name}</h1>
@@ -47,25 +66,4 @@ export default async function SlugPage({ params }: { params: { slug: string } })
 
       {data.whatsapp && (
         <a
-          href={`https://wa.me/${data.whatsapp.replace(/[^\d]/g, '')}`}
-          target="_blank"
-          className="inline-block bg-green-600 text-white px-4 py-2 rounded"
-        >
-          Chat on WhatsApp
-        </a>
-      )}
-
-      {data.razorpay && (
-  <a
-    href={data.razorpay}
-    target="_blank"
-    rel="noopener noreferrer"
-    className="inline-block mt-4 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition"
-  >
-    Pay / Book Now
-  </a>
-)}
-
-    </div>
-  );
-}
+          href={`https://wa
