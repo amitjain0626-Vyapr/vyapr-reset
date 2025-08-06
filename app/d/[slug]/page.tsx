@@ -1,21 +1,11 @@
-import { Metadata } from 'next'
-
-interface PageParams {
-  params: {
-    slug: string
-  }
-}
-
-// 👇 Keep this unchanged
-export async function generateMetadata({ params }: PageParams): Promise<Metadata> {
+export async function generateMetadata({ params }) {
   return {
     title: `${params.slug}'s Page`,
-    description: `Microsite for ${params.slug}`
+    description: `Microsite for ${params.slug}`,
   }
 }
 
-// ✅ This signature bypasses the PageProps inference bug
-const DentistPage = async ({ params }: PageParams) => {
+export default async function DentistPage({ params }) {
   const { slug } = params
 
   return (
@@ -25,5 +15,3 @@ const DentistPage = async ({ params }: PageParams) => {
     </div>
   )
 }
-
-export default DentistPage
