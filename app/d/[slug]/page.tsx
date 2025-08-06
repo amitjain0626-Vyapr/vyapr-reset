@@ -13,7 +13,7 @@ export default async function Page(props: any) {
     .single()
 
   if (error || !data) {
-    console.error("Supabase Error or No Data:", error)
+    console.error("❌ Supabase error or no data:", error)
     return notFound()
   }
 
@@ -29,7 +29,7 @@ export default async function Page(props: any) {
       <p><strong>Location:</strong> {data.location || "Not specified"}</p>
       <p><strong>Bio:</strong> {data.bio || "No bio available."}</p>
       <p><strong>Instagram:</strong> {data.instagram || "—"}</p>
-      <p><strong>LinkedIn:</strong> {data.linkedin || "—"}</p>
+      <p><strong>LinkedIn:</strong> {data.linkedin || data.linkedIn || "—"}</p>
       <p><strong>Website:</strong> {data.website || "—"}</p>
     </main>
   )
