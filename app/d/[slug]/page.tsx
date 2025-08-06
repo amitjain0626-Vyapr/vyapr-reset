@@ -1,11 +1,7 @@
 import { createClient } from '@/app/utils/supabase/server';
 import { notFound } from 'next/navigation';
 
-export default async function MicrositePage({
-  params,
-}: {
-  params: { slug: string };
-}) {
+export default async function Page({ params }: { params: { slug: string } }) {
   const supabase = createClient();
 
   const { data, error } = await supabase
@@ -14,11 +10,13 @@ export default async function MicrositePage({
     .eq('slug', params.slug)
     .single();
 
-  if (error || !data) return notFound();
+  if (error || !data) {
+    return notFound();
+  }
 
   return (
-    <div className="p-8">
-      <h1 className="text-3xl font-bold mb-4">{data.name}</h1>
+    <div className="p-6">
+      <h1 className="text-2xl font-semibold">{data.name}</h1>
       <p>{data.description}</p>
     </div>
   );
