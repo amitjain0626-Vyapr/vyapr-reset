@@ -1,4 +1,4 @@
-```ts
+
 // app/d/[slug]/page.tsx
 import { createClient } from "@/app/utils/supabase/server";
 import { notFound } from "next/navigation";
