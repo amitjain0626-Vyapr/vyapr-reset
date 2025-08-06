@@ -1,4 +1,6 @@
 export default function Page() {
+  return <h1>Dr. Amit Jain - Dummy</h1>
+}
   const data = {
     name: "Dr. Amit Jain",
     profile_pic_url: "https://i.pravatar.cc/150?img=3",
