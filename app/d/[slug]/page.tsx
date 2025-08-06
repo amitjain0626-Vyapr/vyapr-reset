@@ -1,10 +1,7 @@
 import { createClient } from '../../utils/supabase/server'
 import { notFound } from 'next/navigation'
 
-// ✅ No PageProps. No Promise<any>. All inline.
-type Params = { slug: string }
-
-export default async function Page({ params }: { params: Params }) {
+export default async function Page({ params }: any) {
   const supabase = createClient()
   const { data } = await supabase
     .from('Dentists')
