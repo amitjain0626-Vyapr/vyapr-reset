@@ -1,11 +1,21 @@
-export async function generateMetadata({ params }) {
+// ✅ Manually type params to avoid "implicit any" error
+export async function generateMetadata({
+  params,
+}: {
+  params: { slug: string }
+}) {
   return {
     title: `${params.slug}'s Page`,
     description: `Microsite for ${params.slug}`,
   }
 }
 
-export default async function DentistPage({ params }) {
+// ✅ Same here
+export default async function DentistPage({
+  params,
+}: {
+  params: { slug: string }
+}) {
   const { slug } = params
 
   return (
