@@ -1,47 +1,30 @@
+```ts
+// app/d/[slug]/page.tsx
 import { createClient } from "@/app/utils/supabase/server";
+import { notFound } from "next/navigation";
 
-// Explicitly define your params type
-type PageParams = {
-  slug: string;
-};
-
-// Use Next.js's built-in types for the page component
 export default async function Page({
   params,
 }: {
-  params: PageParams;
+  params: { slug: string };
 }) {
   const supabase = createClient();
-  
-  // Fetch your data
-  const { data, error } = await supabase
-    .from('your_table')
-    .select('*')
-    .eq('slug', params.slug)
+
+  const { data: dentist, error } = await supabase
+    .from("dentists")
+    .select("*")
+    .eq("slug", params.slug)
     .single();
 
-  if (error || !data) {
-    return <div>Not found</div>;
-    // Or for proper 404 handling:
-    // notFound();
+  if (error || !dentist) {
+    console.error("Slug fetch error:", error);
+    notFound(); // fallback to 404
   }
 
   return (
-    <div>
-      <h1>{data.title}</h1>
-      <p>{data.content}</p>
+    <div className="p-6">
+      <h1 className="text-2xl font-semibold">Welcome, Dr. {dentist.name}</h1>
+      <p className="text-gray-600 mt-2">This is your microsite.</p>
     </div>
   );
-}
-
-// If you need to generate static paths (optional)
-export async function generateStaticParams() {
-  return []; // Return empty array for pure SSR
-}
-
-// Type declaration merging for Next.js
-declare module 'next' {
-  interface PageProps {
-    params: PageParams;
-  }
 }
