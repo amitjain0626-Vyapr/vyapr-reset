@@ -1,14 +1,16 @@
-export default function Page() {
-  return <h1>Dr. Amit Jain - Dummy</h1>
+type Props = {
+  params: { slug: string }
 }
+
+export default function DentistPage({ params }: Props) {
   const data = {
     name: "Dr. Amit Jain",
-    profile_pic_url: "https://i.pravatar.cc/150?img=3",
-    specialization: "Dentist",
-    location: "South Delhi",
-    bio: "Experienced dental surgeon",
-    instagram: "https://instagram.com/damit",
-    linkedIn: "https://linkedin.com/in/amitjaininsead",
+    profile_pic_url: "/profile.jpg",
+    specialization: "Cosmetic Dentistry",
+    location: "Delhi",
+    bio: "20+ years creating perfect smiles.",
+    instagram: "@dramit",
+    linkedIn: "linkedin.com/in/dramit",
     website: "https://amitjain.com",
   }
 
