@@ -1,13 +1,8 @@
-
 // app/d/[slug]/page.tsx
 import { createClient } from "@/app/utils/supabase/server";
 import { notFound } from "next/navigation";
 
-export default async function Page({
-  params,
-}: {
-  params: { slug: string };
-}) {
+export default async function Page({ params }: { params: { slug: string } }) {
   const supabase = createClient();
 
   const { data: dentist, error } = await supabase
@@ -18,7 +13,7 @@ export default async function Page({
 
   if (error || !dentist) {
     console.error("Slug fetch error:", error);
-    notFound(); // fallback to 404
+    notFound();
   }
 
   return (
