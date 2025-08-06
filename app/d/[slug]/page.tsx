@@ -1,17 +1,15 @@
 import { createClient } from '@/app/utils/supabase/server';
 import { notFound } from 'next/navigation';
 
-export default async function SlugPage({
-  params,
-}: {
-  params: { slug: string };
-}) {
+export default async function SlugPage(props: any) {
+  const slug = props?.params?.slug;
+
   const supabase = await createClient();
 
   const { data, error } = await supabase
     .from('Dentists')
     .select('*')
-    .eq('slug', params.slug)
+    .eq('slug', slug)
     .single();
 
   if (error || !data) return notFound();
