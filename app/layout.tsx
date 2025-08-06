@@ -1,15 +1,12 @@
 import './globals.css';
 import { ReactNode } from 'react';
-import { createClient } from '@/app/utils/supabase/client';
 
 export const metadata = {
   title: 'Vyapr',
   description: 'Vyapr - Digital Stack for Solopreneurs',
 };
 
-export default async function RootLayout({ children }: { children: ReactNode }) {
-  const supabase = createClient();
-
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <head>
