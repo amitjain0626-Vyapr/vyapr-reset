@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation'
 export default async function Page({ params }: any) {
   const supabase = createClient()
   const { data } = await supabase
-    .from('Dentists')
+    .from('dentists')
     .select('*')
     .eq('slug', params.slug)
     .single()
