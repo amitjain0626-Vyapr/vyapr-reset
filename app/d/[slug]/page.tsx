@@ -6,7 +6,7 @@ export default async function SlugPage({
 }: {
   params: { slug: string };
 }) {
-  const supabase = createClient();
+  const supabase = await createClient();
 
   const { data, error } = await supabase
     .from('Dentists')
