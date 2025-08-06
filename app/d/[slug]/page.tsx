@@ -2,26 +2,24 @@
 import { createClient } from "@/app/utils/supabase/server";
 import { notFound } from "next/navigation";
 
-export default async function Page({ params }: { params: { slug: string } }) {
-
-type Props = {
+interface PageParams {
   params: {
     slug: string;
   };
-};
+}
 
-export default async function Page({ params }: Props) {
+export default async function Page({ params }: PageParams) {
   const supabase = createClient();
 
   const { data: dentist, error } = await supabase
-    .from("dentists") // ✅ Use exact table name here
+    .from("dentists")
     .select("*")
     .eq("slug", params.slug)
     .single();
 
   if (error || !dentist) {
-    console.error("Slug fetch error:", error);
-    notFound(); // 🔥 Failsafe to avoid blank page
+    console.error("❌ Slug fetch error:", error);
+    notFound();
   }
 
   return (
