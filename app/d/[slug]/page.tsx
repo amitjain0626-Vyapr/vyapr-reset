@@ -2,6 +2,8 @@
 import { createClient } from "@/app/utils/supabase/server";
 import { notFound } from "next/navigation";
 
+export default async function Page({ params }: { params: { slug: string } }) {
+
 type Props = {
   params: {
     slug: string;
