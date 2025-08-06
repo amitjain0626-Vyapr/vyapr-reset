@@ -1,21 +1,13 @@
-// ✅ Manually type params to avoid "implicit any" error
-export async function generateMetadata({
-  params,
-}: {
-  params: { slug: string }
-}) {
+// app/d/[slug]/page.tsx
+
+export async function generateMetadata({ params }: any) {
   return {
     title: `${params.slug}'s Page`,
     description: `Microsite for ${params.slug}`,
   }
 }
 
-// ✅ Same here
-export default async function DentistPage({
-  params,
-}: {
-  params: { slug: string }
-}) {
+export default async function DentistPage({ params }: any) {
   const { slug } = params
 
   return (
