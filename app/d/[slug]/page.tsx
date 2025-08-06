@@ -1,8 +1,8 @@
-type Props = {
-  params: { slug: string }
-}
-
-export default function DentistPage({ params }: Props) {
+export default function DentistPage({
+  params,
+}: {
+  params: { slug: string };
+}) {
   const data = {
     name: "Dr. Amit Jain",
     profile_pic_url: "/profile.jpg",
@@ -12,7 +12,7 @@ export default function DentistPage({ params }: Props) {
     instagram: "@dramit",
     linkedIn: "linkedin.com/in/dramit",
     website: "https://amitjain.com",
-  }
+  };
 
   return (
     <main className="p-4">
@@ -29,5 +29,5 @@ export default function DentistPage({ params }: Props) {
       <p><strong>LinkedIn:</strong> {data.linkedIn}</p>
       <p><strong>Website:</strong> {data.website}</p>
     </main>
-  )
+  );
 }
