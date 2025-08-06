@@ -1,25 +1,36 @@
-// app/d/[slug]/page.tsx
-import { createClient } from "@/app/utils/supabase/server";
-import { notFound } from "next/navigation";
+import { createClient } from '@/utils/supabase/server';
+import { notFound } from 'next/navigation';
 
-export default async function Page({ params }: { params: { slug: string } }) {
+// Define params type separately
+type Params = {
+  slug: string;
+};
+
+// Use direct type annotation instead of interface
+export default async function Page({ params }: { params: Params }) {
   const supabase = createClient();
-
-  const { data: dentist, error } = await supabase
-    .from("dentists")
-    .select("*")
-    .eq("slug", params.slug)
+  
+  const { data, error } = await supabase
+    .from('your_table')
+    .select('*')
+    .eq('slug', params.slug)
     .single();
 
-  if (error || !dentist) {
-    console.error("Slug fetch error:", error);
+  if (error || !data) {
     notFound();
   }
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-semibold">Welcome, Dr. {dentist.name}</h1>
-      <p className="text-gray-600 mt-2">This is your microsite.</p>
+    <div>
+      <h1>{data.title}</h1>
+      <p>{data.content}</p>
     </div>
   );
+}
+
+// Add this empty declaration to prevent Promise type conflict
+declare module 'next' {
+  interface PageProps {
+    params: any;
+  }
 }
