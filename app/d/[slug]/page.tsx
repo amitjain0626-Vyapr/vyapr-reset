@@ -1,23 +1,23 @@
 import { createClient } from '@/app/utils/supabase/server'
 
-export async function generateMetadata({ params }: { params: { slug: string } }) {
+export async function generateMetadata({ params }: any) {
   return {
     title: `${params.slug}'s Page`,
     description: `Microsite for ${params.slug}`,
   }
 }
 
-export default async function DentistPage({ params }: { params: { slug: string } }) {
+export default async function DentistPage({ params }: any) {
   const supabase = createClient()
 
   const { data: dentist, error } = await supabase
-    .from('dentists') // ✅ corrected lowercase table name
+    .from('dentists') // ✅ lowercase table
     .select('*')
     .eq('slug', params.slug)
     .single()
 
   if (error || !dentist) {
-    console.error('❌ Supabase Error:', error) // ✅ logs error to Vercel
+    console.error('❌ Supabase Error:', error)
     return (
       <div className="p-10 text-center">
         <h1 className="text-2xl font-bold text-red-500">Dentist not found</h1>
