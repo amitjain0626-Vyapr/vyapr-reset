@@ -1,12 +1,14 @@
 import { createClient } from '../../utils/supabase/server'
 import { notFound } from 'next/navigation'
 
-export default async function Page({ params }: { params: { slug: string } }) {
+export default async function Page(props: any) {
+  const slug = props?.params?.slug
+
   const supabase = createClient()
   const { data } = await supabase
     .from('dentists')
     .select('*')
-    .eq('slug', params.slug)
+    .eq('slug', slug)
     .single()
 
   if (!data) return notFound()
