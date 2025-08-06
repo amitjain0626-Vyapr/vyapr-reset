@@ -1,17 +1,15 @@
 import { createClient } from '@/app/utils/supabase/server';
 import { notFound } from 'next/navigation';
 
-type PageProps = {
-  params: {
-    slug: string;
-  };
-};
-
-export default async function MicrositePage({ params }: PageProps) {
+export default async function MicrositePage({
+  params,
+}: {
+  params: { slug: string };
+}) {
   const supabase = createClient();
 
   const { data, error } = await supabase
-    .from('dentists')
+    .from('Dentists')
     .select('*')
     .eq('slug', params.slug)
     .single();
