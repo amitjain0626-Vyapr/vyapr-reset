@@ -11,7 +11,7 @@ export default async function Page({ params }: any) {
 
   if (!data) return notFound()
 
-  return (
+return (
   <main className="p-4">
     <h1 className="text-xl font-bold">Welcome, {data?.name ?? "Name not found"}</h1>
     <img src={data?.profile_pic_url ?? ""} alt="Profile" className="my-2 w-24 h-24 rounded-full" />
@@ -23,4 +23,5 @@ export default async function Page({ params }: any) {
     <p><strong>Website:</strong> {data?.website ?? "—"}</p>
   </main>
 )
+
 
