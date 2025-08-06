@@ -1,8 +1,10 @@
-export default function Home() {
+export default function HomePage() {
   return (
-    <main className="p-8">
-      <h1 className="text-2xl font-bold">Vyapr is Live 🚀</h1>
-      <p className="mt-4">Visit your digital profile at <code>/d/dr-amit-jain</code></p>
+    <main className="p-10 text-center">
+      <h1 className="text-3xl font-bold">Vyapr is Live 🚀</h1>
+      <p className="mt-4 text-gray-600">
+        The digital stack for India's solopreneurs — built with ❤️ by Amit Jain & Co.
+      </p>
     </main>
-  )
+  );
 }
