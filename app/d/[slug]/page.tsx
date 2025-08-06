@@ -10,14 +10,17 @@ export async function generateMetadata({ params }: any) {
 export default async function DentistPage({ params }: any) {
   const supabase = createClient()
 
-  const { data: dentist, error } = await supabase
-    .from('dentists') // ✅ lowercase table
+  const { data, error } = await supabase
+    .from('dentists')
     .select('*')
     .eq('slug', params.slug)
-    .single()
+
+  console.log('🪷 Supabase Data:', data)
+  console.error('❌ Supabase Error:', error)
+
+  const dentist = data?.[0] // ✅ bypass `.single()` to avoid internal error
 
   if (error || !dentist) {
-    console.error('❌ Supabase Error:', error)
     return (
       <div className="p-10 text-center">
         <h1 className="text-2xl font-bold text-red-500">Dentist not found</h1>
