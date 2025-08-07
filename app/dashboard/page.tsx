@@ -1,24 +1,22 @@
-'use client'
+// app/dashboard/page.tsx
+import { redirect } from 'next/navigation'
+import { createSupabaseServerClient } from '@/app/utils/supabase/server'
+import { cookies } from 'next/headers'
 
-import { useSession } from '@supabase/auth-helpers-react'
-import { useRouter } from 'next/navigation'
-import { useEffect } from 'react'
+export default async function DashboardPage() {
+  const cookieStore = cookies()
+  const supabase = createSupabaseServerClient(cookieStore)
+  const {
+    data: { session }
+  } = await supabase.auth.getSession()
 
-export default function DashboardPage() {
-  const session = useSession()
-  const router = useRouter()
-
-  useEffect(() => {
-    if (!session) {
-      router.push('/login')
-    }
-  }, [session])
-
-  if (!session) return <p>Redirecting...</p>
+  if (!session) {
+    redirect('/login')
+  }
 
   return (
-    <div>
-      <h1>Welcome, {session.user.email}</h1>
+    <div className="p-4">
+      <h1 className="text-xl font-semibold">Welcome, {session.user.email}</h1>
     </div>
   )
 }

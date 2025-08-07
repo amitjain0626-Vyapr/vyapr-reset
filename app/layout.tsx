@@ -1,18 +1,18 @@
-// @ts-nocheck
+// app/layout.tsx
 import './globals.css'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
-import { SessionContextProvider } from '@supabase/auth-helpers-react'
+import { createSupabaseServerClient } from './utils/supabase/server'
+import { cookies } from 'next/headers'
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const supabase = createClientComponentClient()
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const cookieStore = cookies()
+  const supabase = createSupabaseServerClient(cookieStore)
+  const {
+    data: { session }
+  } = await supabase.auth.getSession()
 
   return (
     <html lang="en">
-      <body>
-        <SessionContextProvider supabaseClient={supabase}>
-          {children}
-        </SessionContextProvider>
-      </body>
+      <body>{children}</body>
     </html>
   )
 }
