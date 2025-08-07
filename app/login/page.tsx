@@ -12,14 +12,14 @@ export default function Login() {
   const handleLogin = async (e: any) => {
     e.preventDefault();
 
-    // ✅ Hardcoded for debug
-    const redirectTo = 'https://vyapr-reset-5rly-lfaa3pvlc-amit-jains-projects-88081448.vercel.app/auth/callback';
-    console.log('🔍 redirectTo HARDCODED:', redirectTo);
+    const hardcodedRedirect = 'https://vyapr-reset-5rly-lfaa3pvlc-amit-jains-projects-88081448.vercel.app/auth/callback';
+
+    console.log('🔍 Hardcoded redirectTo being sent:', hardcodedRedirect);
 
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: redirectTo,
+        emailRedirectTo: hardcodedRedirect,
       },
     });
 
