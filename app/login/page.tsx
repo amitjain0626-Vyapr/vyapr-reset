@@ -13,6 +13,7 @@ export default function Login() {
     e.preventDefault();
 
     const redirectTo = process.env.NEXT_PUBLIC_SUPABASE_REDIRECT_URL;
+console.log('🔍 redirectTo from ENV:', redirectTo);
 
     const { error } = await supabase.auth.signInWithOtp({
       email,
