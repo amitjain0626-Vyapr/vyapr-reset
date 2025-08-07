@@ -1,13 +1,10 @@
-// app/dashboard/page.tsx
-import { redirect } from 'next/navigation'
 import { createSupabaseServerClient } from '@/app/utils/supabase/server'
-import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
 
 export default async function DashboardPage() {
-  const cookieStore = cookies()
-  const supabase = createSupabaseServerClient(cookieStore)
+  const supabase = createSupabaseServerClient()
   const {
-    data: { session }
+    data: { session },
   } = await supabase.auth.getSession()
 
   if (!session) {
