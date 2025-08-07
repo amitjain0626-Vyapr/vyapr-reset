@@ -1,17 +1,18 @@
-import './globals.css';
-import { createSupabaseServerClient } from './utils/supabase/server';
+// @ts-nocheck
+import './globals.css'
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { SessionContextProvider } from '@supabase/auth-helpers-react'
 
-export const metadata = {
-  title: 'Vyapr',
-  description: 'Digital stack for solopreneurs',
-};
-
-export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const supabase = createSupabaseServerClient();
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const supabase = createClientComponentClient()
 
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <SessionContextProvider supabaseClient={supabase}>
+          {children}
+        </SessionContextProvider>
+      </body>
     </html>
-  );
+  )
 }

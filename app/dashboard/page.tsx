@@ -1,32 +1,24 @@
-// @ts-nocheck
-import { createSupabaseServerClient } from '@/app/utils/supabase/server';
-import { cookies } from 'next/headers';
+'use client'
 
-export default async function DashboardPage() {
-  const supabase = await createSupabaseServerClient();
+import { useSession } from '@supabase/auth-helpers-react'
+import { useRouter } from 'next/navigation'
+import { useEffect } from 'react'
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+export default function DashboardPage() {
+  const session = useSession()
+  const router = useRouter()
 
-  const { data: leads } = await supabase
-    .from('Leads')
-    .select('*')
-    .eq('created_by', user?.id)
-    .order('created_at', { ascending: false });
+  useEffect(() => {
+    if (!session) {
+      router.push('/login')
+    }
+  }, [session])
+
+  if (!session) return <p>Redirecting...</p>
 
   return (
-    <div className="p-4">
-      <h1 className="text-xl font-semibold mb-4">Leads</h1>
-
-      {!leads?.length && <p className="text-gray-500">No leads yet.</p>}
-
-      {leads?.map((lead: any) => (
-        <div key={lead.id} className="border p-3 rounded mb-2 bg-gray-50">
-          <p className="text-sm">Source: {lead.source}</p>
-          <p className="text-xs text-gray-500">Slug: {lead.slug}</p>
-        </div>
-      ))}
+    <div>
+      <h1>Welcome, {session.user.email}</h1>
     </div>
-  );
+  )
 }
