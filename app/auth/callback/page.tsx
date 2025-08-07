@@ -2,9 +2,8 @@
 
 import { useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { createClientComponentClient } from '@supabase/ssr'
 
-// Required to disable static generation
 export const dynamic = 'force-dynamic'
 
 function CallbackHandler() {
@@ -13,24 +12,26 @@ function CallbackHandler() {
   const code = searchParams.get('code')
 
   useEffect(() => {
-    const exchangeCode = async () => {
+    const exchange = async () => {
       if (!code) return
 
       const supabase = createClientComponentClient()
       const { error } = await supabase.auth.exchangeCodeForSession(code)
 
       if (error) {
-        console.error('❌ Session exchange failed:', error.message)
+        console.log('🔴 Supabase login error:', error.message)
         router.replace('/login?error=auth')
       } else {
-        router.replace('/dashboard')
+        const { data: { session } } = await supabase.auth.getSession()
+        console.log('🟢 Supabase session set:', session)
+        router.replace('/onboarding') // 👈 YES — this is your desired post-login redirect
       }
     }
 
-    exchangeCode()
+    exchange()
   }, [code])
 
-  return <p className="text-center mt-12">🔄 Logging you in...</p>
+  return <p className="text-center mt-12">🔐 Logging you in...</p>
 }
 
 export default function CallbackPage() {
