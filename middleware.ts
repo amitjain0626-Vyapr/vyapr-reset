@@ -5,17 +5,16 @@ import type { NextRequest } from 'next/server';
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next();
 
-  // Exclude public routes and static assets
-  const publicRoutes = [
-    '/login',
-    '/auth/callback',
-    '/manifest.json',
-    '/favicon.ico',
-  ];
-
   const pathname = req.nextUrl.pathname;
 
-  const isPublic = publicRoutes.some((path) => pathname === path || pathname.startsWith('/_next'));
+  // Allow public and static routes without auth
+  const isPublic =
+    pathname === '/login' ||
+    pathname === '/auth/callback' ||
+    pathname === '/manifest.json' ||
+    pathname === '/favicon.ico' ||
+    pathname.startsWith('/_next') ||
+    pathname.startsWith('/api');
 
   if (isPublic) {
     return res;
@@ -33,7 +32,7 @@ export async function middleware(req: NextRequest) {
   return res;
 }
 
-// ✅ Apply middleware only to app routes (not static files)
+// ✅ Apply to all routes except clearly excluded paths above
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|manifest.json).*)'],
+  matcher: ['/((?!.*\\..*|_next|api).*)'],
 };
