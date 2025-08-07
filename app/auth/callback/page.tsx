@@ -1,32 +1,35 @@
-// @ts-nocheck
 'use client'
 
 import { useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 
-export default function Callback() {
+export default function CallbackPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const code = searchParams.get('code')
 
   useEffect(() => {
-    const exchangeForSession = async () => {
-      if (code) {
-        const supabase = createClientComponentClient()
-        const { error } = await supabase.auth.exchangeCodeForSession(code)
+    const exchangeCode = async () => {
+      if (!code) return
 
-        if (!error) {
-          router.replace('/dashboard')
-        } else {
-          console.error('Session exchange error:', error.message)
-          router.replace('/login?error=auth')
-        }
+      const supabase = createClientComponentClient()
+      const { error } = await supabase.auth.exchangeCodeForSession(code)
+
+      if (error) {
+        console.error('Error exchanging code:', error.message)
+        router.replace('/login?error=auth')
+      } else {
+        router.replace('/dashboard')
       }
     }
 
-    exchangeForSession()
+    exchangeCode()
   }, [code])
 
-  return <p>Logging in via magic link...</p>
+  return (
+    <div className="p-4 text-center">
+      <p>🔄 Logging you in...</p>
+    </div>
+  )
 }
