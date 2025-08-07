@@ -1,29 +1,24 @@
 'use client';
 
 // @ts-nocheck
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useState } from 'react';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [submitted, setSubmitted] = useState(false);
-  const supabase = createClientComponentClient();
 
   const handleLogin = async (e: any) => {
     e.preventDefault();
 
-    const hardcodedRedirect = 'https://vyapr-reset-5rly-lfaa3pvlc-amit-jains-projects-88081448.vercel.app/auth/callback';
-
-    console.log('🔍 Hardcoded redirectTo being sent:', hardcodedRedirect);
-
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: hardcodedRedirect,
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+      headers: {
+        'Content-Type': 'application/json',
       },
     });
 
-    if (!error) {
+    if (res.ok) {
       setSubmitted(true);
     } else {
       alert('Login failed. Try again.');
