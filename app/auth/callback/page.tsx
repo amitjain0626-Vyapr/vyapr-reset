@@ -1,10 +1,13 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 
-export default function CallbackPage() {
+// Required to disable static generation
+export const dynamic = 'force-dynamic'
+
+function CallbackHandler() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const code = searchParams.get('code')
@@ -17,7 +20,7 @@ export default function CallbackPage() {
       const { error } = await supabase.auth.exchangeCodeForSession(code)
 
       if (error) {
-        console.error('Error exchanging code:', error.message)
+        console.error('❌ Session exchange failed:', error.message)
         router.replace('/login?error=auth')
       } else {
         router.replace('/dashboard')
@@ -27,9 +30,13 @@ export default function CallbackPage() {
     exchangeCode()
   }, [code])
 
+  return <p className="text-center mt-12">🔄 Logging you in...</p>
+}
+
+export default function CallbackPage() {
   return (
-    <div className="p-4 text-center">
-      <p>🔄 Logging you in...</p>
-    </div>
+    <Suspense fallback={<p className="text-center mt-12">⏳ Redirecting...</p>}>
+      <CallbackHandler />
+    </Suspense>
   )
 }
