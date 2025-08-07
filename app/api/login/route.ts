@@ -3,21 +3,20 @@ import { NextRequest, NextResponse } from 'next/server';
 export async function POST(req: NextRequest) {
   const { email } = await req.json();
 
-  const redirectTo = 'https://vyapr-reset-5rly-lfaa3pvlc-amit-jains-projects-88081448.vercel.app/auth/callback';
+  const redirectTo = `${req.nextUrl.origin}/auth/callback`;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const apiKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
   const res = await fetch(
-    `https://xqyvmvktfspovsvwkaet.supabase.co/auth/v1/magiclink`,
+    `${supabaseUrl}/auth/v1/magiclink?redirect_to=${encodeURIComponent(redirectTo)}`,
     {
       method: 'POST',
       headers: {
-        apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        Authorization: `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!}`,
+        apikey: apiKey,
+        Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        email,
-        redirect_to: redirectTo,
-      }),
+      body: JSON.stringify({ email }),
     }
   );
 

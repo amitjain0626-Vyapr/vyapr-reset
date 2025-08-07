@@ -5,18 +5,21 @@ import type { NextRequest } from 'next/server';
 export async function middleware(req: NextRequest) {
   const pathname = req.nextUrl.pathname;
 
-  // ✅ Patch for Supabase magic link landing on `/`
+  // 🔁 Forward root requests with magic link code to auth callback
   if (
     pathname === '/' &&
-    (req.nextUrl.searchParams.has('code') || req.nextUrl.searchParams.has('error_description'))
+    (req.nextUrl.searchParams.has('code') ||
+      req.nextUrl.searchParams.has('error_description'))
   ) {
     const redirectUrl = req.nextUrl.clone();
     redirectUrl.pathname = '/auth/callback';
     return NextResponse.redirect(redirectUrl);
   }
 
-  // ✅ Allow public/static routes through
+  const res = NextResponse.next();
+
   const isPublic =
+    pathname === '/' ||
     pathname === '/login' ||
     pathname === '/auth/callback' ||
     pathname === '/manifest.json' ||
@@ -24,9 +27,8 @@ export async function middleware(req: NextRequest) {
     pathname.startsWith('/_next') ||
     pathname.startsWith('/api');
 
-  if (isPublic) return NextResponse.next();
+  if (isPublic) return res;
 
-  const res = NextResponse.next();
   const supabase = createMiddlewareSupabaseClient({ req, res });
   const {
     data: { session },
