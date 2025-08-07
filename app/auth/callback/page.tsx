@@ -1,76 +1,32 @@
-'use client';
 // @ts-nocheck
+'use client'
 
-import { useEffect, Suspense } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
+import { useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
 
-function CallbackLogic() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const supabase = createClientComponentClient();
+export default function Callback() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const code = searchParams.get('code')
 
   useEffect(() => {
-    const handleAuth = async () => {
-      const code = searchParams.get('code');
-      const errorParam = searchParams.get('error_description');
+    const exchangeForSession = async () => {
+      if (code) {
+        const supabase = createClientComponentClient()
+        const { error } = await supabase.auth.exchangeCodeForSession(code)
 
-      if (errorParam) {
-        console.error('Auth error:', errorParam);
-        router.replace('/login');
-        return;
+        if (!error) {
+          router.replace('/dashboard')
+        } else {
+          console.error('Session exchange error:', error.message)
+          router.replace('/login?error=auth')
+        }
       }
+    }
 
-      if (!code) {
-        router.replace('/login');
-        return;
-      }
+    exchangeForSession()
+  }, [code])
 
-      const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-
-      if (exchangeError) {
-        console.error('Session exchange failed:', exchangeError.message);
-        router.replace('/login');
-        return;
-      }
-
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
-
-      if (userError || !user) {
-        router.replace('/login');
-        return;
-      }
-
-      const { data: profile } = await supabase
-        .from('Dentists')
-        .select('slug')
-        .eq('id', user.id)
-        .maybeSingle();
-
-      if (profile?.slug) {
-        router.replace('/dashboard');
-      } else {
-        router.replace('/onboarding');
-      }
-    };
-
-    handleAuth();
-  }, [searchParams]);
-
-  return (
-    <div className="p-10 text-center text-gray-500">
-      Verifying session...
-    </div>
-  );
-}
-
-export default function AuthCallbackPage() {
-  return (
-    <Suspense fallback={<div className="p-10 text-center text-gray-500">Loading callback...</div>}>
-      <CallbackLogic />
-    </Suspense>
-  );
+  return <p>Logging in via magic link...</p>
 }
