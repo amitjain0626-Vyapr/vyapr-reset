@@ -2,17 +2,26 @@
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { supabase } from '@/app/utils/supabase/client'
+import { createBrowserClient } from '@supabase/ssr'
 
 export default function OnboardingPage() {
   const router = useRouter()
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    const check = async () => {
+      const supabase = createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      )
+
+      const { data: { session } } = await supabase.auth.getSession()
+
       if (!session) {
         router.replace('/login')
       }
-    })
+    }
+
+    check()
   }, [])
 
   return <div className="p-4">🎉 Welcome to onboarding</div>
