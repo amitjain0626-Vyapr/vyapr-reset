@@ -1,10 +1,10 @@
-import { createSupabaseServerClient } from '@/app/utils/supabase/server'
 import { redirect } from 'next/navigation'
+import { createSupabaseServerClient } from '@/app/utils/supabase/server'
 
 export default async function DashboardPage() {
   const supabase = createSupabaseServerClient()
   const {
-    data: { session },
+    data: { session }
   } = await supabase.auth.getSession()
 
   if (!session) {
