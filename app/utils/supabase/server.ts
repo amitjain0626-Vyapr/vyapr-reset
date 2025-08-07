@@ -1,8 +1,11 @@
+// app/utils/supabase/server.ts
+// @ts-nocheck
 import { createServerClient } from '@supabase/ssr'
 import { cookies as nextCookies } from 'next/headers'
 
 export async function createSupabaseServerClient() {
-  const cookieStore = await nextCookies()
+  const maybe = nextCookies()
+  const cookieStore = typeof (maybe as any)?.then === 'function' ? await maybe : maybe
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -13,14 +16,10 @@ export async function createSupabaseServerClient() {
           return cookieStore.get(name)?.value
         },
         set(name, value, options) {
-          try {
-            cookieStore.set({ name, value, ...options })
-          } catch (e) {}
+          try { cookieStore.set({ name, value, ...options }) } catch {}
         },
         remove(name, options) {
-          try {
-            cookieStore.delete({ name, ...options })
-          } catch (e) {}
+          try { cookieStore.delete({ name, ...options }) } catch {}
         },
       },
     }

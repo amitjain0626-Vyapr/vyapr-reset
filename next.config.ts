@@ -1,15 +1,8 @@
-// next.config.js
-module.exports = {
+// next.config.ts
+const nextConfig = {
   experimental: {
-    serverActions: true,
-  },
-  // 👇 prevent static generation on auth redirect routes
-  async headers() {
-    return [
-      {
-        source: '/auth/callback',
-        headers: [{ key: 'Cache-Control', value: 'no-store' }],
-      },
-    ]
+    serverActions: {}, // object, not boolean
   },
 }
+
+export default nextConfig
