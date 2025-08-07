@@ -7,7 +7,6 @@ export async function middleware(req: NextRequest) {
 
   const pathname = req.nextUrl.pathname;
 
-  // Allow public and static routes without auth
   const isPublic =
     pathname === '/login' ||
     pathname === '/auth/callback' ||
@@ -32,7 +31,6 @@ export async function middleware(req: NextRequest) {
   return res;
 }
 
-// ✅ Apply to all routes except clearly excluded paths above
 export const config = {
   matcher: ['/((?!.*\\..*|_next|api).*)'],
 };
