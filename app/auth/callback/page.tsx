@@ -2,7 +2,7 @@
 
 import { useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { createClientComponentClient } from '@supabase/ssr'
+import { createBrowserClient } from '@supabase/ssr'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,10 +12,14 @@ function CallbackHandler() {
   const code = searchParams.get('code')
 
   useEffect(() => {
-    const exchange = async () => {
+    const run = async () => {
+      const supabase = createBrowserClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      )
+
       if (!code) return
 
-      const supabase = createClientComponentClient()
       const { error } = await supabase.auth.exchangeCodeForSession(code)
 
       if (error) {
@@ -24,11 +28,11 @@ function CallbackHandler() {
       } else {
         const { data: { session } } = await supabase.auth.getSession()
         console.log('🟢 Supabase session set:', session)
-        router.replace('/onboarding') // 👈 YES — this is your desired post-login redirect
+        router.replace('/onboarding')
       }
     }
 
-    exchange()
+    run()
   }, [code])
 
   return <p className="text-center mt-12">🔐 Logging you in...</p>
