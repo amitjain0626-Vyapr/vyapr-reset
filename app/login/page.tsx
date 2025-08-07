@@ -12,8 +12,8 @@ export default function Login() {
   const handleLogin = async (e: any) => {
     e.preventDefault();
 
-    const redirectTo = process.env.NEXT_PUBLIC_SUPABASE_REDIRECT_URL;
-console.log('🔍 redirectTo from ENV:', redirectTo);
+    const redirectTo = 'https://vyapr-reset-5rly-lfaa3pvlc-amit-jains-projects-88081448.vercel.app/auth/callback';
+console.log('🔍 redirectTo HARDCODED:', redirectTo);
 
     const { error } = await supabase.auth.signInWithOtp({
       email,
