@@ -4,27 +4,28 @@ import type { NextRequest } from 'next/server';
 
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next();
+
   const supabase = createMiddlewareClient({ req, res });
-  const { data } = await supabase.auth.getSession();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
 
-  if (!data.session) {
-    return NextResponse.redirect(new URL('/login', req.url));
-  }
+  // Protect specific paths
+  const protectedPaths = ['/dashboard', '/onboarding'];
+  const pathname = req.nextUrl.pathname;
 
-  const { data: profile } = await supabase
-    .from('Dentists')
-    .select('slug')
-    .eq('id', data.session.user.id)
-    .single();
+  const isProtected = protectedPaths.some((path) =>
+    pathname.startsWith(path)
+  );
 
-  // Redirect to onboarding if slug not set and trying to access dashboard
-  if (!profile?.slug && req.nextUrl.pathname.startsWith('/dashboard')) {
-    return NextResponse.redirect(new URL('/onboarding', req.url));
+  if (isProtected && !session) {
+    const redirectUrl = new URL('/login', req.url);
+    return NextResponse.redirect(redirectUrl);
   }
 
   return res;
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*'],
+  matcher: ['/dashboard/:path*', '/onboarding/:path*'],
 };

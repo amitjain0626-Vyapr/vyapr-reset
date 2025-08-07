@@ -1,43 +1,56 @@
 'use client';
 
+// @ts-nocheck
+import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useState } from 'react';
-import { createClient } from '@/app/utils/supabase/client';
-import { useRouter } from 'next/navigation';
 
-export default function LoginPage() {
+export default function Login() {
   const [email, setEmail] = useState('');
-  const [message, setMessage] = useState('');
-  const supabase = createClient();
-  const router = useRouter();
+  const [submitted, setSubmitted] = useState(false);
+  const supabase = createClientComponentClient();
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleLogin = async (e: any) => {
     e.preventDefault();
 
-    const { error } = await supabase.auth.signInWithOtp({ email });
-    if (error) {
-      setMessage('Login failed. Try again.');
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: 'https://vyapr-reset-5rly.vercel.app/auth/callback',
+      },
+    });
+
+    if (!error) {
+      setSubmitted(true);
     } else {
-      setMessage('Check your email for the magic link!');
+      alert('Login failed. Try again.');
     }
   };
 
   return (
-    <div className="p-8 max-w-md mx-auto">
-      <h1 className="text-2xl font-bold mb-4">Login to Vyapr</h1>
-      <form onSubmit={handleLogin} className="space-y-4">
-        <input
-          type="email"
-          placeholder="your@email.com"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="border p-2 w-full rounded"
-          required
-        />
-        <button type="submit" className="bg-black text-white px-4 py-2 rounded w-full">
-          Send Magic Link
-        </button>
+    <div className="min-h-screen flex items-center justify-center">
+      <form onSubmit={handleLogin} className="space-y-4 max-w-md w-full">
+        <h1 className="text-2xl font-bold mb-2">Login</h1>
+        {submitted ? (
+          <p>Check your email for the login link.</p>
+        ) : (
+          <>
+            <input
+              type="email"
+              placeholder="Enter your email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="w-full border px-3 py-2 rounded"
+              required
+            />
+            <button
+              type="submit"
+              className="w-full bg-black text-white py-2 rounded"
+            >
+              Send Magic Link
+            </button>
+          </>
+        )}
       </form>
-      {message && <p className="mt-4 text-sm text-center text-gray-600">{message}</p>}
     </div>
   );
 }

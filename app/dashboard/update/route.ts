@@ -1,24 +1,10 @@
-import { createClient } from '@/app/utils/supabase/server';
+import { createSupabaseServerClient } from '@/app/utils/supabase/server';
 import { redirect } from 'next/navigation';
 
 export async function POST(req: Request) {
-  const supabase = await createClient();
-  const formData = await req.formData();
+  const supabase = createSupabaseServerClient();
 
-  const id = formData.get('id') as string;
-
-  const updates = {
-    id,
-    name: formData.get('name'),
-    slug: formData.get('slug'),
-    whatsapp: formData.get('whatsapp'),
-    razorpay: formData.get('razorpay'),
-    description: formData.get('description'),
-    updated_at: new Date().toISOString(),
-  };
-
-  // Upsert profile
-  await supabase.from('Dentists').upsert(updates, { onConflict: 'id' });
-
+  // Placeholder logic
+  console.log('Update route hit');
   return redirect('/dashboard');
 }
