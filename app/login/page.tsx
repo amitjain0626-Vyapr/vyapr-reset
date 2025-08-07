@@ -12,10 +12,12 @@ export default function Login() {
   const handleLogin = async (e: any) => {
     e.preventDefault();
 
+    const redirectTo = process.env.NEXT_PUBLIC_SUPABASE_REDIRECT_URL;
+
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: 'https://vyapr-reset-5rly.vercel.app/auth/callback',
+        emailRedirectTo: redirectTo,
       },
     });
 
