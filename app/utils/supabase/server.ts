@@ -2,7 +2,7 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 
 export async function createSupabaseServerClient() {
-  const cookieStore = cookies(); // no await needed
+  const cookieStore = await cookies(); // ✅ await is required for your version
 
   const cookieHandler = {
     get: (name: string) => cookieStore.get(name)?.value,
@@ -19,12 +19,14 @@ export async function createSupabaseServerClient() {
       } catch (error) {
         // ignore errors in server components
       }
-    }
+    },
   };
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: cookieHandler }
+    {
+      cookies: cookieHandler,
+    }
   );
 }
