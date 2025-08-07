@@ -3,10 +3,19 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 export async function middleware(req: NextRequest) {
-  const res = NextResponse.next();
-
   const pathname = req.nextUrl.pathname;
 
+  // ✅ Patch for Supabase magic link landing on `/`
+  if (
+    pathname === '/' &&
+    (req.nextUrl.searchParams.has('code') || req.nextUrl.searchParams.has('error_description'))
+  ) {
+    const redirectUrl = req.nextUrl.clone();
+    redirectUrl.pathname = '/auth/callback';
+    return NextResponse.redirect(redirectUrl);
+  }
+
+  // ✅ Allow public/static routes through
   const isPublic =
     pathname === '/login' ||
     pathname === '/auth/callback' ||
@@ -15,10 +24,9 @@ export async function middleware(req: NextRequest) {
     pathname.startsWith('/_next') ||
     pathname.startsWith('/api');
 
-  if (isPublic) {
-    return res;
-  }
+  if (isPublic) return NextResponse.next();
 
+  const res = NextResponse.next();
   const supabase = createMiddlewareSupabaseClient({ req, res });
   const {
     data: { session },
