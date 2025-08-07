@@ -1,18 +1,45 @@
-import { createClient } from '@/app/utils/supabase/server';
+// app/auth/callback/route.ts
 import { cookies } from 'next/headers';
-import { NextResponse } from 'next/server';
+import { redirect } from 'next/navigation';
+import { createSupabaseServerClient } from '@/app/utils/supabase/server';
 
 export async function GET(request: Request) {
-  const cookieStore = cookies();
-  const supabase = createClient();
+  const { searchParams } = new URL(request.url);
+  const code = searchParams.get('code');
 
-  const { error } = await supabase.auth.getUser();
-
-  // If user session is found, redirect to dashboard
-  if (!error) {
-    return NextResponse.redirect(new URL('/dashboard', request.url));
+  if (!code) {
+    redirect('/login');
   }
 
-  // If something failed, fallback to login
-  return NextResponse.redirect(new URL('/login', request.url));
+  const supabase = await createSupabaseServerClient();
+
+  const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+  if (exchangeError) {
+    redirect('/login');
+  }
+
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (!user || userError) {
+    redirect('/login');
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from('Dentists')
+    .select('slug')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  if (profileError) {
+    redirect('/login');
+  }
+
+  if (profile?.slug) {
+    redirect('/dashboard');
+  } else {
+    redirect('/onboarding');
+  }
 }
