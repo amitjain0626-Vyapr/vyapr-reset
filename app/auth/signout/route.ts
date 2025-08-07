@@ -1,23 +1,13 @@
 // app/auth/signout/route.ts
 
-import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
 
 export async function GET() {
-  const cookieStore = cookies();
-  // Clear the Supabase auth cookie
-  cookieStore.set({
-    name: 'sb-access-token',
-    value: '',
-    maxAge: 0,
-    path: '/',
-  });
-  cookieStore.set({
-    name: 'sb-refresh-token',
-    value: '',
-    maxAge: 0,
-    path: '/',
-  });
+  const cookieStore = await cookies();
 
-  return NextResponse.redirect(new URL('/login', process.env.NEXT_PUBLIC_SITE_URL));
+  cookieStore.delete('sb-access-token');
+  cookieStore.delete('sb-refresh-token');
+
+  redirect('/login');
 }
