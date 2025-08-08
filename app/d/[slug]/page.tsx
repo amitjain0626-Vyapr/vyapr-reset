@@ -1,78 +1,43 @@
-// app/d/[slug]/page.tsx
 // @ts-nocheck
-import { notFound } from 'next/navigation'
-import { createSupabaseServerClient } from '@/app/utils/supabase/server'
-import { createLead } from '@/app/actions'
+import { cookies } from 'next/headers';
+import { notFound } from 'next/navigation';
+import { createServerClient } from '@supabase/ssr';
 
-export const dynamic = 'force-dynamic'
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
-type Props = {
-  params: { slug: string }
-}
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-export default async function DentistPublicPage({ params }: Props) {
-  const supabase = await createSupabaseServerClient()
+export default async function Page({ params }: any) {
+  const slug = params?.slug?.toString() ?? '';
+  if (!slug) notFound();
 
-  const { data: dentist } = await supabase
+  const cookieStore = cookies();
+  const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    cookies: {
+      get(name: string) {
+        return cookieStore.get(name)?.value;
+      },
+      set() {},
+      remove() {},
+    },
+  });
+
+  const { data, error } = await supabase
     .from('Dentists')
-    .select('id, name, city, phone, slug')
-    .eq('slug', params.slug.toLowerCase())
-    .maybeSingle()
+    .select('*')
+    .ilike('slug', slug)
+    .maybeSingle();
 
-  if (!dentist) notFound()
+  if (error || !data) {
+    notFound();
+  }
 
   return (
-    <main className="min-h-screen p-6">
-      <div className="mx-auto max-w-3xl space-y-6">
-        <header className="flex items-center justify-between">
-          <h1 className="text-3xl font-semibold">{dentist.name}</h1>
-          <span className="text-xs rounded-full border px-2 py-1">{dentist.city || '—'}</span>
-        </header>
-
-        <section className="rounded-2xl border p-4">
-          <h2 className="text-xl font-semibold mb-2">About</h2>
-          <p className="text-sm">
-            This is the public microsite for <strong>{dentist.name}</strong>. Share your details below and the clinic will contact you.
-          </p>
-        </section>
-
-        <section className="rounded-2xl border p-4">
-          <h3 className="text-lg font-semibold mb-2">Book a callback</h3>
-          <form action={createLead} className="grid gap-3 sm:max-w-md">
-            <input type="hidden" name="dentist_slug" value={dentist.slug} />
-            <label className="block">
-              <span className="text-sm">Your Name</span>
-              <input
-                name="lead_name"
-                required
-                className="mt-1 w-full rounded-xl border p-3"
-                placeholder="Your full name"
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm">Phone</span>
-              <input
-                name="lead_phone"
-                required
-                className="mt-1 w-full rounded-xl border p-3"
-                placeholder="+91 9xxxxxxxxx"
-              />
-            </label>
-            <label className="block">
-              <span className="text-sm">Notes (optional)</span>
-              <textarea
-                name="lead_notes"
-                className="mt-1 w-full rounded-xl border p-3"
-                placeholder="Preferred time, treatment interest, etc."
-                rows={3}
-              />
-            </label>
-            <button type="submit" className="rounded-xl border px-4 py-3 font-semibold">
-              Request callback
-            </button>
-          </form>
-        </section>
-      </div>
+    <main style={{ padding: 24, fontFamily: 'system-ui' }}>
+      <h1>{data.name ?? slug}</h1>
+      {data.city && <p>{data.city}</p>}
     </main>
-  )
+  );
 }
