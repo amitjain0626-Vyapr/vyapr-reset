@@ -1,6 +1,6 @@
 // @ts-nocheck
 import type { MetadataRoute } from "next";
-import { createSupabaseServerClient } from "@/app/utils/supabase/server";
+import { createSupabaseServerClient } from '@/utils/supabase/server';
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const base = process.env.NEXT_PUBLIC_SITE_URL || "https://vyapr.com";

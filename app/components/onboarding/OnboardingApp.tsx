@@ -29,7 +29,7 @@ export default function OnboardingApp() {
         const res = await fetch("/api/dentists/me", { cache: "no-store" });
         const data = await res.json();
         if (!res.ok) throw new Error(data?.error || "Failed");
-        setDentist(data?.dentist || null);
+        setDentist(data || null);
       } catch (e: any) {
         setErr(e?.message || "Failed");
       } finally {
@@ -57,7 +57,6 @@ export default function OnboardingApp() {
     );
   }
 
-  // Minimal Step‑1 (you already have a richer flow; this shell won’t touch cookies)
   return (
     <div className="border rounded-2xl p-4 space-y-3">
       <div className="text-sm opacity-70">Draft profile</div>
@@ -81,7 +80,10 @@ export default function OnboardingApp() {
       </div>
 
       <div className="pt-2">
-        <a className="underline" href="/onboarding/publish?slug=${dentist?.slug || ""}">
+        <a
+          className="underline"
+          href={`/onboarding/publish?slug=${dentist?.slug || ''}`}
+        >
           Go to Publish
         </a>
       </div>

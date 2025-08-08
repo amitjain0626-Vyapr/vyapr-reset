@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { createSupabaseServerClient } from '@/app/utils/supabase/server';
+import { createSupabaseServerClient } from '@/utils/supabase/server';
 import { cookies } from 'next/headers';
 
 export default async function ServicesPage() {

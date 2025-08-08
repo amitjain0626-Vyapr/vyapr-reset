@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { createSupabaseServerClient } from "@/app/utils/supabase/server";
+import { createSupabaseServerClient } from "@/utils/supabase/server";
 import PaymentsTable from "@/components/payments/PaymentsTable";
 
 export const dynamic = "force-dynamic";

@@ -33,3 +33,8 @@ export async function createSupabaseRouteClient() {
 
   return supabase;
 }
+
+// 👇 LOGGING FUNCTION used by all route handlers
+export function logServerRoute(route: string) {
+  console.log(`[📡] API route hit: ${route}`);
+}

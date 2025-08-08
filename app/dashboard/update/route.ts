@@ -1,4 +1,4 @@
-import { createSupabaseServerClient } from '@/app/utils/supabase/server';
+import { createSupabaseServerClient } from '@/utils/supabase/server';
 import { redirect } from 'next/navigation';
 
 export async function POST(req: Request) {

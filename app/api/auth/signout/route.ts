@@ -1,17 +1,13 @@
-// @ts-nocheck
-import { NextResponse } from "next/server";
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
+// app/api/auth/signout/route.ts
+import { NextResponse } from 'next/server'
+import { createSupabaseServerClient } from '@/utils/supabase/server'
+import { logServerRoute } from '@/lib/supabase/client-helpers'
 
-import { createSupabaseRouteClient } from "@/app/utils/supabase/route";
+export async function GET() {
+  logServerRoute('/api/auth/signout')
 
-export async function POST() {
-  try {
-    const supabase = await createSupabaseRouteClient();
-    const { error } = await supabase.auth.signOut();
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-    return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Unexpected error" }, { status: 500 });
-  }
+  const supabase = await createSupabaseServerClient()
+  await supabase.auth.signOut()
+
+  return NextResponse.redirect(new URL('/login', process.env.NEXT_PUBLIC_SITE_URL))
 }

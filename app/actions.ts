@@ -2,7 +2,7 @@
 'use server'
 // @ts-nocheck
 import { redirect } from 'next/navigation'
-import { createSupabaseServerClient } from '@/app/utils/supabase/server'
+import { createSupabaseServerClient } from '@/utils/supabase/server'
 
 export async function createDentist(formData: FormData) {
   const name = String(formData.get('name') || '').trim()

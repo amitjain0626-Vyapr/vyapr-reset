@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { createSupabaseServerClient } from "@/app/utils/supabase/server";
+import { createSupabaseServerClient } from '../lib/supabase/server-helpers';
 import MockOrderButton from "@/components/payments/MockOrderButton";
 import SignOutButton from "@/components/auth/SignOutButton";
 
