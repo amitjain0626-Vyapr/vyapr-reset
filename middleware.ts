@@ -1,3 +1,4 @@
+cat > middleware.ts <<'TS'
 // middleware.ts
 // @ts-nocheck
 import { NextResponse } from 'next/server'
@@ -10,16 +11,19 @@ export async function middleware(req: NextRequest) {
   const url = req.nextUrl
   const res = NextResponse.next()
 
+  // Force any `?code=` return to /auth/callback to complete sign-in
   if (url.searchParams.has('code') && url.pathname !== '/auth/callback') {
     const callbackUrl = url.clone()
     callbackUrl.pathname = '/auth/callback'
     return NextResponse.redirect(callbackUrl)
   }
 
+  // Allow public paths and Next internals
   if (PUBLIC_PATHS.has(url.pathname) || url.pathname.startsWith('/_next/')) {
     return res
   }
 
+  // Protect everything else
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -45,5 +49,6 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|.*\\.(png|jpg|jpeg|gif|webp|svg)$).*)'],
+  matcher: ['/:path*'], // simple, Next 15-safe matcher
 }
+TS
