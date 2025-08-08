@@ -1,72 +1,98 @@
-// app/login/page.tsx
 // @ts-nocheck
-'use client'
+'use client';
 
-import { useState, useMemo } from 'react'
-import { createSupabaseClient } from '@/app/utils/supabase/client'
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { createBrowserClient } from '@supabase/ssr';
+
+const supabase = createBrowserClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export default function LoginPage() {
-  const supabase = createSupabaseClient()
-  const [email, setEmail] = useState('')
-  const [sent, setSent] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const router = useRouter();
+  const [email, setEmail] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
 
-  // Prefer an explicit HTTPS base to satisfy Supabase redirect rules.
-  // Falls back to window.origin for other environments.
-  const redirectBase = useMemo(() => {
-    if (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_REDIRECT_BASE_URL) {
-      return process.env.NEXT_PUBLIC_REDIRECT_BASE_URL
-    }
-    if (typeof window !== 'undefined') {
-      return window.location.origin
-    }
-    return 'https://vyapr-reset-5rly.vercel.app'
-  }, [])
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (data.session) {
+        router.replace('/onboarding');
+      } else {
+        setReady(true);
+      }
+    })();
+  }, [router]);
+
+  if (!ready) return null;
 
   const onSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    setError(null)
-
-    const emailRedirectTo = `${redirectBase}/auth/callback`
-
-    const { error: err } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo },
-    })
-
-    setLoading(false)
-
-    if (err) { setError(err.message); return }
-    setSent(true)
-  }
+    e.preventDefault();
+    setError(null);
+    setSending(true);
+    try {
+      const res = await fetch('/api/auth/magiclink', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error || 'Failed to send link');
+      setSent(true);
+    } catch (err: any) {
+      setError(err.message || 'Error');
+    } finally {
+      setSending(false);
+    }
+  };
 
   return (
-    <div className="mx-auto max-w-md p-6">
-      <h1 className="mb-4 text-2xl font-semibold">Sign in</h1>
+    <main style={{ maxWidth: 420, margin: '56px auto', padding: 24, fontFamily: 'system-ui' }}>
+      <h1 style={{ marginBottom: 8 }}>Login</h1>
+      <p style={{ marginBottom: 24, color: '#555' }}>
+        Enter your email to receive a magic link.
+      </p>
+
       {sent ? (
-        <p>Check your email for the magic link.</p>
+        <div style={{ padding: 16, border: '1px solid #ddd', borderRadius: 8 }}>
+          <b>Check your email.</b> Click the magic link to finish sign‑in.
+        </div>
       ) : (
-        <form onSubmit={onSubmit} className="space-y-4">
+        <form onSubmit={onSubmit}>
           <input
             type="email"
-            required
-            placeholder="you@example.com"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-md border px-3 py-2"
+            onChange={(e) => setEmail(e.currentTarget.value)}
+            placeholder="you@example.com"
+            required
+            style={{
+              width: '100%', padding: 12, borderRadius: 8, border: '1px solid #ccc',
+              marginBottom: 12, fontSize: 16,
+            }}
           />
           <button
             type="submit"
-            disabled={loading}
-            className="w-full rounded-md bg-black px-3 py-2 text-white disabled:opacity-50"
+            disabled={sending}
+            style={{
+              width: '100%', padding: 12, borderRadius: 8, border: '0',
+              background: '#111', color: '#fff', fontSize: 16, cursor: 'pointer',
+              opacity: sending ? 0.7 : 1,
+            }}
           >
-            {loading ? 'Sending…' : 'Send magic link'}
+            {sending ? 'Sending…' : 'Send Magic Link'}
           </button>
-          {error && <p className="text-sm text-red-600">{error}</p>}
+          {error && (
+            <div style={{ marginTop: 12, color: '#b00020' }}>
+              {error}
+            </div>
+          )}
         </form>
       )}
-    </div>
-  )
+    </main>
+  );
 }

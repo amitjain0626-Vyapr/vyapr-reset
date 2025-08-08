@@ -1,17 +1,37 @@
-'use client'
+// @ts-nocheck
+import { redirect } from 'next/navigation';
+import { cookies } from 'next/headers';
+import { createServerClient } from '@supabase/ssr';
+import Link from 'next/link';
 
-import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { supabase } from '@/app/utils/supabase/client'
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
-export default function OnboardingPage() {
-  const router = useRouter()
+export default async function Onboarding() {
+  const cookieStore = cookies();
+  const supabase = createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    cookies: {
+      get(name: string) {
+        return cookieStore.get(name)?.value;
+      },
+      set() {},
+      remove() {},
+    },
+  });
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) router.replace('/login')
-    })
-  }, [router])
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) redirect('/login');
 
-  return <div className="p-6">🎉 Welcome to onboarding</div>
+  const email = data.session.user.email ?? 'user';
+
+  return (
+    <main style={{ padding: 24, fontFamily: 'system-ui' }}>
+      <h1>Onboarding</h1>
+      <p>Welcome, {email}.</p>
+      <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
+        <Link href="/dashboard">Go to dashboard</Link>
+        <a href="/auth/signout">Sign out</a>
+      </div>
+    </main>
+  );
 }
