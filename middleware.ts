@@ -4,67 +4,46 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 
-const PUBLIC_PATHS = ['/', '/login', '/auth/callback', '/d']
-
-const startsWithAny = (path: string, list: string[]) =>
-  list.some(p => path === p || path.startsWith(p + '/'))
+const PUBLIC_PATHS = new Set<string>(['/','/login','/auth/callback','/favicon.ico'])
 
 export async function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl
-
-  if (
-    pathname.startsWith('/_next') ||
-    pathname.startsWith('/static') ||
-    pathname.startsWith('/favicon') ||
-    pathname.startsWith('/robots') ||
-    pathname.startsWith('/sitemap') ||
-    pathname.startsWith('/images') ||
-    pathname.match(/^\/d(\/.*)?$/)
-  ) {
-    return NextResponse.next()
-  }
-
-  if (startsWithAny(pathname, PUBLIC_PATHS)) {
-    return NextResponse.next()
-  }
-
+  const url = req.nextUrl
   const res = NextResponse.next()
+
+  if (url.searchParams.has('code') && url.pathname !== '/auth/callback') {
+    const callbackUrl = url.clone()
+    callbackUrl.pathname = '/auth/callback'
+    return NextResponse.redirect(callbackUrl)
+  }
+
+  if (PUBLIC_PATHS.has(url.pathname) || url.pathname.startsWith('/_next/')) {
+    return res
+  }
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
-        get: name => req.cookies.get(name)?.value,
-        set: (name, value, options) => {
-          res.cookies.set({ name, value, ...options })
-        },
-        remove: (name, options) => {
-          res.cookies.set({ name, value: '', ...options, maxAge: 0 })
-        },
+        get(name) { return req.cookies.get(name)?.value },
+        set(name, value, options) { res.cookies.set(name, value, options) },
+        remove(name, options) { res.cookies.set(name, '', { ...options, maxAge: 0 }) },
       },
     }
   )
 
   const { data: { session } } = await supabase.auth.getSession()
 
-  const PROTECTED = ['/dashboard', '/onboarding']
-  if (!session && startsWithAny(pathname, PROTECTED)) {
-    const url = req.nextUrl.clone()
-    url.pathname = '/login'
-    url.searchParams.set('redirectedFrom', pathname)
-    return NextResponse.redirect(url)
-  }
-
-  if (session && pathname === '/login') {
-    const url = req.nextUrl.clone()
-    url.pathname = '/dashboard'
-    return NextResponse.redirect(url)
+  if (!session) {
+    const loginUrl = url.clone()
+    loginUrl.pathname = '/login'
+    loginUrl.searchParams.set('redirectedFrom', url.pathname)
+    return NextResponse.redirect(loginUrl)
   }
 
   return res
 }
 
 export const config = {
-  matcher: ['/((?!_next|.*\\..*).*)'],
+  matcher: ['/((?!_next/static|_next/image|.*\\.(png|jpg|jpeg|gif|webp|svg)$).*)'],
 }
