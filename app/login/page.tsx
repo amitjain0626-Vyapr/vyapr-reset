@@ -2,7 +2,7 @@
 // @ts-nocheck
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { createSupabaseClient } from '@/app/utils/supabase/client'
 
 export default function LoginPage() {
@@ -12,16 +12,28 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Prefer an explicit HTTPS base to satisfy Supabase redirect rules.
+  // Falls back to window.origin for other environments.
+  const redirectBase = useMemo(() => {
+    if (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_REDIRECT_BASE_URL) {
+      return process.env.NEXT_PUBLIC_REDIRECT_BASE_URL
+    }
+    if (typeof window !== 'undefined') {
+      return window.location.origin
+    }
+    return 'https://vyapr-reset-5rly.vercel.app'
+  }, [])
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError(null)
 
-    const redirect = `${window.location.origin}/auth/callback`
+    const emailRedirectTo = `${redirectBase}/auth/callback`
 
     const { error: err } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: redirect },
+      options: { emailRedirectTo },
     })
 
     setLoading(false)
