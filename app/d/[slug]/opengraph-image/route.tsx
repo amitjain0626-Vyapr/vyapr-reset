@@ -8,7 +8,7 @@ export const alt = "Vyapr Microsite";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
-export async function GET(req: NextRequest, { params }: { params: { slug: string } }) {
+export async function GET(_req: NextRequest, { params }: { params: { slug: string } }) {
   const supabase = await createSupabaseServerClient();
   const slug = (params?.slug || "").toLowerCase();
 
@@ -26,18 +26,19 @@ export async function GET(req: NextRequest, { params }: { params: { slug: string
     (
       <div
         style={{
-          width: "1200px",
-          height: "630px",
+          width: 1200,
+          height: 630,
           display: "flex",
           flexDirection: "column",
           justifyContent: "flex-end",
           background: "#0f172a",
           color: "white",
-          padding: "48px",
+          padding: 48,
           position: "relative",
         }}
       >
         {bg ? (
+          // @ts-ignore
           <img
             src={bg}
             alt=""
@@ -48,29 +49,15 @@ export async function GET(req: NextRequest, { params }: { params: { slug: string
               inset: 0,
               objectFit: "cover",
               opacity: 0.3,
-              filter: "grayscale(30%) blur(0px)",
+              filter: "grayscale(30%)",
             }}
           />
         ) : null}
 
-        <div
-          style={{
-            fontSize: 60,
-            fontWeight: 700,
-            lineHeight: 1.1,
-            textShadow: "0 2px 8px rgba(0,0,0,0.5)",
-          }}
-        >
+        <div style={{ fontSize: 60, fontWeight: 700, lineHeight: 1.1 }}>
           {name}
         </div>
-        <div
-          style={{
-            marginTop: 8,
-            fontSize: 28,
-            opacity: 0.9,
-            textShadow: "0 1px 4px rgba(0,0,0,0.4)",
-          }}
-        >
+        <div style={{ marginTop: 8, fontSize: 28, opacity: 0.9 }}>
           {loc || "Book your visit online"}
         </div>
 
