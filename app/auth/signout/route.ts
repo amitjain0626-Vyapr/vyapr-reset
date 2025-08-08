@@ -1,4 +1,6 @@
 // @ts-nocheck
+export const runtime = 'nodejs';
+
 import { NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
@@ -25,7 +27,8 @@ export async function GET(request: Request) {
   });
 
   await supabase.auth.signOut();
-  // Hard clear in dev
+
+  // hard-clear in case any cookie flags prevent deletion
   res.cookies.set('sb-access-token', '', { path: '/', maxAge: 0 });
   res.cookies.set('sb-refresh-token', '', { path: '/', maxAge: 0 });
 
