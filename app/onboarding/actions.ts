@@ -6,49 +6,95 @@ import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import { createSupabaseServerClient } from '@/lib/supabase/server-helpers';
 
+/**
+ * Create a profile row if missing (schema: user_id, name, slug, phone, city)
+ */
 export async function ensureDentistProfile(formData: FormData) {
-  const uid = (formData.get('uid') as string) || '';
-  const email = (formData.get('email') as string) || null;
+  const uid = String(formData.get('uid') || '');
 
   const supabase = createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
   if (!user || user.id !== uid) redirect('/login?error=NoSession');
 
-  // Pure ID schema (no auth_user_id)
-  await supabase.from('Dentists').upsert(
-    {
-      id: uid,
-      email,
-      status: 'draft',
-    },
-    { onConflict: 'id' }
-  );
+  // 1) Check if exists
+  const { data: existing } = await supabase
+    .from('Dentists')
+    .select('id')
+    .eq('user_id', uid)
+    .maybeSingle();
+
+  if (!existing) {
+    // 2) Insert minimal draft row
+    const { error: insErr } = await supabase.from('Dentists').insert([
+      {
+        user_id: uid,
+        name: 'New Dentist',
+        slug: null,
+        phone: null,
+        city: null,
+      },
+    ]);
+
+    // If RLS blocks insert, we’ll fix with SQL below.
+    if (insErr) {
+      redirect(`/onboarding?error=${encodeURIComponent(insErr.message)}`);
+    }
+  }
 
   revalidatePath('/onboarding');
   redirect('/onboarding');
 }
 
+/**
+ * Save profile fields; enforce slug uniqueness; go to /dashboard if slug present.
+ */
 export async function updateDentistProfile(formData: FormData) {
   const supabase = createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
   if (!user) redirect('/login?error=NoSession');
 
-  const display_name = (formData.get('display_name') as string)?.trim() || null;
-  const clinic_name = (formData.get('clinic_name') as string)?.trim() || null;
-  const slugRaw = (formData.get('slug') as string) || '';
-  const slug = slugRaw.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || null;
+  const name = String(formData.get('name') || '').trim();
+  const slugRaw = String(formData.get('slug') || '').trim().toLowerCase();
+  const phone = String(formData.get('phone') || '').trim() || null;
+  const city = String(formData.get('city') || '').trim() || null;
 
-  // Update by ID only
-  await supabase
+  const slug =
+    slugRaw
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, '-')
+      .replace(/^-+|-+$/g, '') || null;
+
+  // Enforce uniqueness (excluding my own row)
+  if (slug) {
+    const { data: taken } = await supabase
+      .from('Dentists')
+      .select('id, user_id')
+      .eq('slug', slug)
+      .neq('user_id', user.id)
+      .maybeSingle();
+
+    if (taken) {
+      redirect('/onboarding?error=SlugTaken');
+    }
+  }
+
+  const { error: updErr } = await supabase
     .from('Dentists')
-    .update({ display_name, clinic_name, slug, status: 'in_progress' })
-    .eq('id', user.id);
+    .update({
+      name: name || 'New Dentist',
+      slug,
+      phone,
+      city,
+    })
+    .eq('user_id', user.id);
+
+  if (updErr) {
+    redirect(`/onboarding?error=${encodeURIComponent(updErr.message)}`);
+  }
 
   revalidatePath('/onboarding');
   if (slug) redirect('/dashboard');
