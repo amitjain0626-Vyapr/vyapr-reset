@@ -3,7 +3,8 @@
 import { cookies } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
 
-export function supabaseServer() {
+/** Named exactly as some files expect. */
+export function createSupabaseServerClient() {
   const cookieStore = cookies();
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,8 +23,12 @@ export function supabaseServer() {
   );
 }
 
+/** Backward-compat alias some pages import. */
+export const supabaseServer = createSupabaseServerClient;
+
+/** Session guard used across actions/routes. */
 export async function requireSession() {
-  const sb = supabaseServer();
+  const sb = createSupabaseServerClient();
   const { data: { session } } = await sb.auth.getSession();
   if (!session) throw new Error('UNAUTHENTICATED');
   return { sb, session };

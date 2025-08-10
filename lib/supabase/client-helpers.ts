@@ -4,6 +4,7 @@ import { cookies } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
 
+/** Server-side Supabase (RLS via auth cookies). */
 export function supabaseServer() {
   const cookieStore = cookies();
   return createServerClient(
@@ -23,6 +24,7 @@ export function supabaseServer() {
   );
 }
 
+/** Node-only Admin client (service role) for server routes/actions. */
 export function supabaseAdmin() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -34,6 +36,18 @@ export function supabaseAdmin() {
   );
 }
 
+/** Common server-route logger (keeps import compatibility). */
+export function logServerRoute(label: string, extra?: any) {
+  try {
+    const payload =
+      extra && typeof extra === 'object' ? JSON.stringify(extra) : String(extra ?? '');
+    console.log(`[SRV] ${label}${payload ? ` :: ${payload}` : ''}`);
+  } catch {
+    console.log(`[SRV] ${label}`);
+  }
+}
+
+/** Small helper used by some routes. */
 export async function requireSession() {
   const sb = supabaseServer();
   const { data: { session } } = await sb.auth.getSession();
