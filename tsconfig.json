@@ -1,33 +1,25 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": [
-      "dom",
-      "dom.iterable",
-      "esnext"
-    ],
-    "allowJs": false,
-    "skipLibCheck": true,
+    "lib": ["DOM", "ES2022"],
+    "jsx": "preserve",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowJs": true,
     "strict": true,
     "noEmit": true,
     "esModuleInterop": true,
-    "module": "esnext",
-    "moduleResolution": "bundler",
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "jsx": "preserve",
-    "incremental": true,
+    "forceConsistentCasingInFileNames": true,
+
+    // IMPORTANT: enable "@/..." alias used across the app
     "baseUrl": ".",
     "paths": {
-      "@/*": [
-        "app/*"
-      ]
+      "@/*": ["*"]
     },
-    "plugins": [
-      {
-        "name": "next"
-      }
-    ]
+
+    // Next.js recommended
+    "incremental": true,
+    "skipLibCheck": true
   },
   "include": [
     "next-env.d.ts",
@@ -35,12 +27,5 @@
     "**/*.tsx",
     ".next/types/**/*.ts"
   ],
-  "exclude": [
-    "node_modules"
-  ],
-  "plugins": [
-    {
-      "name": "next"
-    }
-  ]
+  "exclude": ["node_modules"]
 }
