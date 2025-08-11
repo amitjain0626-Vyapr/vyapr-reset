@@ -50,22 +50,10 @@ export default async function LeadsPage() {
 
   return (
     <div className="p-4 md:p-6 space-y-6">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">Leads</h1>
-          <p className="text-sm text-gray-600">Latest leads from your microsite, WhatsApp, and other sources.</p>
-        </div>
-
-        {/* Download CSV button */}
-        <a
-          href="/api/leads/export"
-          className="inline-flex items-center gap-2 px-3 py-2 border rounded-lg hover:bg-gray-50 text-sm"
-          title="Download leads as CSV"
-        >
-          ⬇️ Download CSV
-        </a>
+      <div>
+        <h1 className="text-xl font-semibold">Leads</h1>
+        <p className="text-sm text-gray-600">Latest leads from your microsite, WhatsApp, and other sources.</p>
       </div>
-
       <LeadsTable data={rows} />
     </div>
   );
