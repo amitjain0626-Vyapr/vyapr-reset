@@ -7,13 +7,6 @@ import Image from "next/image";
 import { notFound } from "next/navigation";
 import { getServerSupabase } from "../../../lib/supabase/server";
 
-/**
- * Matches your actual Dentists schema (from your debug JSON):
- * id, slug, name, phone, about, bio, specialization, address_line1, address_line2, city,
- * profile_image_url, clinic_image_url, website, google_maps_link,
- * published, is_published, services, etc.
- */
-
 type DentistRow = {
   id: string;
   slug?: string | null;
@@ -51,17 +44,12 @@ function normServices(s: any): string[] {
 
 async function loadDentist(slug: string) {
   const supabase = getServerSupabase();
-  const cleanSlug = slug.trim().toLowerCase();
+  const cleanSlug = slug.trim(); // match debug route behavior (no ilike/or)
 
   const { data, error } = await supabase
     .from("Dentists")
-    .select(
-      "id,slug,name,phone,about,bio,specialization,address_line1,address_line2,city,profile_image_url,clinic_image_url,website,google_maps_link,razorpay_link,published,is_published,services"
-    )
-    // Case-insensitive slug match (handles /d/Dr-Kapoor etc.)
-    .ilike("slug", cleanSlug)
-    // Published rows only; row-level security may also enforce this
-    .or("published.eq.true,is_published.eq.true")
+    .select("*")                 // EXACTLY like the working /api/debug-micro
+    .eq("slug", cleanSlug)
     .limit(1)
     .maybeSingle();
 
@@ -70,7 +58,6 @@ async function loadDentist(slug: string) {
 }
 
 export default async function DentistPublicPage(props: any) {
-  // Next 15 can pass params as a Promise — support both
   const raw = props?.params;
   const params = raw && typeof raw.then === "function" ? await raw : raw;
   const slug: string | undefined = params?.slug;
