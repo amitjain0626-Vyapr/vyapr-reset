@@ -1,4 +1,3 @@
-cat > app/d/[slug]/page.tsx <<'EOF'
 // @ts-nocheck
 // app/d/[slug]/page.tsx
 export const dynamic = "force-dynamic";
@@ -51,8 +50,14 @@ async function loadDentist(slug: string) {
   return data as DentistRow;
 }
 
-export default async function DentistPublicPage({ params }: { params: { slug: string } }) {
-  const row = await loadDentist(params.slug);
+export default async function DentistPublicPage(props: any) {
+  // Handle Next 15 PageProps: params can be a Promise
+  const raw = props?.params;
+  const params = raw && typeof raw.then === "function" ? await raw : raw;
+  const slug: string | undefined = params?.slug;
+  if (!slug) notFound();
+
+  const row = await loadDentist(slug);
   if (!row) notFound();
 
   const name = row.name ?? "Your Dentist";
@@ -115,4 +120,3 @@ export default async function DentistPublicPage({ params }: { params: { slug: st
     </main>
   );
 }
-EOF
