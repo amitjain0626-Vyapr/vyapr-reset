@@ -7,11 +7,11 @@ function toCSV(rows: any[]) {
 
   const esc = (v: any) => {
     if (v === null || v === undefined) return "";
-    const s = String(v).replace(/"/g, '""');
+    const s = String(v).replace(/"/g, '""'); // ← correct CSV escaping
     return /[",\n]/.test(s) ? `"${s}"` : s;
   };
 
-  const lines = rows.map(r => header.map(h => esc(r[h])).join(","));
+  const lines = rows.map(r => header.map(h => esc((r as any)[h])).join(","));
   return header.join(",") + "\n" + lines.join("\n") + "\n";
 }
 
@@ -30,7 +30,7 @@ export async function GET() {
 
   if (error) return new NextResponse("Error: " + error.message, { status: 500 });
 
-  const rows = (data ?? []).map(r => ({
+  const rows = (data ?? []).map((r: any) => ({
     id: r.id,
     patient: r.patient ?? "",
     amount: r.amount ?? "",
