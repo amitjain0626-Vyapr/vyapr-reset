@@ -2,12 +2,14 @@
 // @ts-nocheck
 import Link from "next/link";
 
-export default function ThankYou({
-  searchParams,
-}: {
-  searchParams: Record<string, string | string[] | undefined>;
-}) {
-  const slug = typeof searchParams?.slug === "string" ? searchParams.slug : "";
+export default function ThankYou(props: any) {
+  const { searchParams } = (props || {}) as {
+    searchParams?: Record<string, string | string[] | undefined>;
+  };
+
+  const slug =
+    typeof searchParams?.slug === "string" ? searchParams.slug : "";
+
   return (
     <main className="max-w-3xl mx-auto p-6">
       <section className="rounded-3xl border bg-white shadow-sm p-8 text-center">
