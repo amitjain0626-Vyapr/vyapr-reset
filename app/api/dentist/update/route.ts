@@ -8,6 +8,8 @@ export async function POST(req: Request) {
   if (!user) return new NextResponse("Unauthorized", { status: 401 });
 
   const body = await req.json().catch(() => ({} as any));
+
+  // NOTE: temporarily exclude google_maps_link to avoid schema cache errors
   const payload = {
     name: (body.name ?? "").slice(0, 120),
     phone: (body.phone ?? "").slice(0, 40),
@@ -17,15 +19,19 @@ export async function POST(req: Request) {
     address_line2: (body.address_line2 ?? "").slice(0, 200),
     city: (body.city ?? "").slice(0, 120),
     website: (body.website ?? "").slice(0, 300),
-    google_maps_link: (body.google_maps_link ?? "").slice(0, 500),
+    // google_maps_link: (body.google_maps_link ?? "").slice(0, 500), // disabled for now
     profile_image_url: (body.profile_image_url ?? "").slice(0, 500),
     clinic_image_url: (body.clinic_image_url ?? "").slice(0, 500),
     services: (body.services ?? "").slice(0, 4000),
     is_published: !!body.is_published,
   };
 
-  const wantedSlug = (body.slug ?? "").trim().toLowerCase()
-    .replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 64);
+  const wantedSlug = (body.slug ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .slice(0, 64);
 
   const { data: existing, error: findErr } = await supabase
     .from("Dentists")
@@ -34,12 +40,19 @@ export async function POST(req: Request) {
     .limit(1)
     .maybeSingle();
 
-  if (findErr) return NextResponse.json({ ok: false, error: findErr.message }, { status: 500 });
+  if (findErr) {
+    return NextResponse.json({ ok: false, error: findErr.message }, { status: 500 });
+  }
 
   let slug = existing?.slug || wantedSlug || null;
 
   if (!existing?.slug && slug) {
-    const { data: dup } = await supabase.from("Dentists").select("id").eq("slug", slug).limit(1).maybeSingle();
+    const { data: dup } = await supabase
+      .from("Dentists")
+      .select("id")
+      .eq("slug", slug)
+      .limit(1)
+      .maybeSingle();
     if (dup) slug = `${slug}-${user.id.slice(0, 6)}`;
   }
 
