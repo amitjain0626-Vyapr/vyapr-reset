@@ -6,7 +6,6 @@ export const revalidate = 0;
 import LeadsTable from "../../../components/leads/LeadsTable";
 import { redirect } from "next/navigation";
 import { getServerSupabase } from "../../../lib/supabase/server";
-import { createLead } from "./actions";
 
 type LeadRow = {
   id: string;
@@ -15,6 +14,7 @@ type LeadRow = {
   note: string | null;
   source: string | null;
   created_at: string | null;
+  deleted_at: string | null;
 };
 
 async function loadLeads() {
@@ -25,7 +25,8 @@ async function loadLeads() {
 
     const { data, error } = await supabase
       .from("Leads")
-      .select("id,name,phone,note,source,created_at")
+      .select("id,name,phone,note,source,created_at,deleted_at")
+      .is("deleted_at", null)               // ← filter out soft-deleted rows
       .order("created_at", { ascending: false })
       .limit(50);
 
@@ -54,14 +55,9 @@ export default async function LeadsPage() {
         <p className="text-sm text-gray-600">Latest leads from your microsite, WhatsApp, and other sources.</p>
       </div>
 
-      {/* Inline Create Lead form (server action) */}
-      <form action={createLead} className="grid grid-cols-1 md:grid-cols-5 gap-3 p-4 border rounded-xl">
-        <input name="name" required placeholder="Name *" className="border rounded-lg px-3 py-2 md:col-span-1" />
-        <input name="phone" placeholder="Phone" className="border rounded-lg px-3 py-2 md:col-span-1" />
-        <input name="source" placeholder="Source (e.g., Microsite)" className="border rounded-lg px-3 py-2 md:col-span-1" />
-        <input name="note" placeholder="Note" className="border rounded-lg px-3 py-2 md:col-span-1" />
-        <button className="px-4 py-2 border rounded-lg hover:bg-gray-50 md:col-span-1">Add Lead</button>
-      </form>
+      {/* Inline Create Lead form (server action wired in actions.ts) */}
+      {/* If you've already added actions.ts (Step 30.6), this form exists there; keep whichever version you prefer. */}
+      {/* <form action={createLead} className="grid grid-cols-1 md:grid-cols-5 gap-3 p-4 border rounded-xl"> ... </form> */}
 
       <LeadsTable data={rows} />
     </div>
