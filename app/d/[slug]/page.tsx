@@ -19,14 +19,14 @@ type DentistRow = {
   address_line1?: string | null;
   address_line2?: string | null;
   city?: string | null;
-  profile_image_url?: string | null;  // avatar
-  clinic_image_url?: string | null;   // cover
+  profile_image_url?: string | null;
+  clinic_image_url?: string | null;
   website?: string | null;
   google_maps_link?: string | null;
   razorpay_link?: string | null;
   published?: boolean | null;
   is_published?: boolean | null;
-  services?: string | null;           // CSV or JSON text
+  services?: string | null;
 };
 
 function normServices(s: any): string[] {
@@ -42,30 +42,60 @@ function normServices(s: any): string[] {
   }
 }
 
-async function loadDentist(slug: string) {
+async function fetchFromPage(slug: string) {
+  // EXACTLY like the working /api/debug-micro route
   const supabase = getServerSupabase();
-  const cleanSlug = slug.trim(); // match debug route behavior (no ilike/or)
+  const cleanSlug = slug.trim();
 
   const { data, error } = await supabase
     .from("Dentists")
-    .select("*")                 // EXACTLY like the working /api/debug-micro
+    .select("*")
     .eq("slug", cleanSlug)
     .limit(1)
     .maybeSingle();
 
-  if (error || !data) return null;
-  return data as DentistRow;
+  return { data: (data as DentistRow | null), error };
 }
 
 export default async function DentistPublicPage(props: any) {
-  const raw = props?.params;
-  const params = raw && typeof raw.then === "function" ? await raw : raw;
+  // Support Next 15 async params + searchParams
+  const rawParams = props?.params;
+  const params = rawParams && typeof rawParams.then === "function" ? await rawParams : rawParams;
+  const rawSearch = props?.searchParams;
+  const searchParams = rawSearch && typeof rawSearch.then === "function" ? await rawSearch : rawSearch;
+
   const slug: string | undefined = params?.slug;
+  const debug = String(searchParams?.debug ?? "").length > 0;
+
   if (!slug) notFound();
 
-  const row = await loadDentist(slug);
-  if (!row) notFound();
+  const { data, error } = await fetchFromPage(slug);
 
+  // DEBUG MODE: render what the page actually sees
+  if (debug) {
+    return (
+      <main className="min-h-screen p-4">
+        <pre className="text-xs whitespace-pre-wrap">
+{JSON.stringify(
+  {
+    where: "page.tsx",
+    slugFromParams: slug,
+    query: { table: "Dentists", by: "slug", value: slug.trim(), select: "*" },
+    error: error?.message ?? null,
+    data,
+  },
+  null,
+  2
+)}
+        </pre>
+      </main>
+    );
+  }
+
+  // Normal flow
+  if (!data) notFound();
+
+  const row = data;
   const name = row.name ?? "Your Dentist";
   const tagline = row.specialization?.toString() || "Dental care made simple";
   const about = row.about ?? row.bio ?? "";
