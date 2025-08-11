@@ -26,7 +26,7 @@ async function loadLeads() {
     const { data, error } = await supabase
       .from("Leads")
       .select("id,name,phone,note,source,created_at,deleted_at")
-      .is("deleted_at", null)               // ← filter out soft-deleted rows
+      .is("deleted_at", null)
       .order("created_at", { ascending: false })
       .limit(50);
 
@@ -50,14 +50,21 @@ export default async function LeadsPage() {
 
   return (
     <div className="p-4 md:p-6 space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold">Leads</h1>
-        <p className="text-sm text-gray-600">Latest leads from your microsite, WhatsApp, and other sources.</p>
-      </div>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold">Leads</h1>
+          <p className="text-sm text-gray-600">Latest leads from your microsite, WhatsApp, and other sources.</p>
+        </div>
 
-      {/* Inline Create Lead form (server action wired in actions.ts) */}
-      {/* If you've already added actions.ts (Step 30.6), this form exists there; keep whichever version you prefer. */}
-      {/* <form action={createLead} className="grid grid-cols-1 md:grid-cols-5 gap-3 p-4 border rounded-xl"> ... </form> */}
+        {/* Download CSV button */}
+        <a
+          href="/api/leads/export"
+          className="inline-flex items-center gap-2 px-3 py-2 border rounded-lg hover:bg-gray-50 text-sm"
+          title="Download leads as CSV"
+        >
+          ⬇️ Download CSV
+        </a>
+      </div>
 
       <LeadsTable data={rows} />
     </div>
