@@ -7,26 +7,33 @@ import Image from "next/image";
 import { notFound } from "next/navigation";
 import { getServerSupabase } from "../../../lib/supabase/server";
 
+/**
+ * Matches your actual Dentists schema (from your debug JSON):
+ * id, slug, name, phone, about, bio, specialization, address_line1, address_line2, city,
+ * profile_image_url, clinic_image_url, website, google_maps_link,
+ * published, is_published, services, etc.
+ */
+
 type DentistRow = {
   id: string;
   slug?: string | null;
   name?: string | null;
-  about?: string | null;              // <- from your schema
-  bio?: string | null;                // (keep fallback)
-  specialization?: string | null;
   phone?: string | null;
+  about?: string | null;
+  bio?: string | null;
+  specialization?: string | null;
   whatsapp?: string | null;
   address_line1?: string | null;
   address_line2?: string | null;
   city?: string | null;
-  profile_image_url?: string | null;  // <- avatar
-  clinic_image_url?: string | null;   // <- cover
+  profile_image_url?: string | null;  // avatar
+  clinic_image_url?: string | null;   // cover
   website?: string | null;
   google_maps_link?: string | null;
   razorpay_link?: string | null;
   published?: boolean | null;
-  is_published?: boolean | null;      // some rows use this
-  services?: string | null;           // CSV/JSON possibly
+  is_published?: boolean | null;
+  services?: string | null;           // CSV or JSON text
 };
 
 function normServices(s: any): string[] {
@@ -44,26 +51,26 @@ function normServices(s: any): string[] {
 
 async function loadDentist(slug: string) {
   const supabase = getServerSupabase();
+  const cleanSlug = slug.trim().toLowerCase();
+
   const { data, error } = await supabase
     .from("Dentists")
     .select(
-      "id,slug,name,about,bio,specialization,phone,whatsapp,address_line1,address_line2,city,profile_image_url,clinic_image_url,website,google_maps_link,razorpay_link,published,is_published,services"
+      "id,slug,name,phone,about,bio,specialization,address_line1,address_line2,city,profile_image_url,clinic_image_url,website,google_maps_link,razorpay_link,published,is_published,services"
     )
-    .eq("slug", slug)
+    // Case-insensitive slug match (handles /d/Dr-Kapoor etc.)
+    .ilike("slug", cleanSlug)
+    // Published rows only; row-level security may also enforce this
+    .or("published.eq.true,is_published.eq.true")
     .limit(1)
     .maybeSingle();
 
   if (error || !data) return null;
-  const row = data as DentistRow;
-
-  // Respect publish flag in either column
-  const isPublic = row.published === true || row.is_published === true;
-  if (!isPublic) return null;
-
-  return row;
+  return data as DentistRow;
 }
 
 export default async function DentistPublicPage(props: any) {
+  // Next 15 can pass params as a Promise — support both
   const raw = props?.params;
   const params = raw && typeof raw.then === "function" ? await raw : raw;
   const slug: string | undefined = params?.slug;
@@ -73,9 +80,7 @@ export default async function DentistPublicPage(props: any) {
   if (!row) notFound();
 
   const name = row.name ?? "Your Dentist";
-  const tagline =
-    row.specialization?.toString() ||
-    "Dental care made simple";
+  const tagline = row.specialization?.toString() || "Dental care made simple";
   const about = row.about ?? row.bio ?? "";
   const services = normServices(row.services);
 
@@ -86,6 +91,7 @@ export default async function DentistPublicPage(props: any) {
 
   const maps = row.google_maps_link ?? "";
   const pay  = row.razorpay_link ?? "";
+  const website = row.website ?? "";
 
   return (
     <main className="min-h-screen bg-white text-gray-900">
@@ -112,7 +118,7 @@ export default async function DentistPublicPage(props: any) {
             <p className="text-sm opacity-95">{tagline}</p>
             {(row.address_line1 || row.city) ? (
               <p className="text-xs opacity-90 mt-1">
-                {row.address_line1 ?? ""}{row.city ? (row.address_line1 ? " • " : "") + row.city : ""}
+                {row.address_line1 ?? ""}{row.address_line2 ? `, ${row.address_line2}` : ""}{row.city ? ` • ${row.city}` : ""}
               </p>
             ) : null}
           </div>
@@ -133,6 +139,9 @@ export default async function DentistPublicPage(props: any) {
           ) : null}
           {maps ? (
             <a href={maps} target="_blank" className="px-4 py-2 rounded-xl border hover:bg-gray-50">🗺️ Directions</a>
+          ) : null}
+          {website ? (
+            <a href={website} target="_blank" className="px-4 py-2 rounded-xl border hover:bg-gray-50">🌐 Website</a>
           ) : null}
           {pay ? (
             <a href={pay} target="_blank" className="px-4 py-2 rounded-xl border hover:bg-gray-50">💳 Pay / Book</a>
