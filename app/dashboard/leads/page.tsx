@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { createSupabaseServerClient } from "@/utils/supabase/server";
+import { supabaseServer } from '../../../lib/supabaseServer';
 import LeadsTable from "@/components/leads/LeadsTable";
 
 export const dynamic = "force-dynamic";
