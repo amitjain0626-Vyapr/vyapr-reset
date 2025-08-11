@@ -11,18 +11,18 @@ type DentistRow = {
   id: string;
   slug?: string | null;
   name?: string | null;
-  tagline?: string | null;
+  tagline?: string | null;        // e.g., "Cosmetic & Family Dentistry"
   bio?: string | null;
   phone?: string | null;
-  whatsapp?: string | null;
+  whatsapp?: string | null;       // fallback to phone if empty
   address?: string | null;
   city?: string | null;
-  services?: string | string[] | null;
+  services?: string | string[] | null; // CSV or JSON array
   photo_url?: string | null;
   cover_url?: string | null;
   website?: string | null;
   google_maps_link?: string | null;
-  razorpay_link?: string | null;
+  razorpay_link?: string | null;  // placeholder pay link
   deleted_at?: string | null;
 };
 
@@ -51,7 +51,6 @@ async function loadDentist(slug: string) {
 }
 
 export default async function DentistPublicPage(props: any) {
-  // Handle Next 15 PageProps: params can be a Promise
   const raw = props?.params;
   const params = raw && typeof raw.then === "function" ? await raw : raw;
   const slug: string | undefined = params?.slug;
@@ -63,59 +62,94 @@ export default async function DentistPublicPage(props: any) {
   const name = row.name ?? "Your Dentist";
   const tagline = row.tagline ?? "Dental care made simple";
   const services = normServices(row.services);
-  const phone = row.phone ?? "";
-  const wa = row.whatsapp ?? phone;
+
+  const phone = (row.phone ?? "").trim();
+  const waNum = (row.whatsapp ?? phone).replace(/[^\d]/g, "");
+  const waMsg = encodeURIComponent(`Hi ${name}, I'd like to book an appointment. (via Vyapr)`);
+  const waLink = waNum ? `https://wa.me/${waNum}?text=${waMsg}` : "";
+
   const maps = row.google_maps_link ?? "";
-  const pay = row.razorpay_link ?? "";
+  const pay  = row.razorpay_link ?? ""; // placeholder until Razorpay is wired
 
   return (
-    <main className="min-h-screen">
+    <main className="min-h-screen bg-white text-gray-900">
+      {/* Hero */}
       <div className="relative w-full h-48 md:h-64 bg-gray-100">
         {row.cover_url ? (
           <Image src={row.cover_url} alt={`${name} cover`} fill className="object-cover" />
         ) : null}
-        <div className="absolute inset-0 bg-black/20" />
+        <div className="absolute inset-0 bg-black/25" />
         <div className="absolute bottom-4 left-4 right-4 flex items-center gap-4">
           {row.photo_url ? (
-            <Image src={row.photo_url} alt={`${name} photo`} width={80} height={80} className="rounded-2xl border bg-white" />
+            <Image
+              src={row.photo_url}
+              alt={`${name} photo`}
+              width={84}
+              height={84}
+              className="rounded-2xl border bg-white shadow"
+            />
           ) : (
-            <div className="w-20 h-20 rounded-2xl bg-white border grid place-items-center text-xl">🦷</div>
+            <div className="w-20 h-20 rounded-2xl bg-white border grid place-items-center text-xl shadow">🦷</div>
           )}
-          <div className="text-white">
+          <div className="text-white drop-shadow">
             <h1 className="text-2xl font-semibold">{name}</h1>
-            <p className="text-sm opacity-90">{tagline}</p>
+            <p className="text-sm opacity-95">{tagline}</p>
+            {(row.city || row.address) ? (
+              <p className="text-xs opacity-90 mt-1">
+                {row.address ?? ""}{row.city ? (row.address ? " • " : "") + row.city : ""}
+              </p>
+            ) : null}
           </div>
         </div>
       </div>
 
-      <div className="mx-auto max-w-3xl p-4 md:p-6 space-y-6">
+      {/* Body */}
+      <div className="mx-auto max-w-3xl p-4 md:p-6 space-y-8">
+        {/* CTAs */}
         <div className="flex flex-wrap gap-3">
-          {phone ? <a href={`tel:${phone}`} className="px-4 py-2 border rounded-xl hover:bg-gray-50">Call</a> : null}
-          {wa ? <a href={`https://wa.me/${wa.replace(/[^\d]/g, "")}`} target="_blank" className="px-4 py-2 border rounded-xl hover:bg-gray-50">WhatsApp</a> : null}
-          {maps ? <a href={maps} target="_blank" className="px-4 py-2 border rounded-xl hover:bg-gray-50">Directions</a> : null}
-          {pay ? <a href={pay} target="_blank" className="px-4 py-2 border rounded-xl hover:bg-gray-50">Pay / Book</a> : null}
+          {waLink ? (
+            <a href={waLink} target="_blank" className="px-4 py-2 rounded-xl border hover:bg-gray-50">
+              💬 Book on WhatsApp
+            </a>
+          ) : null}
+          {phone ? (
+            <a href={`tel:${phone}`} className="px-4 py-2 rounded-xl border hover:bg-gray-50">📞 Call</a>
+          ) : null}
+          {maps ? (
+            <a href={maps} target="_blank" className="px-4 py-2 rounded-xl border hover:bg-gray-50">🗺️ Directions</a>
+          ) : null}
+          {pay ? (
+            <a href={pay} target="_blank" className="px-4 py-2 rounded-xl border hover:bg-gray-50">💳 Pay / Book</a>
+          ) : null}
         </div>
 
+        {/* About */}
         {(row.bio || row.address || row.city) ? (
           <section className="space-y-2">
             <h2 className="text-lg font-semibold">About</h2>
             {row.bio ? <p className="text-sm leading-6">{row.bio}</p> : null}
-            <p className="text-sm text-gray-600">
-              {(row.address ?? "")} {row.city ? `• ${row.city}` : ""}
-            </p>
+            {(row.address || row.city) ? (
+              <p className="text-sm text-gray-600">{row.address ?? ""}{row.city ? (row.address ? " • " : "") + row.city : ""}</p>
+            ) : null}
           </section>
         ) : null}
 
+        {/* Services */}
         {services.length ? (
           <section className="space-y-2">
             <h2 className="text-lg font-semibold">Services</h2>
             <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {services.map((s, i) => <li key={i} className="px-3 py-2 border rounded-lg">{s}</li>)}
+              {services.map((s, i) => (
+                <li key={i} className="px-3 py-2 border rounded-lg">{s}</li>
+              ))}
             </ul>
           </section>
         ) : null}
 
-        <footer className="pt-6 text-xs text-gray-500">Powered by Vyapr • microsite</footer>
+        {/* Footer */}
+        <footer className="pt-6 text-xs text-gray-500">
+          Powered by Vyapr • microsite
+        </footer>
       </div>
     </main>
   );
