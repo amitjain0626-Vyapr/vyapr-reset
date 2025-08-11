@@ -5,7 +5,7 @@ export const revalidate = 0;
 
 import Image from "next/image";
 import { notFound } from "next/navigation";
-import { getServerSupabase } from "../../../lib/supabase/server";
+import { createClient } from "@supabase/supabase-js"; // PUBLIC client (no cookies)
 
 type DentistRow = {
   id: string;
@@ -29,6 +29,13 @@ type DentistRow = {
   services?: string | null;
 };
 
+function supabasePublic() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
+}
+
 function normServices(s: any): string[] {
   if (!s) return [];
   try {
@@ -42,15 +49,13 @@ function normServices(s: any): string[] {
   }
 }
 
-async function fetchFromPage(slug: string) {
-  // EXACTLY like the working /api/debug-micro route
-  const supabase = getServerSupabase();
-  const cleanSlug = slug.trim();
-
+async function fetchRow(slug: string) {
+  const supabase = supabasePublic();
+  const clean = slug.trim();
   const { data, error } = await supabase
     .from("Dentists")
     .select("*")
-    .eq("slug", cleanSlug)
+    .eq("slug", clean)
     .limit(1)
     .maybeSingle();
 
@@ -58,20 +63,17 @@ async function fetchFromPage(slug: string) {
 }
 
 export default async function DentistPublicPage(props: any) {
-  // Support Next 15 async params + searchParams
-  const rawParams = props?.params;
-  const params = rawParams && typeof rawParams.then === "function" ? await rawParams : rawParams;
-  const rawSearch = props?.searchParams;
-  const searchParams = rawSearch && typeof rawSearch.then === "function" ? await rawSearch : rawSearch;
+  // Support async params + searchParams
+  const p = props?.params && typeof props.params.then === "function" ? await props.params : props.params;
+  const s = props?.searchParams && typeof props.searchParams.then === "function" ? await props.searchParams : props.searchParams;
 
-  const slug: string | undefined = params?.slug;
-  const debug = String(searchParams?.debug ?? "").length > 0;
-
+  const slug: string | undefined = p?.slug;
+  const debug = String(s?.debug ?? "").length > 0;
   if (!slug) notFound();
 
-  const { data, error } = await fetchFromPage(slug);
+  const { data, error } = await fetchRow(slug);
 
-  // DEBUG MODE: render what the page actually sees
+  // Debug mode
   if (debug) {
     return (
       <main className="min-h-screen p-4">
@@ -92,7 +94,6 @@ export default async function DentistPublicPage(props: any) {
     );
   }
 
-  // Normal flow
   if (!data) notFound();
 
   const row = data;
@@ -146,23 +147,11 @@ export default async function DentistPublicPage(props: any) {
       <div className="mx-auto max-w-3xl p-4 md:p-6 space-y-8">
         {/* CTAs */}
         <div className="flex flex-wrap gap-3">
-          {waLink ? (
-            <a href={waLink} target="_blank" className="px-4 py-2 rounded-xl border hover:bg-gray-50">
-              💬 Book on WhatsApp
-            </a>
-          ) : null}
-          {phone ? (
-            <a href={`tel:${phone}`} className="px-4 py-2 rounded-xl border hover:bg-gray-50">📞 Call</a>
-          ) : null}
-          {maps ? (
-            <a href={maps} target="_blank" className="px-4 py-2 rounded-xl border hover:bg-gray-50">🗺️ Directions</a>
-          ) : null}
-          {website ? (
-            <a href={website} target="_blank" className="px-4 py-2 rounded-xl border hover:bg-gray-50">🌐 Website</a>
-          ) : null}
-          {pay ? (
-            <a href={pay} target="_blank" className="px-4 py-2 rounded-xl border hover:bg-gray-50">💳 Pay / Book</a>
-          ) : null}
+          {waLink ? <a href={waLink} target="_blank" className="px-4 py-2 rounded-xl border hover:bg-gray-50">💬 Book on WhatsApp</a> : null}
+          {phone ? <a href={`tel:${phone}`} className="px-4 py-2 rounded-xl border hover:bg-gray-50">📞 Call</a> : null}
+          {maps ? <a href={maps} target="_blank" className="px-4 py-2 rounded-xl border hover:bg-gray-50">🗺️ Directions</a> : null}
+          {website ? <a href={website} target="_blank" className="px-4 py-2 rounded-xl border hover:bg-gray-50">🌐 Website</a> : null}
+          {pay ? <a href={pay} target="_blank" className="px-4 py-2 rounded-xl border hover:bg-gray-50">💳 Pay / Book</a> : null}
         </div>
 
         {/* About */}
@@ -191,9 +180,7 @@ export default async function DentistPublicPage(props: any) {
         ) : null}
 
         {/* Footer */}
-        <footer className="pt-6 text-xs text-gray-500">
-          Powered by Vyapr • microsite
-        </footer>
+        <footer className="pt-6 text-xs text-gray-500">Powered by Vyapr • microsite</footer>
       </div>
     </main>
   );
