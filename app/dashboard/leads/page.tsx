@@ -52,7 +52,9 @@ export default async function LeadsPage() {
     <div className="p-4 md:p-6 space-y-6">
       <div>
         <h1 className="text-xl font-semibold">Leads</h1>
-        <p className="text-sm text-gray-600">Latest leads from your microsite, WhatsApp, and other sources.</p>
+        <p className="text-sm text-gray-600">
+          Latest leads from your microsite, WhatsApp, and other sources.
+        </p>
       </div>
       <LeadsTable data={rows} />
     </div>
