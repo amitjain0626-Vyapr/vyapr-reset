@@ -11,43 +11,56 @@ type DentistRow = {
   id: string;
   slug?: string | null;
   name?: string | null;
-  tagline?: string | null;        // e.g., "Cosmetic & Family Dentistry"
-  bio?: string | null;
+  about?: string | null;              // <- from your schema
+  bio?: string | null;                // (keep fallback)
+  specialization?: string | null;
   phone?: string | null;
-  whatsapp?: string | null;       // fallback to phone if empty
-  address?: string | null;
+  whatsapp?: string | null;
+  address_line1?: string | null;
+  address_line2?: string | null;
   city?: string | null;
-  services?: string | string[] | null; // CSV or JSON array
-  photo_url?: string | null;
-  cover_url?: string | null;
+  profile_image_url?: string | null;  // <- avatar
+  clinic_image_url?: string | null;   // <- cover
   website?: string | null;
   google_maps_link?: string | null;
-  razorpay_link?: string | null;  // placeholder pay link
-  deleted_at?: string | null;
+  razorpay_link?: string | null;
+  published?: boolean | null;
+  is_published?: boolean | null;      // some rows use this
+  services?: string | null;           // CSV/JSON possibly
 };
 
 function normServices(s: any): string[] {
   if (!s) return [];
-  if (Array.isArray(s)) return s.map(x => String(x)).filter(Boolean).slice(0, 20);
-  const txt = String(s);
   try {
+    if (Array.isArray(s)) return s.map(String).filter(Boolean).slice(0, 20);
+    const txt = String(s);
     const maybe = JSON.parse(txt);
-    if (Array.isArray(maybe)) return maybe.map(x => String(x)).filter(Boolean).slice(0, 20);
-  } catch {}
-  return txt.split(/[;,|]\s*/g).map(x => x.trim()).filter(Boolean).slice(0, 20);
+    if (Array.isArray(maybe)) return maybe.map(String).filter(Boolean).slice(0, 20);
+    return txt.split(/[;,|]\s*/g).map((x) => x.trim()).filter(Boolean).slice(0, 20);
+  } catch {
+    return String(s).split(/[;,|]\s*/g).map((x) => x.trim()).filter(Boolean).slice(0, 20);
+  }
 }
 
 async function loadDentist(slug: string) {
   const supabase = getServerSupabase();
   const { data, error } = await supabase
     .from("Dentists")
-    .select("id,slug,name,tagline,bio,phone,whatsapp,address,city,services,photo_url,cover_url,website,google_maps_link,razorpay_link,deleted_at")
+    .select(
+      "id,slug,name,about,bio,specialization,phone,whatsapp,address_line1,address_line2,city,profile_image_url,clinic_image_url,website,google_maps_link,razorpay_link,published,is_published,services"
+    )
     .eq("slug", slug)
     .limit(1)
     .maybeSingle();
 
-  if (error || !data || (data as DentistRow).deleted_at) return null;
-  return data as DentistRow;
+  if (error || !data) return null;
+  const row = data as DentistRow;
+
+  // Respect publish flag in either column
+  const isPublic = row.published === true || row.is_published === true;
+  if (!isPublic) return null;
+
+  return row;
 }
 
 export default async function DentistPublicPage(props: any) {
@@ -60,7 +73,10 @@ export default async function DentistPublicPage(props: any) {
   if (!row) notFound();
 
   const name = row.name ?? "Your Dentist";
-  const tagline = row.tagline ?? "Dental care made simple";
+  const tagline =
+    row.specialization?.toString() ||
+    "Dental care made simple";
+  const about = row.about ?? row.bio ?? "";
   const services = normServices(row.services);
 
   const phone = (row.phone ?? "").trim();
@@ -69,20 +85,20 @@ export default async function DentistPublicPage(props: any) {
   const waLink = waNum ? `https://wa.me/${waNum}?text=${waMsg}` : "";
 
   const maps = row.google_maps_link ?? "";
-  const pay  = row.razorpay_link ?? ""; // placeholder until Razorpay is wired
+  const pay  = row.razorpay_link ?? "";
 
   return (
     <main className="min-h-screen bg-white text-gray-900">
       {/* Hero */}
       <div className="relative w-full h-48 md:h-64 bg-gray-100">
-        {row.cover_url ? (
-          <Image src={row.cover_url} alt={`${name} cover`} fill className="object-cover" />
+        {row.clinic_image_url ? (
+          <Image src={row.clinic_image_url} alt={`${name} clinic`} fill className="object-cover" />
         ) : null}
         <div className="absolute inset-0 bg-black/25" />
         <div className="absolute bottom-4 left-4 right-4 flex items-center gap-4">
-          {row.photo_url ? (
+          {row.profile_image_url ? (
             <Image
-              src={row.photo_url}
+              src={row.profile_image_url}
               alt={`${name} photo`}
               width={84}
               height={84}
@@ -94,9 +110,9 @@ export default async function DentistPublicPage(props: any) {
           <div className="text-white drop-shadow">
             <h1 className="text-2xl font-semibold">{name}</h1>
             <p className="text-sm opacity-95">{tagline}</p>
-            {(row.city || row.address) ? (
+            {(row.address_line1 || row.city) ? (
               <p className="text-xs opacity-90 mt-1">
-                {row.address ?? ""}{row.city ? (row.address ? " • " : "") + row.city : ""}
+                {row.address_line1 ?? ""}{row.city ? (row.address_line1 ? " • " : "") + row.city : ""}
               </p>
             ) : null}
           </div>
@@ -124,12 +140,14 @@ export default async function DentistPublicPage(props: any) {
         </div>
 
         {/* About */}
-        {(row.bio || row.address || row.city) ? (
+        {about || row.address_line1 || row.city ? (
           <section className="space-y-2">
             <h2 className="text-lg font-semibold">About</h2>
-            {row.bio ? <p className="text-sm leading-6">{row.bio}</p> : null}
-            {(row.address || row.city) ? (
-              <p className="text-sm text-gray-600">{row.address ?? ""}{row.city ? (row.address ? " • " : "") + row.city : ""}</p>
+            {about ? <p className="text-sm leading-6 whitespace-pre-line">{about}</p> : null}
+            {(row.address_line1 || row.city) ? (
+              <p className="text-sm text-gray-600">
+                {row.address_line1 ?? ""}{row.address_line2 ? `, ${row.address_line2}` : ""}{row.city ? ` • ${row.city}` : ""}
+              </p>
             ) : null}
           </section>
         ) : null}
@@ -148,7 +166,7 @@ export default async function DentistPublicPage(props: any) {
 
         {/* Footer */}
         <footer className="pt-6 text-xs text-gray-500">
-          Powered by Vyapr • microsite <span data-test-id="microsite-v30-12">v30.12</span>
+          Powered by Vyapr • microsite
         </footer>
       </div>
     </main>
