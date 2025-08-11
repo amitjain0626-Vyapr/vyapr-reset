@@ -148,7 +148,7 @@ export default async function DentistPublicPage(props: any) {
 
         {/* Footer */}
         <footer className="pt-6 text-xs text-gray-500">
-          Powered by Vyapr • microsite
+          Powered by Vyapr • microsite <span data-test-id="microsite-v30-12">v30.12</span>
         </footer>
       </div>
     </main>
