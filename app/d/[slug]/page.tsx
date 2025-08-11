@@ -1,187 +1,257 @@
-// @ts-nocheck
 // app/d/[slug]/page.tsx
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+// @ts-nocheck
 
-import Image from "next/image";
-import { notFound } from "next/navigation";
-import { createClient } from "@supabase/supabase-js"; // PUBLIC client (no cookies)
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
+import Link from "next/link";
 
-type DentistRow = {
+export const revalidate = 60;
+
+type Dentist = {
   id: string;
-  slug?: string | null;
-  name?: string | null;
-  phone?: string | null;
-  about?: string | null;
-  bio?: string | null;
-  specialization?: string | null;
-  whatsapp?: string | null;
-  address_line1?: string | null;
-  address_line2?: string | null;
-  city?: string | null;
-  profile_image_url?: string | null;
-  clinic_image_url?: string | null;
-  website?: string | null;
-  google_maps_link?: string | null;
-  razorpay_link?: string | null;
-  published?: boolean | null;
-  is_published?: boolean | null;
-  services?: string | null;
+  name: string | null;
+  city: string | null;
+  address: string | null;
+  about: string | null;
+  services: string | null;
+  clinic_name: string | null;
+  clinic_address: string | null;
+  phone: string | null;
+  whatsapp_number: string | null;
+  website_url: string | null;
+  google_maps_link: string | null;
+  razorpay_payment_link: string | null;
+  ondc_store_link: string | null;
+  profile_image_url: string | null;
+  clinic_image_url: string | null;
+  slug: string;
+  is_published: boolean | null;
 };
 
-function supabasePublic() {
-  return createClient(
+function supabaseServer() {
+  // Safe in RSC: provide no-op setters to avoid cookie mutation errors
+  const cookieStore = cookies();
+  return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        get(name: string) {
+          return cookieStore.get(name)?.value;
+        },
+        set() {},
+        remove() {},
+      },
+    }
   );
 }
 
-function normServices(s: any): string[] {
-  if (!s) return [];
-  try {
-    if (Array.isArray(s)) return s.map(String).filter(Boolean).slice(0, 20);
-    const txt = String(s);
-    const maybe = JSON.parse(txt);
-    if (Array.isArray(maybe)) return maybe.map(String).filter(Boolean).slice(0, 20);
-    return txt.split(/[;,|]\s*/g).map((x) => x.trim()).filter(Boolean).slice(0, 20);
-  } catch {
-    return String(s).split(/[;,|]\s*/g).map((x) => x.trim()).filter(Boolean).slice(0, 20);
-  }
+function telHref(raw?: string | null) {
+  if (!raw) return null;
+  const digits = raw.replace(/[^\d+]/g, "");
+  return digits ? `tel:${digits}` : null;
 }
 
-async function fetchRow(slug: string) {
-  const supabase = supabasePublic();
-  const clean = slug.trim();
-  const { data, error } = await supabase
+function waHref(raw?: string | null) {
+  if (!raw) return null;
+  const digits = raw.replace(/[^\d]/g, "");
+  if (!digits) return null;
+  // Default to 91 if user typed a 10-digit Indian mobile
+  const withCc = digits.length === 10 ? `91${digits}` : digits;
+  return `https://wa.me/${withCc}`;
+}
+
+export default async function Page({ params }: { params: { slug: string } }) {
+  const supabase = supabaseServer();
+
+  const { data: dentist, error } = await supabase
     .from("Dentists")
-    .select("*")
-    .eq("slug", clean)
-    .limit(1)
-    .maybeSingle();
+    .select(
+      "id,name,city,address,about,services,clinic_name,clinic_address,phone,whatsapp_number,website_url,google_maps_link,razorpay_payment_link,ondc_store_link,profile_image_url,clinic_image_url,slug,is_published"
+    )
+    .eq("slug", params.slug)
+    .eq("is_published", true)
+    .maybeSingle<Dentist>();
 
-  return { data: (data as DentistRow | null), error };
-}
-
-export default async function DentistPublicPage(props: any) {
-  // Support async params + searchParams
-  const p = props?.params && typeof props.params.then === "function" ? await props.params : props.params;
-  const s = props?.searchParams && typeof props.searchParams.then === "function" ? await props.searchParams : props.searchParams;
-
-  const slug: string | undefined = p?.slug;
-  const debug = String(s?.debug ?? "").length > 0;
-  if (!slug) notFound();
-
-  const { data, error } = await fetchRow(slug);
-
-  // Debug mode
-  if (debug) {
+  if (error || !dentist) {
     return (
-      <main className="min-h-screen p-4">
-        <pre className="text-xs whitespace-pre-wrap">
-{JSON.stringify(
-  {
-    where: "page.tsx",
-    slugFromParams: slug,
-    query: { table: "Dentists", by: "slug", value: slug.trim(), select: "*" },
-    error: error?.message ?? null,
-    data,
-  },
-  null,
-  2
-)}
-        </pre>
+      <main className="max-w-3xl mx-auto p-6">
+        <div className="rounded-2xl border bg-white p-8 text-center">
+          <div className="text-4xl mb-2">🦷</div>
+          <h1 className="text-xl font-semibold">Microsite not found</h1>
+          <p className="text-sm text-gray-500 mt-2">
+            The page you’re looking for doesn’t exist or isn’t published yet.
+          </p>
+        </div>
       </main>
     );
   }
 
-  if (!data) notFound();
-
-  const row = data;
-  const name = row.name ?? "Your Dentist";
-  const tagline = row.specialization?.toString() || "Dental care made simple";
-  const about = row.about ?? row.bio ?? "";
-  const services = normServices(row.services);
-
-  const phone = (row.phone ?? "").trim();
-  const waNum = (row.whatsapp ?? phone).replace(/[^\d]/g, "");
-  const waMsg = encodeURIComponent(`Hi ${name}, I'd like to book an appointment. (via Vyapr)`);
-  const waLink = waNum ? `https://wa.me/${waNum}?text=${waMsg}` : "";
-
-  const maps = row.google_maps_link ?? "";
-  const pay  = row.razorpay_link ?? "";
-  const website = row.website ?? "";
+  const phoneHref = telHref(dentist.phone);
+  const waLink = waHref(dentist.whatsapp_number || dentist.phone);
+  const website = dentist.website_url?.startsWith("http")
+    ? dentist.website_url
+    : dentist.website_url
+    ? `https://${dentist.website_url}`
+    : null;
+  const maps = dentist.google_maps_link?.startsWith("http")
+    ? dentist.google_maps_link
+    : null;
 
   return (
-    <main className="min-h-screen bg-white text-gray-900">
-      {/* Hero */}
-      <div className="relative w-full h-48 md:h-64 bg-gray-100">
-        {row.clinic_image_url ? (
-          <Image src={row.clinic_image_url} alt={`${name} clinic`} fill className="object-cover" />
-        ) : null}
-        <div className="absolute inset-0 bg-black/25" />
-        <div className="absolute bottom-4 left-4 right-4 flex items-center gap-4">
-          {row.profile_image_url ? (
-            <Image
-              src={row.profile_image_url}
-              alt={`${name} photo`}
-              width={84}
-              height={84}
-              className="rounded-2xl border bg-white shadow"
-            />
-          ) : (
-            <div className="w-20 h-20 rounded-2xl bg-white border grid place-items-center text-xl shadow">🦷</div>
+    <main className="max-w-3xl mx-auto p-4 md:p-6">
+      {/* Card */}
+      <section className="rounded-3xl border bg-white shadow-sm overflow-hidden">
+        {/* Hero */}
+        <div className="p-6 md:p-8">
+          <div className="flex items-start gap-4">
+            {/* Profile image */}
+            <div className="w-20 h-20 md:w-24 md:h-24 rounded-full overflow-hidden bg-gray-100 border flex items-center justify-center">
+              {dentist.profile_image_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={dentist.profile_image_url}
+                  alt={dentist.name || "Dentist"}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span className="text-2xl">🦷</span>
+              )}
+            </div>
+
+            <div className="flex-1">
+              <h1 className="text-2xl md:text-3xl font-semibold leading-tight">
+                {dentist.name || "Dentist"}
+              </h1>
+              <div className="mt-1 text-sm text-gray-600">
+                {dentist.city || ""}
+              </div>
+
+              {/* Quick actions */}
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                {waLink && (
+                  <a
+                    href={waLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm"
+                  >
+                    💬 Book on WhatsApp
+                  </a>
+                )}
+                {phoneHref && (
+                  <a
+                    href={phoneHref}
+                    className="px-3 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm"
+                  >
+                    📞 Call
+                  </a>
+                )}
+                {website && (
+                  <a
+                    href={website}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm"
+                  >
+                    🌐 Website
+                  </a>
+                )}
+                {maps && (
+                  <a
+                    href={maps}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm"
+                  >
+                    🗺️ Get Directions
+                  </a>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Address line */}
+          {(dentist.address || dentist.clinic_address) && (
+            <div className="mt-4 text-sm text-gray-700">
+              {dentist.clinic_address || dentist.address}
+            </div>
           )}
-          <div className="text-white drop-shadow">
-            <h1 className="text-2xl font-semibold">{name}</h1>
-            <p className="text-sm opacity-95">{tagline}</p>
-            {(row.address_line1 || row.city) ? (
-              <p className="text-xs opacity-90 mt-1">
-                {row.address_line1 ?? ""}{row.address_line2 ? `, ${row.address_line2}` : ""}{row.city ? ` • ${row.city}` : ""}
+        </div>
+
+        {/* Clinic banner */}
+        {dentist.clinic_image_url && (
+          <div className="w-full">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={dentist.clinic_image_url}
+              alt={dentist.clinic_name || "Clinic"}
+              className="w-full max-h-80 object-cover"
+            />
+          </div>
+        )}
+
+        {/* Body */}
+        <div className="p-6 md:p-8">
+          {dentist.about && (
+            <section className="mb-6">
+              <h2 className="text-lg font-semibold">About</h2>
+              <p className="mt-2 text-sm leading-6 text-gray-700 whitespace-pre-line">
+                {dentist.about}
               </p>
-            ) : null}
+            </section>
+          )}
+
+          {(dentist.services && dentist.services.trim().length > 0) && (
+            <section className="mb-6">
+              <h2 className="text-lg font-semibold">Services</h2>
+              <p className="mt-2 text-sm leading-6 text-gray-700 whitespace-pre-line">
+                {dentist.services}
+              </p>
+            </section>
+          )}
+
+          {/* Payment / ONDC buttons (only when links exist) */}
+          <div className="flex flex-wrap gap-2">
+            {dentist.razorpay_payment_link && (
+              <a
+                href={
+                  dentist.razorpay_payment_link.startsWith("http")
+                    ? dentist.razorpay_payment_link
+                    : `https://${dentist.razorpay_payment_link}`
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm"
+              >
+                💳 Pay/Book Online
+              </a>
+            )}
+            {dentist.ondc_store_link && (
+              <a
+                href={
+                  dentist.ondc_store_link.startsWith("http")
+                    ? dentist.ondc_store_link
+                    : `https://${dentist.ondc_store_link}`
+                }
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm"
+              >
+                🛒 Visit ONDC Store
+              </a>
+            )}
           </div>
         </div>
-      </div>
-
-      {/* Body */}
-      <div className="mx-auto max-w-3xl p-4 md:p-6 space-y-8">
-        {/* CTAs */}
-        <div className="flex flex-wrap gap-3">
-          {waLink ? <a href={waLink} target="_blank" className="px-4 py-2 rounded-xl border hover:bg-gray-50">💬 Book on WhatsApp</a> : null}
-          {phone ? <a href={`tel:${phone}`} className="px-4 py-2 rounded-xl border hover:bg-gray-50">📞 Call</a> : null}
-          {maps ? <a href={maps} target="_blank" className="px-4 py-2 rounded-xl border hover:bg-gray-50">🗺️ Directions</a> : null}
-          {website ? <a href={website} target="_blank" className="px-4 py-2 rounded-xl border hover:bg-gray-50">🌐 Website</a> : null}
-          {pay ? <a href={pay} target="_blank" className="px-4 py-2 rounded-xl border hover:bg-gray-50">💳 Pay / Book</a> : null}
-        </div>
-
-        {/* About */}
-        {about || row.address_line1 || row.city ? (
-          <section className="space-y-2">
-            <h2 className="text-lg font-semibold">About</h2>
-            {about ? <p className="text-sm leading-6 whitespace-pre-line">{about}</p> : null}
-            {(row.address_line1 || row.city) ? (
-              <p className="text-sm text-gray-600">
-                {row.address_line1 ?? ""}{row.address_line2 ? `, ${row.address_line2}` : ""}{row.city ? ` • ${row.city}` : ""}
-              </p>
-            ) : null}
-          </section>
-        ) : null}
-
-        {/* Services */}
-        {services.length ? (
-          <section className="space-y-2">
-            <h2 className="text-lg font-semibold">Services</h2>
-            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {services.map((s, i) => (
-                <li key={i} className="px-3 py-2 border rounded-lg">{s}</li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
 
         {/* Footer */}
-        <footer className="pt-6 text-xs text-gray-500">Powered by Vyapr • microsite</footer>
-      </div>
+        <div className="border-t p-6 md:p-8 text-xs text-gray-500 flex items-center justify-between">
+          <span>
+            Powered by <span className="font-medium">Vyapr</span> • microsite
+          </span>
+          <Link href="/" className="underline">Create your site</Link>
+        </div>
+      </section>
     </main>
   );
 }
