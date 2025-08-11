@@ -1,79 +1,40 @@
-"use client";
+// components/payments/PaymentsTable.tsx
 // @ts-nocheck
-import { useState } from "react";
-
-export default function PaymentsTable({ initialRows = [] }: { initialRows: any[] }) {
-  const [rows, setRows] = useState(initialRows);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-
-  const markPaid = async (id: string) => {
-    setBusyId(id);
-    setErr(null);
-    try {
-      const res = await fetch("/api/payments/mark-paid", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Failed");
-      setRows((r: any[]) => r.map((x) => (x.id === id ? { ...x, status: "paid" } : x)));
-    } catch (e: any) {
-      setErr(e?.message || "Something went wrong");
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  if (!rows?.length) {
-    return <p className="text-sm">No payments yet. Use “Create Mock Order” on Dashboard.</p>;
+export default function PaymentsTable({ payments = [] }) {
+  if (!Array.isArray(payments) || payments.length === 0) {
+    return (
+      <div className="rounded-xl border p-4 text-gray-600 text-sm">
+        No payments yet.
+      </div>
+    );
   }
 
   return (
-    <div className="overflow-x-auto border rounded-2xl">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="bg-gray-50">
-            <th className="text-left p-3">When</th>
-            <th className="text-left p-3">Order</th>
-            <th className="text-left p-3">Amount</th>
-            <th className="text-left p-3">Status</th>
-            <th className="text-left p-3">Action</th>
+    <div className="overflow-x-auto rounded-xl border">
+      <table className="min-w-full text-sm">
+        <thead className="bg-gray-50">
+          <tr>
+            <th className="text-left px-4 py-2">Date</th>
+            <th className="text-left px-4 py-2">Amount</th>
+            <th className="text-left px-4 py-2">Status</th>
+            <th className="text-left px-4 py-2">Notes</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((p: any) => (
+          {payments.map((p) => (
             <tr key={p.id} className="border-t">
-              <td className="p-3 whitespace-nowrap">
-                {new Date(p.created_at).toLocaleString()}
+              <td className="px-4 py-2">
+                {p.created_at ? new Date(p.created_at).toLocaleString() : '—'}
               </td>
-              <td className="p-3">
-                <div>{p.provider?.toUpperCase()} • {p.provider_order_id}</div>
-                {p.receipt ? <div className="text-xs opacity-70">Receipt: {p.receipt}</div> : null}
-              </td>
-              <td className="p-3">
-                ₹{(p.amount / 100).toFixed(2)} {p.currency || "INR"}
-              </td>
-              <td className="p-3">
-                <span className="inline-block px-2 py-1 rounded-lg border">
-                  {p.status}
-                </span>
-              </td>
-              <td className="p-3">
-                <button
-                  className="px-3 py-1 rounded-lg border"
-                  disabled={busyId === p.id || p.status === "paid"}
-                  onClick={() => markPaid(p.id)}
-                >
-                  {busyId === p.id ? "Updating…" : p.status === "paid" ? "Paid" : "Mark Paid"}
-                </button>
+              <td className="px-4 py-2">{p.amount ?? '—'}</td>
+              <td className="px-4 py-2">{p.status ?? '—'}</td>
+              <td className="px-4 py-2 max-w-xs truncate" title={p.notes ?? ''}>
+                {p.notes ?? '—'}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
-      {err && <div className="p-3 text-sm text-red-600">✗ {err}</div>}
     </div>
   );
 }

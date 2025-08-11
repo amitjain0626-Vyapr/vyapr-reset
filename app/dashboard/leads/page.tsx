@@ -1,47 +1,61 @@
-// @ts-nocheck
-import { supabaseServer } from '../../../lib/supabaseServer';
-import LeadsTable from "@/components/leads/LeadsTable";
-
+// app/dashboard/leads/page.tsx
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+import LeadsTable from "../../../components/leads/LeadsTable";
+import { redirect } from "next/navigation";
+import { getServerSupabase } from "../../../lib/supabase/server";
+
+type LeadRow = {
+  id: string;
+  name: string | null;
+  phone: string | null;
+  note: string | null;
+  source: string | null;
+  created_at: string | null;
+};
+
+async function loadLeads() {
+  try {
+    const supabase = getServerSupabase();
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) redirect("/login");
+
+    const { data, error } = await supabase
+      .from("Leads")
+      .select("id,name,phone,note,source,created_at")
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    if (error || !data) return [];
+
+    return (data as LeadRow[]).map((r) => ({
+      id: r.id,
+      name: r.name ?? "—",
+      phone: r.phone ?? undefined,
+      note: r.note ?? undefined,
+      source: r.source ?? undefined,
+      createdAt: r.created_at ?? undefined,
+    }));
+  } catch {
+    return [];
+  }
+}
 
 export default async function LeadsPage() {
-  const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  // resolve dentist owned by user
-  const { data: dentist } = await supabase
-    .from("Dentists")
-    .select("id, name, slug")
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
-
-  if (!dentist) {
-    return (
-      <main className="max-w-4xl mx-auto px-4 py-10">
-        <h1 className="text-2xl font-semibold mb-2">Leads</h1>
-        <p className="text-sm">No dentist profile found. Complete onboarding first.</p>
-      </main>
-    );
-  }
-
-  const { data: leads } = await supabase
-    .from("Leads")
-    .select("id, name, email, phone, message, source, status, created_at")
-    .eq("dentist_id", dentist.id)
-    .order("created_at", { ascending: false });
-
+  const rows = await loadLeads();
   return (
-    <main className="max-w-6xl mx-auto px-4 py-10">
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-semibold">Leads</h1>
-        <a className="text-sm underline" href="/dashboard">← Back to dashboard</a>
+    <div className="p-4 md:p-6">
+      <div className="mb-4">
+        <h1 className="text-xl font-semibold">Leads</h1>
+        <p className="text-sm text-gray-600">
+          Latest leads from your microsite, WhatsApp, and other sources.
+        </p>
       </div>
-      <LeadsTable initialLeads={leads || []} />
-    </main>
+      <LeadsTable data={rows} />
+    </div>
   );
 }
