@@ -24,8 +24,9 @@ export async function POST(req: Request) {
     is_published: !!body.is_published,
   };
 
-  // ensure there is a slug; keep existing if present
-  const wantedSlug = (body.slug ?? "").trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 64);
+  const wantedSlug = (body.slug ?? "").trim().toLowerCase()
+    .replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "").slice(0, 64);
+
   const { data: existing, error: findErr } = await supabase
     .from("Dentists")
     .select("*")
@@ -37,10 +38,9 @@ export async function POST(req: Request) {
 
   let slug = existing?.slug || wantedSlug || null;
 
-  // if we need to set a new slug, ensure it's unique
   if (!existing?.slug && slug) {
     const { data: dup } = await supabase.from("Dentists").select("id").eq("slug", slug).limit(1).maybeSingle();
-    if (dup) slug = `${slug}-${user.id.slice(0, 6)}`; // make unique
+    if (dup) slug = `${slug}-${user.id.slice(0, 6)}`;
   }
 
   const row = {
