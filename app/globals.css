@@ -1,42 +1,30 @@
+/* app/globals.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* base tweaks so text/buttons don’t look raw */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-html,
-body {
-  max-width: 100vw;
-  overflow-x: hidden;
+html, body {
+  height: 100%;
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  @apply bg-gray-50 text-gray-900 antialiased;
 }
 
-* {
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
+/* a light card look used across pages */
+.card {
+  @apply rounded-3xl border bg-white shadow-sm;
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+/* simple button styles you’re already using */
+.btn {
+  @apply px-3 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm;
 }
-
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
+.btn-primary {
+  @apply px-3 py-2 rounded-xl bg-black text-white text-sm hover:opacity-90;
 }
