@@ -3,7 +3,7 @@
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import Link from "next/link";
-import SafeImg from "@/components/ui/SafeImg";
+import SafeImg from "../../../components/ui/SafeImg";
 
 function supabaseServer() {
   const cookieStore = cookies();
