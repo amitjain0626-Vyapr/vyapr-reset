@@ -18,6 +18,7 @@ export default function BookingForm({
   const [note, setNote] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [details, setDetails] = React.useState<string | null>(null);
 
   function cleanPhone(v: string) {
     return v.replace(/[^\d+]/g, '');
@@ -26,6 +27,7 @@ export default function BookingForm({
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setDetails(null);
 
     const p = cleanPhone(phone);
     if (!patient_name || p.length < 10) {
@@ -46,13 +48,19 @@ export default function BookingForm({
           utm: utm || {},
         }),
       });
-      const json = await res.json();
+
+      const json = await res.json().catch(() => ({}));
+
       if (!res.ok || !json?.ok) {
-        throw new Error(json?.error || 'Could not submit. Please try again.');
+        setError(json?.error || 'Insert failed');
+        if (json?.details) setDetails(String(json.details));
+        return;
       }
+
       router.push(`/thank-you?slug=${encodeURIComponent(slug)}`);
     } catch (err: any) {
-      setError(err?.message || 'Submission failed.');
+      setError('Submission failed.');
+      setDetails(err?.message || String(err));
     } finally {
       setSubmitting(false);
     }
@@ -60,7 +68,12 @@ export default function BookingForm({
 
   return (
     <form onSubmit={onSubmit} className="space-y-4 max-w-lg">
-      {error ? <div className="text-sm text-red-600">{error}</div> : null}
+      {error ? (
+        <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2">
+          <div className="font-medium">{error}</div>
+          {details ? <div className="mt-1 text-xs opacity-80">{details}</div> : null}
+        </div>
+      ) : null}
 
       <label className="block">
         <div className="text-sm font-medium mb-1">Your name</div>
@@ -99,7 +112,7 @@ export default function BookingForm({
       <button
         type="submit"
         disabled={submitting}
-        className="px-4 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm"
+        className="btn-primary"
       >
         {submitting ? 'Booking…' : 'Book Appointment'}
       </button>
