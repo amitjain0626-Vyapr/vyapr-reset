@@ -38,9 +38,8 @@ export async function POST(req: Request) {
     // Resolve dentist by slug (must be published)
     const { data: dentist, error: dErr } = await supabase
       .from("Dentists")
-      .select("id, slug, is_published")
+      .select("*")
       .eq("slug", String(slug))
-      .eq("is_published", true)
       .maybeSingle();
 
     if (dErr) {
@@ -49,14 +48,14 @@ export async function POST(req: Request) {
         { status: 500 }
       );
     }
-    if (!dentist) {
+    if (!dentist || dentist.is_published !== true) {
       return NextResponse.json(
         { ok: false, error: "Microsite not found or unpublished" },
         { status: 404 }
       );
     }
 
-    // Insert lead (RLS allows public insert)
+    // Insert lead (public INSERT allowed by RLS). Do NOT .select() — public has no SELECT.
     const payload = {
       dentist_id: dentist.id,
       source_slug: String(slug),
@@ -66,11 +65,7 @@ export async function POST(req: Request) {
       utm: typeof utm === "object" && utm !== null ? utm : {},
     };
 
-    const { data, error } = await supabase
-      .from("Leads")
-      .insert(payload)
-      .select("id")
-      .maybeSingle();
+    const { error } = await supabase.from("Leads").insert(payload);
 
     if (error) {
       return NextResponse.json(
@@ -79,7 +74,8 @@ export async function POST(req: Request) {
       );
     }
 
-    return NextResponse.json({ ok: true, id: data?.id || null }, { status: 200 });
+    // Success (no row returned due to RLS)
+    return NextResponse.json({ ok: true }, { status: 200 });
   } catch (e: any) {
     return NextResponse.json(
       { ok: false, error: "Unhandled error", details: e?.message ?? String(e) },
