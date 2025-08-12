@@ -33,13 +33,12 @@ function supabaseServer() {
   );
 }
 
-export default async function Page({
-  params,
-  searchParams,
-}: {
-  params: { slug: string };
-  searchParams: Record<string, string | string[] | undefined>;
-}) {
+export default async function Page(props: any) {
+  const { params, searchParams } = props as {
+    params: { slug: string };
+    searchParams?: Record<string, string | string[] | undefined>;
+  };
+
   const supabase = supabaseServer();
   const { data: dentist } = await supabase
     .from("Dentists")
@@ -61,7 +60,6 @@ export default async function Page({
     );
   }
 
-  // Pass all query params through as UTM meta
   const utm: Record<string, string> = {};
   for (const [k, v] of Object.entries(searchParams || {})) {
     if (typeof v === "string") utm[k] = v;

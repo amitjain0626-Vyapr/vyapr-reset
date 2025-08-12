@@ -9,7 +9,13 @@ function supabaseServer() {
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { get: (n: string) => cookieStore.get(n)?.value, set() {}, remove() {} } }
+    {
+      cookies: {
+        get: (n: string) => cookieStore.get(n)?.value,
+        set() {},
+        remove() {},
+      },
+    }
   );
 }
 
@@ -24,5 +30,10 @@ export async function GET(req: Request) {
     .eq("slug", slug)
     .maybeSingle();
 
-  return NextResponse.json({ ok: !error, slug, data, error: error?.message || null });
+  return NextResponse.json({
+    ok: !error,
+    slug,
+    data,
+    error: error?.message || null,
+  });
 }

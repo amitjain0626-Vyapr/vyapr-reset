@@ -1,263 +1,151 @@
 // app/d/[slug]/page.tsx
 // @ts-nocheck
-
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import Link from "next/link";
-
-export const revalidate = 60;
-
-type Dentist = {
-  id: string;
-  name: string | null;
-  city: string | null;
-  address: string | null;
-  about: string | null;
-  services: string | null;
-  clinic_name: string | null;
-  clinic_address: string | null;
-  phone: string | null;
-  whatsapp_number: string | null;
-  website_url: string | null;
-  google_maps_link: string | null;
-  razorpay_payment_link: string | null;
-  ondc_store_link: string | null;
-  profile_image_url: string | null;
-  clinic_image_url: string | null;
-  slug: string;
-  is_published: boolean | null;
-};
+import SafeImg from "@/components/ui/SafeImg";
 
 function supabaseServer() {
   const cookieStore = cookies();
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-        set() {},
-        remove() {},
-      },
-    }
+    { cookies: { get: (n: string) => cookieStore.get(n)?.value, set() {}, remove() {} } }
   );
 }
 
+function hasHttpUrl(u?: string | null) {
+  return typeof u === "string" && /^https?:\/\//i.test(u.trim());
+}
 function telHref(raw?: string | null) {
   if (!raw) return null;
   const digits = raw.replace(/[^\d+]/g, "");
   return digits ? `tel:${digits}` : null;
 }
 
-function waHref(raw?: string | null) {
-  if (!raw) return null;
-  const digits = raw.replace(/[^\d]/g, "");
-  if (!digits) return null;
-  const withCc = digits.length === 10 ? `91${digits}` : digits;
-  return `https://wa.me/${withCc}`;
-}
-
-export default async function Page(props: any) {
-  const { params } = props as { params: { slug: string } };
-
+export default async function MicrositePage({ params }) {
   const supabase = supabaseServer();
 
-  const { data: dentist, error } = await supabase
+  const { data: dentist } = await supabase
     .from("Dentists")
-    .select(
-      "id,name,city,address,about,services,clinic_name,clinic_address,phone,whatsapp_number,website_url,google_maps_link,razorpay_payment_link,ondc_store_link,profile_image_url,clinic_image_url,slug,is_published"
-    )
+    .select("*")
     .eq("slug", params.slug)
-    .eq("is_published", true)
-    .maybeSingle<Dentist>();
+    .maybeSingle();
 
-  if (error || !dentist) {
+  if (!dentist || !dentist.is_published) {
     return (
-      <main className="max-w-3xl mx-auto p-6">
-        <div className="rounded-2xl border bg-white p-8 text-center">
-          <div className="text-4xl mb-2">🦷</div>
-          <h1 className="text-xl font-semibold">Microsite not found</h1>
-          <p className="text-sm text-gray-500 mt-2">
-            The page you’re looking for doesn’t exist or isn’t published yet.
-          </p>
-        </div>
-      </main>
+      <div className="max-w-xl mx-auto py-16 text-center">
+        <div className="text-4xl mb-4">🦷</div>
+        <h1 className="text-2xl font-semibold mb-2">Microsite not found</h1>
+        <p className="text-gray-600">This page doesn’t exist or hasn’t been published yet.</p>
+      </div>
     );
   }
 
+  const profileOk = hasHttpUrl(dentist.profile_image_url);
+  const clinicOk = hasHttpUrl(dentist.clinic_image_url);
   const phoneHref = telHref(dentist.phone);
-  const waLink = waHref(dentist.whatsapp_number || dentist.phone);
-  const website = dentist.website_url?.startsWith("http")
-    ? dentist.website_url
-    : dentist.website_url
-    ? `https://${dentist.website_url}`
-    : null;
-  const maps = dentist.google_maps_link?.startsWith("http")
-    ? dentist.google_maps_link
-    : null;
+  const website = hasHttpUrl(dentist.website) ? dentist.website : null;
+  const maps = hasHttpUrl(dentist.google_maps_link) ? dentist.google_maps_link : null;
 
   return (
-    <main className="max-w-3xl mx-auto p-4 md:p-6">
-      <section className="rounded-3xl border bg-white shadow-sm overflow-hidden">
-        <div className="p-6 md:p-8">
-          <div className="flex items-start gap-4">
-            {/* Avatar */}
-            <div className="w-20 h-20 md:w-24 md:h-24 rounded-full overflow-hidden bg-gray-100 border flex items-center justify-center">
-              {dentist.profile_image_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={dentist.profile_image_url}
-                  alt={dentist.name || "Dentist"}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <span className="text-2xl">🦷</span>
-              )}
-            </div>
-
-            {/* Heading + CTAs */}
-            <div className="flex-1">
-              <h1 className="text-2xl md:text-3xl font-semibold leading-tight">
-                {dentist.name || "Dentist"}
-              </h1>
-              <div className="mt-1 text-sm text-gray-600">{dentist.city || ""}</div>
-
-              {/* Primary CTA row */}
-              <div className="mt-4 flex flex-wrap items-center gap-2">
-                {/* PRIMARY: Book Appointment (links to Vyapr booking flow) */}
-                <Link
-                  href={`/book/${encodeURIComponent(dentist.slug)}`}
-                  className="px-3 py-2 rounded-xl bg-black text-white text-sm hover:opacity-90"
-                >
-                  🗓️ Book Appointment
-                </Link>
-
-                {/* Secondary actions */}
-                {waLink && (
-                  <a
-                    href={waLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-3 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm"
-                  >
-                    💬 WhatsApp
-                  </a>
-                )}
-                {phoneHref && (
-                  <a
-                    href={phoneHref}
-                    className="px-3 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm"
-                  >
-                    📞 Call
-                  </a>
-                )}
-                {website && (
-                  <a
-                    href={website}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-3 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm"
-                  >
-                    🌐 Website
-                  </a>
-                )}
-                {maps && (
-                  <a
-                    href={maps}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-3 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm"
-                  >
-                    🗺️ Directions
-                  </a>
-                )}
+    <main className="max-w-3xl mx-auto py-8 px-4">
+      {/* Header */}
+      <header className="flex flex-col items-center text-center">
+        {profileOk ? (
+          <SafeImg
+            src={dentist.profile_image_url}
+            alt={dentist.name || "Profile"}
+            className="w-32 h-32 rounded-full object-cover border mb-4"
+            fallback={
+              <div className="w-32 h-32 rounded-full bg-gray-200 flex items-center justify-center text-4xl mb-4">
+                🦷
               </div>
-            </div>
-          </div>
-
-          {(dentist.address || dentist.clinic_address) && (
-            <div className="mt-4 text-sm text-gray-700">
-              {dentist.clinic_address || dentist.address}
-            </div>
-          )}
-        </div>
-
-        {/* Banner */}
-        {dentist.clinic_image_url && (
-          <div className="w-full">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={dentist.clinic_image_url}
-              alt={dentist.clinic_name || "Clinic"}
-              className="w-full max-h-80 object-cover"
-            />
+            }
+          />
+        ) : (
+          <div className="w-32 h-32 rounded-full bg-gray-200 flex items-center justify-center text-4xl mb-4">
+            🦷
           </div>
         )}
 
-        {/* Body */}
-        <div className="p-6 md:p-8">
-          {dentist.about && (
-            <section className="mb-6">
-              <h2 className="text-lg font-semibold">About</h2>
-              <p className="mt-2 text-sm leading-6 text-gray-700 whitespace-pre-line">
-                {dentist.about}
-              </p>
-            </section>
-          )}
+        <h1 className="text-3xl font-bold">{dentist.name}</h1>
+        {dentist.city && <p className="text-gray-700">{dentist.city}</p>}
+        {dentist.address_line1 && (
+          <p className="text-gray-600">
+            {dentist.address_line1} {dentist.address_line2 || ""}
+          </p>
+        )}
 
-          {dentist.services?.trim() && (
-            <section className="mb-6">
-              <h2 className="text-lg font-semibold">Services</h2>
-              <p className="mt-2 text-sm leading-6 text-gray-700 whitespace-pre-line">
-                {dentist.services}
-              </p>
-            </section>
-          )}
+        {maps && (
+          <a
+            href={maps}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-600 underline mt-2"
+          >
+            📍 View on Google Maps
+          </a>
+        )}
 
-          <div className="flex flex-wrap gap-2">
-            {dentist.razorpay_payment_link && (
-              <a
-                href={
-                  dentist.razorpay_payment_link.startsWith("http")
-                    ? dentist.razorpay_payment_link
-                    : `https://${dentist.razorpay_payment_link}`
-                }
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-3 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm"
-              >
-                💳 Pay/Book Online
-              </a>
-            )}
-            {dentist.ondc_store_link && (
-              <a
-                href={
-                  dentist.ondc_store_link.startsWith("http")
-                    ? dentist.ondc_store_link
-                    : `https://${dentist.ondc_store_link}`
-                }
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-3 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm"
-              >
-                🛒 ONDC Store
-              </a>
-            )}
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="border-t p-6 md:p-8 text-xs text-gray-500 flex items-center justify-between">
-          <span>
-            Powered by <span className="font-medium">Vyapr</span> • microsite
-          </span>
-          <Link href="/" className="underline">
-            Create your site
+        {/* CTAs */}
+        <div className="flex flex-wrap justify-center gap-3 mt-4">
+          <Link
+            href={`/book/${encodeURIComponent(dentist.slug)}`}
+            className="btn-primary no-underline inline-flex items-center"
+          >
+            🗓️ Book Appointment
           </Link>
+          {phoneHref && (
+            <a href={phoneHref} className="btn no-underline inline-flex items-center">
+              📞 Call
+            </a>
+          )}
+          {website && (
+            <a
+              href={website}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn no-underline inline-flex items-center"
+            >
+              🌐 Website
+            </a>
+          )}
         </div>
-      </section>
+      </header>
+
+      {/* Clinic banner */}
+      {clinicOk && (
+        <div className="mt-6">
+          <SafeImg
+            src={dentist.clinic_image_url}
+            alt="Clinic"
+            className="w-full rounded-2xl object-cover border max-h-80"
+            fallback={null}
+          />
+        </div>
+      )}
+
+      {/* About */}
+      {dentist.about && (
+        <section className="mt-8 card p-6">
+          <h2 className="text-xl font-semibold mb-2">About</h2>
+          <p className="leading-7">{dentist.about}</p>
+        </section>
+      )}
+
+      {/* Services */}
+      {dentist.services && (
+        <section className="mt-6 card p-6">
+          <h2 className="text-xl font-semibold mb-2">Services</h2>
+          <p className="leading-7 whitespace-pre-line">{dentist.services}</p>
+        </section>
+      )}
+
+      {/* Footer */}
+      <footer className="mt-8 text-center text-gray-500 text-sm">
+        Powered by <Link href="/" className="underline">Vyapr</Link> • microsite
+      </footer>
     </main>
   );
 }
