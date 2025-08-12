@@ -29,7 +29,6 @@ type Dentist = {
 };
 
 function supabaseServer() {
-  // Safe in RSC: provide no-op setters to avoid cookie mutation errors
   const cookieStore = cookies();
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -56,12 +55,13 @@ function waHref(raw?: string | null) {
   if (!raw) return null;
   const digits = raw.replace(/[^\d]/g, "");
   if (!digits) return null;
-  // Default to 91 if user typed a 10-digit Indian mobile
   const withCc = digits.length === 10 ? `91${digits}` : digits;
   return `https://wa.me/${withCc}`;
 }
 
-export default async function Page({ params }: { params: { slug: string } }) {
+export default async function Page(props: any) {
+  const { params } = props as { params: { slug: string } };
+
   const supabase = supabaseServer();
 
   const { data: dentist, error } = await supabase
@@ -100,12 +100,10 @@ export default async function Page({ params }: { params: { slug: string } }) {
 
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-6">
-      {/* Card */}
       <section className="rounded-3xl border bg-white shadow-sm overflow-hidden">
-        {/* Hero */}
         <div className="p-6 md:p-8">
           <div className="flex items-start gap-4">
-            {/* Profile image */}
+            {/* Avatar */}
             <div className="w-20 h-20 md:w-24 md:h-24 rounded-full overflow-hidden bg-gray-100 border flex items-center justify-center">
               {dentist.profile_image_url ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -119,16 +117,24 @@ export default async function Page({ params }: { params: { slug: string } }) {
               )}
             </div>
 
+            {/* Heading + CTAs */}
             <div className="flex-1">
               <h1 className="text-2xl md:text-3xl font-semibold leading-tight">
                 {dentist.name || "Dentist"}
               </h1>
-              <div className="mt-1 text-sm text-gray-600">
-                {dentist.city || ""}
-              </div>
+              <div className="mt-1 text-sm text-gray-600">{dentist.city || ""}</div>
 
-              {/* Quick actions */}
+              {/* Primary CTA row */}
               <div className="mt-4 flex flex-wrap items-center gap-2">
+                {/* PRIMARY: Book Appointment (links to Vyapr booking flow) */}
+                <Link
+                  href={`/book/${encodeURIComponent(dentist.slug)}`}
+                  className="px-3 py-2 rounded-xl bg-black text-white text-sm hover:opacity-90"
+                >
+                  🗓️ Book Appointment
+                </Link>
+
+                {/* Secondary actions */}
                 {waLink && (
                   <a
                     href={waLink}
@@ -136,7 +142,7 @@ export default async function Page({ params }: { params: { slug: string } }) {
                     rel="noopener noreferrer"
                     className="px-3 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm"
                   >
-                    💬 Book on WhatsApp
+                    💬 WhatsApp
                   </a>
                 )}
                 {phoneHref && (
@@ -164,14 +170,13 @@ export default async function Page({ params }: { params: { slug: string } }) {
                     rel="noopener noreferrer"
                     className="px-3 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm"
                   >
-                    🗺️ Get Directions
+                    🗺️ Directions
                   </a>
                 )}
               </div>
             </div>
           </div>
 
-          {/* Address line */}
           {(dentist.address || dentist.clinic_address) && (
             <div className="mt-4 text-sm text-gray-700">
               {dentist.clinic_address || dentist.address}
@@ -179,7 +184,7 @@ export default async function Page({ params }: { params: { slug: string } }) {
           )}
         </div>
 
-        {/* Clinic banner */}
+        {/* Banner */}
         {dentist.clinic_image_url && (
           <div className="w-full">
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -202,7 +207,7 @@ export default async function Page({ params }: { params: { slug: string } }) {
             </section>
           )}
 
-          {(dentist.services && dentist.services.trim().length > 0) && (
+          {dentist.services?.trim() && (
             <section className="mb-6">
               <h2 className="text-lg font-semibold">Services</h2>
               <p className="mt-2 text-sm leading-6 text-gray-700 whitespace-pre-line">
@@ -211,7 +216,6 @@ export default async function Page({ params }: { params: { slug: string } }) {
             </section>
           )}
 
-          {/* Payment / ONDC buttons (only when links exist) */}
           <div className="flex flex-wrap gap-2">
             {dentist.razorpay_payment_link && (
               <a
@@ -238,7 +242,7 @@ export default async function Page({ params }: { params: { slug: string } }) {
                 rel="noopener noreferrer"
                 className="px-3 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm"
               >
-                🛒 Visit ONDC Store
+                🛒 ONDC Store
               </a>
             )}
           </div>
@@ -249,7 +253,9 @@ export default async function Page({ params }: { params: { slug: string } }) {
           <span>
             Powered by <span className="font-medium">Vyapr</span> • microsite
           </span>
-          <Link href="/" className="underline">Create your site</Link>
+          <Link href="/" className="underline">
+            Create your site
+          </Link>
         </div>
       </section>
     </main>
