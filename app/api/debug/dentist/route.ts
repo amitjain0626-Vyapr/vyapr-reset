@@ -14,19 +14,15 @@ function supabaseServer() {
 }
 
 export async function GET(req: Request) {
-  try {
-    const url = new URL(req.url);
-    const slug = url.searchParams.get("slug") || "";
-    const supabase = supabaseServer();
+  const url = new URL(req.url);
+  const slug = url.searchParams.get("slug") || "";
+  const supabase = supabaseServer();
 
-    const { data, error } = await supabase
-      .from("Dentists")
-      .select("id,slug,is_published,name,city,updated_at")
-      .eq("slug", slug)
-      .maybeSingle();
+  const { data, error } = await supabase
+    .from("Dentists")
+    .select("id,slug,is_published,name,city,updated_at")
+    .eq("slug", slug)
+    .maybeSingle();
 
-    return NextResponse.json({ ok: !error, slug, data, error });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 500 });
-  }
+  return NextResponse.json({ ok: !error, slug, data, error: error?.message || null });
 }
