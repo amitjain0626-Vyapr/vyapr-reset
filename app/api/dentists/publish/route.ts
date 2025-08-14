@@ -3,53 +3,54 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 
-// Force Node.js runtime to avoid Edge cookie issues
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type PublishBody = {
-  name: string;
-  phone: string;
-  category: string;
-  slug: string;
-  city?: string;
-  about?: string;
-  priceRange?: string;
-};
-
-function jsonError(status: number, code: string, message: string, meta: any = {}) {
-  return NextResponse.json(
-    { ok: false, error: { code, message, meta } },
-    { status }
-  );
+function j(status: number, code: string, message: string, meta: any = {}) {
+  // Flatten common Supabase error shapes for readability
+  const metaOut: any = { ...meta };
+  const err = meta?.error || meta?.upsertErr || meta?.existErr || meta?.microErr || meta?.userErr;
+  if (err) {
+    metaOut.code = err.code || err.name;
+    metaOut.details = err.details || err.message || String(err);
+    metaOut.hint = err.hint ?? undefined;
+    metaOut.msg = err.message ?? undefined;
+  }
+  return NextResponse.json({ ok: false, error: { code, message }, meta: metaOut }, { status });
 }
 
 export async function POST(req: Request) {
   try {
-    // Parse body early and validate
-    const body = (await req.json()) as PublishBody;
+    const body = await req.json();
+
+    // Validate required fields early
     const required = ["name", "phone", "category", "slug"] as const;
     for (const k of required) {
-      if (!body?.[k]) return jsonError(400, "VALIDATION_FAILED", `Missing field: ${k}`);
+      if (!body?.[k] || String(body[k]).trim() === "") {
+        return j(400, "VALIDATION_FAILED", `Missing field: ${k}`);
+      }
     }
 
-    // Create server-side client bound to request cookies
     const supabase = createRouteHandlerClient({ cookies });
 
-    // Confirm we HAVE a user session in this API route
     const {
       data: { user },
       error: userErr,
     } = await supabase.auth.getUser();
 
-    if (userErr) {
-      return jsonError(401, "AUTH_USER_ERROR", "Unable to read session user.", { userErr });
-    }
-    if (!user) {
-      return jsonError(401, "UNAUTHENTICATED", "No active session. Please sign in again.");
-    }
+    if (userErr) return j(401, "AUTH_USER_ERROR", "Unable to read session user.", { userErr });
+    if (!user) return j(401, "UNAUTHENTICATED", "No active session. Please sign in again.");
 
-    // Ensure slug is unique (append suffix if taken)
+    // Debug breadcrumbs (visible in Vercel logs, not returned to client)
+    console.log("[publish] user", user.id);
+    console.log("[publish] payload", {
+      name: body.name,
+      phone: body.phone,
+      category: body.category,
+      slug: body.slug,
+    });
+
+    // Check slug uniqueness
     const { data: existing, error: existErr } = await supabase
       .from("Providers")
       .select("id, slug")
@@ -57,17 +58,13 @@ export async function POST(req: Request) {
       .limit(1)
       .maybeSingle();
 
-    if (existErr) {
-      return jsonError(500, "SLUG_CHECK_FAILED", "Failed checking slug.", { existErr });
-    }
+    if (existErr) return j(500, "SLUG_CHECK_FAILED", "Failed checking slug.", { existErr });
 
     let finalSlug = body.slug;
-    if (existing) {
-      finalSlug = `${body.slug}-${Math.random().toString(36).slice(2, 6)}`;
-    }
+    if (existing) finalSlug = `${body.slug}-${Math.random().toString(36).slice(2, 6)}`;
 
-    // Upsert provider profile (RLS expects owner_id = auth.uid())
-    const payload = {
+    // Upsert provider profile — RLS must permit owner inserts
+    const providerPayload = {
       owner_id: user.id,
       name: body.name,
       phone: body.phone,
@@ -82,33 +79,42 @@ export async function POST(req: Request) {
 
     const { data: upserted, error: upsertErr } = await supabase
       .from("Providers")
-      .upsert(payload)
-      .select("id, slug")
+      .upsert(providerPayload, { onConflict: "slug" })
+      .select("id, slug, owner_id")
       .single();
 
     if (upsertErr) {
-      return jsonError(400, "UPSERT_FAILED", "Could not publish provider.", { upsertErr });
+      // Most common root causes: RLS blocked insert, NOT NULL violation, bad column names
+      return j(400, "UPSERT_FAILED", "Could not publish provider.", { upsertErr, providerPayload });
     }
 
-    // Also ensure Microsite row (if your schema needs it)
+    // Ensure Microsite row (if model exists)
     const { error: microErr } = await supabase
       .from("Microsites")
-      .upsert({
-        owner_id: user.id,
-        provider_id: upserted.id,
-        slug: upserted.slug,
-        is_live: true,
-      });
+      .upsert(
+        {
+          owner_id: user.id,
+          provider_id: upserted.id,
+          slug: upserted.slug,
+          is_live: true,
+        },
+        { onConflict: "provider_id" }
+      );
 
     if (microErr) {
-      return jsonError(500, "MICROSITE_UPSERT_FAILED", "Microsite creation failed.", { microErr });
+      return j(500, "MICROSITE_UPSERT_FAILED", "Microsite creation failed.", { microErr });
     }
 
     return NextResponse.json(
-      { ok: true, provider_id: upserted.id, slug: upserted.slug, redirect: `/dashboard?slug=${upserted.slug}` },
+      {
+        ok: true,
+        provider_id: upserted.id,
+        slug: upserted.slug,
+        redirect: `/dashboard?slug=${upserted.slug}`,
+      },
       { status: 200 }
     );
   } catch (e: any) {
-    return jsonError(500, "UNHANDLED", "Unexpected server error.", { message: e?.message });
+    return j(500, "UNHANDLED", "Unexpected server error.", { message: e?.message });
   }
 }
