@@ -1,12 +1,13 @@
-// middleware.ts
-import { NextResponse } from "next/server";
+// Completely disable middleware so it never runs.
+// This ensures /api routes receive cookies untouched.
+
+// If you had logic here, we'll re-enable after the 401 is gone.
 import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 
 export const config = {
-  matcher: [
-    // Protect app pages, but skip API, auth, static, assets
-    "/((?!api|auth|_next|static|.*\\.(?:png|jpg|jpeg|gif|svg|ico)|favicon\\.ico|robots\\.txt|sitemap\\.xml).*)",
-  ],
+  // Empty matcher => middleware runs for nothing.
+  matcher: [] as string[],
 };
 
 export function middleware(_req: NextRequest) {
