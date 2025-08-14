@@ -1,73 +1,56 @@
 // @ts-nocheck
 "use client";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 
-import { useEffect, useState } from "react";
+export default function PublishButton({ payload }: { payload: any }) {
+  const [loading, setLoading] = useState(false);
+  const [errMsg, setErrMsg] = useState<string | null>(null);
+  const router = useRouter();
 
-export default function PublishPage() {
-  const [slug, setSlug] = useState("");
-  const [status, setStatus] = useState<"idle" | "busy" | "ok" | "err">("idle");
-  const [msg, setMsg] = useState<string>("");
-
-  useEffect(() => {
-    // try read slug from URL (?slug=)
-    const url = new URL(window.location.href);
-    const s = (url.searchParams.get("slug") || "").toLowerCase();
-    if (s) setSlug(s);
-  }, []);
-
-  const publish = async () => {
-    setStatus("busy");
-    setMsg("");
+  async function onPublish() {
+    setLoading(true);
+    setErrMsg(null);
     try {
       const res = await fetch("/api/dentists/publish", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug }),
+        // IMPORTANT: include credentials so the API sees the session cookie
+        credentials: "include",
+        body: JSON.stringify(payload),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Failed");
-      setStatus("ok");
-      setMsg("Published. Redirecting…");
-      setTimeout(() => {
-        window.location.href = data?.micrositePath || "/";
-      }, 800);
+
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.ok) {
+        const message =
+          json?.error?.message ||
+          `Publish failed (${res.status}). Please try again.`;
+        setErrMsg(message);
+        setLoading(false);
+        return;
+      }
+      // Success: redirect to dashboard
+      router.push(json.redirect || `/dashboard?slug=${json.slug}`);
     } catch (e: any) {
-      setStatus("err");
-      setMsg(e?.message || "Something went wrong");
+      setErrMsg(e?.message || "Something went wrong.");
+      setLoading(false);
     }
-  };
+  }
 
   return (
-    <main className="max-w-md mx-auto px-4 py-10">
-      <h1 className="text-2xl font-semibold mb-2">Publish Microsite</h1>
-      <p className="text-sm text-gray-600 mb-6">
-        Finalize your vanity URL and go live.
-      </p>
-
-      <label className="block text-sm mb-1">Slug</label>
-      <div className="flex gap-2 mb-4">
-        <span className="inline-flex items-center px-3 border rounded-xl border-r-0">/d/</span>
-        <input
-          className="w-full border rounded-xl px-3 py-2"
-          value={slug}
-          onChange={(e) => setSlug(e.target.value.toLowerCase())}
-          placeholder="dr-amit-jain"
-        />
-      </div>
-
+    <div className="space-y-2">
       <button
-        onClick={publish}
-        disabled={!slug || status === "busy"}
-        className="px-4 py-2 rounded-xl border"
+        onClick={onPublish}
+        disabled={loading}
+        className="rounded-2xl px-4 py-2 bg-black text-white"
       >
-        {status === "busy" ? "Publishing…" : "Publish Now"}
+        {loading ? "Publishing…" : "Publish"}
       </button>
-
-      {msg ? (
-        <div className={`mt-3 text-sm ${status === "err" ? "text-red-600" : ""}`}>
-          {msg}
+      {errMsg && (
+        <div className="text-sm text-red-600 border border-red-200 rounded-md p-2 bg-red-50">
+          {errMsg}
         </div>
-      ) : null}
-    </main>
+      )}
+    </div>
   );
 }
