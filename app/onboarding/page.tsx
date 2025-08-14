@@ -17,7 +17,7 @@ type FormState = {
   profileImageUrl?: string;
   coverImageUrl?: string;
   services?: string; // comma/JSON (free text for now)
-  slug?: string;     // optional — auto from name if blank
+  slug?: string; // optional — auto from name if blank
   published?: boolean;
 };
 
@@ -69,9 +69,10 @@ export default function OnboardingPage() {
   const onChange =
     (k: keyof FormState) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-      const v = e.currentTarget.type === "checkbox"
-        ? (e as any).currentTarget.checked
-        : e.currentTarget.value;
+      const v =
+        e.currentTarget.type === "checkbox"
+          ? (e as any).currentTarget.checked
+          : e.currentTarget.value;
       setForm((f) => ({ ...f, [k]: v as any }));
     };
 
@@ -117,14 +118,28 @@ export default function OnboardingPage() {
       }
 
       if (!res.ok || !json?.ok) {
+        // Build a readable error string from server payload
+        const parts = [
+          json?.error?.code ? `code: ${json.error.code}` : "",
+          json?.error?.message ? `message: ${json.error.message}` : "",
+          json?.meta?.details ? `details: ${json.meta.details}` : "",
+          json?.meta?.code ? `pg_code: ${json.meta.code}` : "",
+          json?.meta?.hint ? `hint: ${json.meta.hint}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n");
+
         const message =
-          json?.error?.message ||
-          json?.message ||
-          json?.error ||
-          toMsg(json?.meta) ||
+          parts ||
+          (typeof json === "string" ? json : "") ||
+          toMsg(json) ||
           `Publish failed (${res.status})`;
 
         setErrText(message);
+
+        // Also log the raw body for deep debug
+        console.log("publish:error:raw", json);
+
         setLoading(false);
         return;
       }
@@ -184,7 +199,9 @@ export default function OnboardingPage() {
         />
         <div className="flex items-center gap-2 text-sm text-gray-600">
           <span>Final link will be</span>
-          <code className="px-2 py-1 bg-gray-100 rounded">/d/{finalSlug || "your-name"}</code>
+          <code className="px-2 py-1 bg-gray-100 rounded">
+            /d/{finalSlug || "your-name"}
+          </code>
         </div>
 
         <label className="flex items-center gap-2 md:col-span-2 text-sm">
