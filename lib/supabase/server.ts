@@ -1,26 +1,49 @@
 // lib/supabase/server.ts
-// @ts-nocheck  // Escape hatch to prevent minor type drift from breaking builds
-import { createServerClient } from "@supabase/ssr";
+// Next.js 15 + @supabase/ssr cookie adapter (server-side)
+// @ts-nocheck
 import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
 
-export function getServerSupabase() {
-  const cookieStore = cookies();
+/**
+ * Main server-side Supabase client creator.
+ * Works in Next.js App Router with @supabase/ssr.
+ */
+export async function createSupabaseServerClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anon) return null;
 
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-        set(name: string, value: string, options: any) {
-          cookieStore.set({ name, value, ...options });
-        },
-        remove(name: string, options: any) {
-          cookieStore.set({ name, value: "", ...options });
-        },
+  const cookieStore = await cookies();
+
+  const supabase = createServerClient(url, anon, {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll().map(({ name, value }) => ({ name, value }));
       },
-    }
-  );
+      setAll(cookiesToSet) {
+        cookiesToSet.forEach(({ name, value, options }) => {
+          // next/headers cookies().set signature
+          // @ts-ignore
+          cookieStore.set({ name, value, ...options });
+        });
+      },
+    },
+  });
+
+  return supabase;
+}
+
+/**
+ * Alias for newer imports in our current code.
+ */
+export async function getSupabaseServer() {
+  return createSupabaseServerClient();
+}
+
+/**
+ * Backward-compatibility alias for older imports.
+ * Some older files still import `getServerSupabase`.
+ */
+export async function getServerSupabase() {
+  return createSupabaseServerClient();
 }
