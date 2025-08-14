@@ -4,7 +4,7 @@
 
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
-import { createSupabaseServerClient } from '@/lib/supabase/server-helpers';
+import { createSupabaseServerClient } from '@/lib/supabase/server';
 
 /**
  * Create a profile row if missing (schema: user_id, name, slug, phone, city)

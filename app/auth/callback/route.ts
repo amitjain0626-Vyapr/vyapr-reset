@@ -1,53 +1,79 @@
 // app/auth/callback/route.ts
+// Supabase email magic-link callback (handles both `token_hash` and `code`).
+// Next.js 15 Route Handler
 // @ts-nocheck
-import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@supabase/ssr';
+import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
 
-export const runtime = 'nodejs';
+// Map incoming `type` to Supabase verifyOtp types
+function normalizeType(t?: string) {
+  switch ((t || "").toLowerCase()) {
+    case "magiclink":
+    case "signup":
+    case "recovery":
+    case "email_change":
+    case "invitation":
+    case "invite":
+      return t.toLowerCase() === "invite" ? "invitation" : t.toLowerCase();
+    default:
+      return "magiclink";
+  }
+}
 
-export async function GET(req: NextRequest) {
+export async function GET(req: Request) {
   const url = new URL(req.url);
-  const code = url.searchParams.get('code');              // OAuth/PKCE flow
-  const token_hash = url.searchParams.get('token_hash');  // Magic-link/confirm flow
-  const type = (url.searchParams.get('type') || 'magiclink') as
-    | 'magiclink' | 'signup' | 'recovery' | 'email_change';
-  const next = url.searchParams.get('next') || '/onboarding';
+  const next = url.searchParams.get("next") || "/onboarding";
 
-  // Prepare a mutable response for cookie writes
-  const res = NextResponse.redirect(new URL(next, url.origin), { status: 303 });
+  const token_hash = url.searchParams.get("token_hash");
+  const type = normalizeType(url.searchParams.get("type"));
+  const code = url.searchParams.get("code"); // for PKCE/code links (rare on email)
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get: (name: string) => req.cookies.get(name)?.value,
-        set: (name: string, value: string, options: any) => res.cookies.set({ name, value, ...options }),
-        remove: (name: string, value?: string, options?: any) =>
-          res.cookies.set({ name, value: '', ...(options || {}), maxAge: 0 }),
+  const cookieStore = await cookies();
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+  const supabase = createServerClient(supabaseUrl, supabaseAnon, {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll().map(({ name, value }) => ({ name, value }));
       },
-    }
-  );
+      setAll(cookiesToSet) {
+        cookiesToSet.forEach(({ name, value, options }) => {
+          // @ts-ignore
+          cookieStore.set({ name, value, ...options });
+        });
+      },
+    },
+  });
 
-  if (code) {
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (error) {
-      return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(error.message)}`, url.origin), { status: 303 });
+  try {
+    if (token_hash) {
+      // Standard email magic-link path
+      const { error } = await supabase.auth.verifyOtp({
+        type: type as any, // 'magiclink' | 'signup' | 'recovery' | 'email_change' | 'invitation'
+        token_hash,
+      });
+      if (error) throw error;
+    } else if (code) {
+      // Fallback: some flows may send a `code`
+      const { error } = await supabase.auth.exchangeCodeForSession(code);
+      if (error) throw error;
+    } else {
+      // Nothing to process — bounce to login
+      const bounce = new URL("/login", url);
+      bounce.searchParams.set("error", "invalid_callback");
+      bounce.searchParams.set("next", next);
+      return NextResponse.redirect(bounce, { status: 303 });
     }
-  } else if (token_hash) {
-    const { error } = await supabase.auth.verifyOtp({ type, token_hash });
-    if (error) {
-      return NextResponse.redirect(new URL(`/login?error=${encodeURIComponent(error.message)}`, url.origin), { status: 303 });
-    }
-  } else {
-    return NextResponse.redirect(new URL('/login?error=MissingToken', url.origin), { status: 303 });
+
+    // Success ⇒ go to intended page
+    const dest = new URL(next, url);
+    return NextResponse.redirect(dest, { status: 303 });
+  } catch (e: any) {
+    const bounce = new URL("/login", url);
+    bounce.searchParams.set("error", e?.message || "auth_failed");
+    bounce.searchParams.set("next", next);
+    return NextResponse.redirect(bounce, { status: 303 });
   }
-
-  // Sanity check
-  const { data } = await supabase.auth.getUser();
-  if (!data?.user) {
-    return NextResponse.redirect(new URL('/login?error=NoSession', url.origin), { status: 303 });
-  }
-
-  return res;
 }

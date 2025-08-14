@@ -1,6 +1,10 @@
 // app/dashboard/layout.tsx
 // @ts-nocheck
 
+<form action="/auth/signout?next=/login" method="POST">
+  <button type="submit" className="text-sm underline">Sign out</button>
+</form>
+
 import React from 'react';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {

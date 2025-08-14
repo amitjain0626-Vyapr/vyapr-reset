@@ -1,74 +1,45 @@
+// app/login/actions.ts
+// Server Action: send magic link with a safe absolute redirect URL.
 // @ts-nocheck
-// app/dashboard/PaymentsList.tsx
-import { redirect } from "next/navigation";
-import { createSupabaseServerClient } from "../lib/supabase/server-helpers";
+"use server";
 
-type Payment = {
-  id: string;
-  rp_order_id: string;
-  amount_in_paise: number;
-  currency: string;
-  status: string;
-  receipt: string | null;
-  created_at: string;
-};
+import { redirect, headers } from "next/navigation";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-export default async function PaymentsList() {
-  const supabase = createSupabaseServerClient();
+function computeBaseUrl() {
+  // Prefer explicit env in staging/prod
+  const envUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  if (envUrl) return envUrl.replace(/\/+$/, "");
+  // Fallback to request headers in dev
+  const h = headers();
+  const host = h.get("x-forwarded-host") || h.get("host") || "localhost:3000";
+  const proto = (h.get("x-forwarded-proto") || "http").split(",")[0].trim();
+  return `${proto}://${host}`;
+}
 
-  // Require auth
-  const { data: { user }, error: userErr } = await supabase.auth.getUser();
-  if (userErr || !user) redirect("/login");
+/**
+ * Server Action: sends a magic link.
+ * Expect to be used in <form action={sendMagicLink}>.
+ */
+export async function sendMagicLink(formData: FormData) {
+  const email = String(formData.get("email") || "").trim();
+  const next = String(formData.get("next") || "/onboarding");
 
-  // Fetch last 20 payments for this user (RLS enforced)
-  const { data, error } = await supabase
-    .from("Payments")
-    .select("id, rp_order_id, amount_in_paise, currency, status, receipt, created_at")
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: false })
-    .limit(20) as { data: Payment[] | null; error: any };
+  if (!email) redirect("/login?error=email");
 
-  if (error) {
-    return (
-      <div className="rounded-xl border p-4 text-sm">
-        ❌ Couldn’t load payments: {error.message || "Unknown error"}
-      </div>
-    );
-  }
+  const supabase = await createSupabaseServerClient();
+  if (!supabase) redirect("/login?error=supabase_config");
 
-  const payments = data || [];
-  if (payments.length === 0) {
-    return (
-      <div className="rounded-xl border p-4 text-sm text-gray-600">
-        No payments yet. Create a test order above.
-      </div>
-    );
-  }
+  const base = computeBaseUrl();
+  const redirectTo = `${base}/auth/callback?next=${encodeURIComponent(next)}`;
 
-  return (
-    <div className="overflow-auto rounded-xl border">
-      <table className="min-w-full text-sm">
-        <thead className="bg-gray-50">
-          <tr className="text-left">
-            <th className="px-3 py-2">When</th>
-            <th className="px-3 py-2">Order ID</th>
-            <th className="px-3 py-2">Amount</th>
-            <th className="px-3 py-2">Status</th>
-            <th className="px-3 py-2">Receipt</th>
-          </tr>
-        </thead>
-        <tbody>
-          {payments.map((p) => (
-            <tr key={p.id} className="border-t">
-              <td className="px-3 py-2">{new Date(p.created_at).toLocaleString()}</td>
-              <td className="px-3 py-2 font-mono">{p.rp_order_id}</td>
-              <td className="px-3 py-2">₹{(p.amount_in_paise / 100).toFixed(2)} {p.currency}</td>
-              <td className="px-3 py-2">{p.status}</td>
-              <td className="px-3 py-2">{p.receipt || "—"}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: { emailRedirectTo: redirectTo },
+  });
+
+  if (error) redirect(`/login?error=${encodeURIComponent(error.message)}`);
+
+  // Show “check your email” on same page
+  redirect(`/login?sent=1&next=${encodeURIComponent(next)}`);
 }

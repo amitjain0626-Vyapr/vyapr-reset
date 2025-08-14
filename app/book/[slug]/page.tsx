@@ -1,106 +1,78 @@
-// app/book/[slug]/page.tsx
 // @ts-nocheck
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
-import BookingForm from "@/components/booking/BookingForm";
+import { createClient } from "@supabase/supabase-js";
+import { bookRequestAction } from "./actions";
+import ClientPayNow from "./ClientPayNow";
 
-export const revalidate = 30;
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  { auth: { persistSession: false } }
+);
 
-type Dentist = {
-  id: string;
-  name: string | null;
-  city: string | null;
-  clinic_name: string | null;
-  slug: string;
-  is_published: boolean | null;
-  profile_image_url: string | null;
-};
+export default async function BookPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const p = await params;
+  const qp = await searchParams;
+  const slug = p.slug;
 
-function supabaseServer() {
-  const cookieStore = cookies();
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-        set() {},
-        remove() {},
-      },
-    }
-  );
-}
+  const { data: provider } = await supabase
+    .from("providers")
+    .select("id, name, slug, category_slug")
+    .eq("slug", slug)
+    .single();
 
-export default async function Page(props: any) {
-  const { params, searchParams } = props as {
-    params: { slug: string };
-    searchParams?: Record<string, string | string[] | undefined>;
-  };
+  if (!provider) return <div className="p-6">Provider not found.</div>;
 
-  const supabase = supabaseServer();
-  const { data: dentist } = await supabase
-    .from("Dentists")
-    .select("id,name,city,clinic_name,slug,is_published,profile_image_url")
-    .eq("slug", params.slug)
-    .eq("is_published", true)
-    .maybeSingle<Dentist>();
-
-  if (!dentist) {
-    return (
-      <main className="max-w-3xl mx-auto p-6">
-        <div className="rounded-2xl border bg-white p-8 text-center">
-          <h1 className="text-xl font-semibold">Booking unavailable</h1>
-          <p className="text-sm text-gray-500 mt-2">
-            This microsite isn’t published or the link is incorrect.
-          </p>
-        </div>
-      </main>
-    );
-  }
-
-  const utm: Record<string, string> = {};
-  for (const [k, v] of Object.entries(searchParams || {})) {
-    if (typeof v === "string") utm[k] = v;
-    else if (Array.isArray(v)) utm[k] = v.join(",");
-  }
+  const ok = qp?.ok === "1";
+  const paid = qp?.paid === "1";
+  const err = typeof qp?.error === "string" ? qp.error : undefined;
 
   return (
-    <main className="max-w-3xl mx-auto p-4 md:p-6">
-      <section className="rounded-3xl border bg-white shadow-sm overflow-hidden">
-        <div className="p-6 md:p-8 flex items-start gap-4">
-          <div className="w-16 h-16 rounded-full overflow-hidden bg-gray-100 border flex items-center justify-center">
-            {dentist.profile_image_url ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={dentist.profile_image_url}
-                alt={dentist.name || "Dentist"}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <span className="text-2xl">🦷</span>
-            )}
-          </div>
-          <div>
-            <h1 className="text-2xl font-semibold">
-              Book with {dentist.name || "the dentist"}
-            </h1>
-            <div className="text-sm text-gray-600">
-              {dentist.clinic_name ? `${dentist.clinic_name} • ` : ""}
-              {dentist.city || ""}
-            </div>
-          </div>
-        </div>
+    <div className="max-w-md mx-auto p-6 space-y-4">
+      <h1 className="text-2xl font-bold">Book with {provider.name}</h1>
+      <p className="text-gray-600 text-sm">Category: {provider.category_slug}</p>
 
-        <div className="p-6 md:p-8 border-t">
-          <BookingForm slug={dentist.slug} utm={utm} />
+      {paid && (
+        <div className="rounded border p-3 text-sm">
+          ✅ Payment received. We’ll confirm your slot shortly.
         </div>
+      )}
 
-        <div className="border-t p-6 md:p-8 text-xs text-gray-500">
-          Your details are shared only with this clinic for booking.
+      {ok && !paid && (
+        <div className="rounded border p-3 text-sm">
+          Thanks! Your request was sent. You can pay now to confirm your slot.
         </div>
-      </section>
-    </main>
+      )}
+
+      {err && (
+        <div className="rounded border p-3 text-sm text-red-600">
+          Something went wrong ({err}). Please try again.
+        </div>
+      )}
+
+      {!ok && !paid && (
+        <form action={bookRequestAction} className="space-y-3">
+          <input type="hidden" name="slug" value={slug} />
+          <input name="name" placeholder="Your name" required className="w-full border p-3 rounded" />
+          <input name="phone" placeholder="WhatsApp number" required className="w-full border p-3 rounded" />
+          <input name="when" placeholder="Preferred date/time (e.g., Sat 5pm)" className="w-full border p-3 rounded" />
+          <textarea name="note" placeholder="Anything we should know?" className="w-full border p-3 rounded" />
+          <button type="submit" className="w-full bg-teal-600 text-white px-4 py-2 rounded">
+            Request booking
+          </button>
+        </form>
+      )}
+
+      {ok && !paid && (
+        <div className="pt-2">
+          <ClientPayNow slug={slug} providerName={provider.name} />
+        </div>
+      )}
+    </div>
   );
 }
