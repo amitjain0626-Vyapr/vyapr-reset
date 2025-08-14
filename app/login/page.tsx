@@ -1,27 +1,53 @@
-// app/login/page.tsx
 // @ts-nocheck
-import { sendMagicLink } from './actions';
+import { sendMagicLink } from "./actions";
 
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
+/**
+ * Next 15: searchParams must be awaited.
+ */
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const qp = await searchParams; // ✅ await
+  const sent = qp?.sent === "1";
+  const error = typeof qp?.error === "string" ? qp.error : undefined;
+  const next = (typeof qp?.next === "string" ? qp.next : "/onboarding") || "/onboarding";
 
-export default function LoginPage() {
   return (
-    <main className="mx-auto max-w-md px-6 py-12">
-      <h1 className="mb-4 text-2xl font-semibold">Sign in</h1>
-      <p className="mb-6 text-gray-600">We’ll email you a magic link to sign in.</p>
+    <div className="max-w-md mx-auto p-6">
+      <h1 className="text-2xl font-bold mb-2">Login</h1>
+      <p className="text-sm text-gray-600 mb-4">
+        We’ll email you a magic link. Click it to continue.
+      </p>
+
+      {sent && (
+        <div className="mb-4 rounded border p-3 text-sm">
+          Check your email for the magic link. Keep this tab open.
+        </div>
+      )}
+      {error && (
+        <div className="mb-4 rounded border p-3 text-sm text-red-600">
+          {error === "email" ? "Please enter a valid email." : error}
+        </div>
+      )}
+
       <form action={sendMagicLink} className="space-y-3">
+        <input type="hidden" name="next" value={next} />
         <input
           type="email"
           name="email"
-          required
           placeholder="you@example.com"
-          className="w-full rounded-md border px-3 py-2"
+          required
+          className="w-full border p-3 rounded"
         />
-        <button type="submit" className="rounded-lg bg-black px-4 py-2 text-white">
+        <button
+          type="submit"
+          className="w-full bg-teal-600 text-white px-4 py-2 rounded"
+        >
           Send magic link
         </button>
       </form>
-    </main>
+    </div>
   );
 }
