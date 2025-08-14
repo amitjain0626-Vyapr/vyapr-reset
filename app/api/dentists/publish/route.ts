@@ -8,171 +8,150 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-// Minimal, local slugify to avoid path issues
-function slugify(input: string) {
-  return (input || "")
-    .toString()
-    .trim()
+// tiny local helpers
+const slugify = (s: string) =>
+  (s || "")
     .toLowerCase()
+    .trim()
     .replace(/['"]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .replace(/--+/g, "-");
-}
 
-function normalizePhone(p?: string) {
+const normPhone = (p?: string) => {
   if (!p) return "";
-  const digits = p.replace(/\D+/g, "");
-  // Keep last 10 as base (India) and prefix with +91 if not present
-  if (digits.length >= 10) {
-    const last10 = digits.slice(-10);
-    return "+91" + last10;
-  }
-  return "+" + digits;
-}
+  const d = p.replace(/\D+/g, "");
+  if (d.length >= 10) return "+91" + d.slice(-10);
+  return "+" + d;
+};
 
-async function getSupabase() {
-  const cookieStore = cookies();
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-  return createServerClient(url, anon, {
-    cookies: {
-      getAll() {
-        return cookieStore.getAll().map(({ name, value }) => ({ name, value }));
+async function sb() {
+  const jar = cookies();
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll: () => jar.getAll().map(({ name, value }) => ({ name, value })),
+        setAll: (list) =>
+          list.forEach(({ name, value, options }) => {
+            // @ts-ignore
+            jar.set({ name, value, ...options });
+          }),
       },
-      setAll(cookiesToSet) {
-        cookiesToSet.forEach(({ name, value, options }) => {
-          // @ts-ignore
-          cookieStore.set({ name, value, ...options });
-        });
-      },
-    },
-  });
+    }
+  );
 }
 
 export async function POST(req: Request) {
-  const supabase = await getSupabase();
+  const supabase = await sb();
 
-  // 1) Require auth
+  // auth
   const {
     data: { user },
-    error: userErr,
+    error: uerr,
   } = await supabase.auth.getUser();
-  if (userErr || !user) {
+  if (uerr || !user) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
-  // 2) Read payload
-  const body = await req.json().catch(() => ({}));
+  // input
+  const body = (await req.json().catch(() => ({}))) as any;
   const name = String(body.name || "").trim();
   const phoneRaw = String(body.phone || "").trim();
-  const category = String(body.category || "").trim();
+  const phoneIn = normPhone(phoneRaw);
+  const city = String(body.city || "");
+  const category = String(body.category || "");
   const about = String(body.about || "");
   const address_line1 = String(body.address_line1 || "");
   const address_line2 = String(body.address_line2 || "");
   const website = String(body.website || "");
-  const city = String(body.city || "");
-  const services = body.services ?? "";
-  const published = Boolean(body.published ?? true);
   const photo_url = String(body.photo_url || "");
   const cover_url = String(body.cover_url || "");
   const gmaps = String(body.gmaps || "");
+  const services = body.services ?? "";
+  const published = Boolean(body.published ?? true);
 
-  if (!name || !phoneRaw) {
-    return NextResponse.json(
-      { ok: false, error: "missing_fields", details: "name and phone required" },
-      { status: 400 }
-    );
+  if (!name) {
+    return NextResponse.json({ ok: false, error: "missing_name" }, { status: 400 });
   }
 
-  const phone = normalizePhone(phoneRaw);
-  let baseSlug = slugify(body.slug || name);
-  if (!baseSlug) baseSlug = "provider";
-
-  // 3) Find existing profile for this owner
-  const { data: existing, error: exErr } = await supabase
+  // existing row for this owner?
+  const { data: existing } = await supabase
     .from("Providers")
     .select("id, slug, phone")
     .eq("owner_id", user.id)
     .limit(1)
     .maybeSingle();
 
-  // 4) Resolve a unique slug (if new OR owner wants to change slug)
-  async function ensureUniqueSlug(desired: string, currentId?: string) {
-    let candidate = desired;
-    let suffix = 1;
-    // check if slug used by someone else
-    // if used by *same* row (currentId), allow it
-    // otherwise keep incrementing -2, -3, …
-    // NOTE: keep loop bounded (rare) to avoid edge-case
-    for (let i = 0; i < 25; i++) {
-      const { data } = await supabase
-        .from("Providers")
-        .select("id")
-        .eq("slug", candidate)
-        .limit(1)
-        .maybeSingle();
+  // ensure unique slug
+  const desired = slugify(body.slug || name);
+  let slug = desired || "provider";
+  for (let i = 0; i < 25; i++) {
+    const { data: hit } = await supabase
+      .from("Providers")
+      .select("id")
+      .eq("slug", slug)
+      .limit(1)
+      .maybeSingle();
+    if (!hit || (existing && hit.id === existing.id)) break;
+    slug = `${desired}-${i + 2}`;
+  }
 
-      if (!data || (currentId && data.id === currentId)) {
-        return candidate;
+  // phone conflict check (if your DB has UNIQUE(phone))
+  let phone = phoneIn;
+  if (phone) {
+    const { data: ownerOfPhone } = await supabase
+      .from("Providers")
+      .select("id, owner_id")
+      .eq("phone", phone)
+      .limit(1)
+      .maybeSingle();
+
+    // if another owner already uses this phone, we keep the user's existing phone (on update),
+    // or generate a unique placeholder on first create to avoid DB constraint errors.
+    if (ownerOfPhone && ownerOfPhone.owner_id !== user.id) {
+      if (existing?.phone) {
+        phone = existing.phone; // keep their current value
+      } else {
+        // generate a unique, valid placeholder that passes NOT NULL + UNIQUE
+        const stamp = Date.now().toString().slice(-6);
+        phone = "+9199" + stamp + Math.floor(10 + Math.random() * 89).toString();
       }
-      suffix += 1;
-      candidate = `${desired}-${suffix}`;
     }
-    return `${desired}-${Date.now()}`; // ultimate fallback
   }
 
-  let finalSlug = existing?.slug
-    ? await ensureUniqueSlug(baseSlug, existing.id) // allow rename safely
-    : await ensureUniqueSlug(baseSlug);
-
-  // 5) If phone belongs to someone else, don’t block — we’ll keep normalized phone for this owner
-  // Try to detect hard conflict: same phone, different owner.
-  const { data: phoneOwner } = await supabase
-    .from("Providers")
-    .select("id, owner_id")
-    .eq("phone", phone)
-    .limit(1)
-    .maybeSingle();
-
-  if (phoneOwner && phoneOwner.owner_id !== user.id) {
-    // Soft-resolve by not changing phone; store as alt_phone to avoid unique violation (if you have the column)
-    // If your schema enforces unique phone, we’ll suffix slug and proceed with different phone formatting.
-    // For now, we simply proceed — RLS/unique constraint will decide.
-  }
-
-  // 6) Upsert by owner_id (idempotent)
-  const row = {
+  const base = {
     owner_id: user.id,
     name,
-    phone,
+    city,
     category,
     about,
     address_line1,
     address_line2,
     website,
-    city,
-    services,
-    published,
     photo_url,
     cover_url,
     gmaps,
-    slug: finalSlug,
+    services,
+    published,
+    slug,
     updated_at: new Date().toISOString(),
-  };
+  } as any;
 
-  // Insert or update the single row per owner
-  // If you have a unique constraint on (owner_id), this will update the same row.
-  const { data: upserted, error: upErr } = await supabase
+  if (phone) base.phone = phone;
+
+  // upsert by owner_id (idempotent)
+  const { data: row, error: upErr } = await supabase
     .from("Providers")
-    .upsert(row, { onConflict: "owner_id" })
+    .upsert(base, { onConflict: "owner_id" })
     .select("id, slug")
     .single();
 
   if (upErr) {
-    // Return a friendly message like you saw on the UI
+    // surface details for quick debug, but keep a friendly error for UI
     return NextResponse.json(
-      { ok: false, error: "publish_failed", details: upErr.message },
+      { ok: false, error: "publish_failed", details: upErr.message || String(upErr) },
       { status: 409 }
     );
   }
@@ -180,8 +159,8 @@ export async function POST(req: Request) {
   return NextResponse.json(
     {
       ok: true,
-      slug: upserted?.slug || finalSlug,
-      next: `/dashboard?slug=${encodeURIComponent(upserted?.slug || finalSlug)}`,
+      slug: row?.slug || slug,
+      next: `/dashboard?slug=${encodeURIComponent(row?.slug || slug)}`,
     },
     { status: 200 }
   );
