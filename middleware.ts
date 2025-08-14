@@ -4,12 +4,11 @@ import type { NextRequest } from "next/server";
 
 export const config = {
   matcher: [
-    // Protect app pages but skip API, auth, static
-    "/((?!api|_next|static|auth|favicon.ico|robots.txt|sitemap.xml).*)",
+    // Protect app pages, but skip API, auth, static, assets
+    "/((?!api|auth|_next|static|.*\\.(?:png|jpg|jpeg|gif|svg|ico)|favicon\\.ico|robots\\.txt|sitemap\\.xml).*)",
   ],
 };
 
-export function middleware(req: NextRequest) {
-  // Keep your existing logic if any; just ensure we don’t interfere with API cookies.
+export function middleware(_req: NextRequest) {
   return NextResponse.next();
 }
