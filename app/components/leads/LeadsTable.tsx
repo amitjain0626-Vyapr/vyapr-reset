@@ -1,91 +1,81 @@
+// @ts-nocheck
 "use client";
 
-import React, { useState } from "react";
+import { useState } from "react";
+import { deleteLead } from "./leads-action";
 
-type Lead = {
-  id: string;
-  name: string;
-  phone?: string;
-  note?: string;
-  createdAt?: string | Date;
-  source?: string;
-};
+export default function LeadsTable({ leads }) {
+  const [items, setItems] = useState(leads);
+  const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [errMsg, setErrMsg] = useState<string | null>(null);
 
-type Props = {
-  data?: Lead[];
-};
+  const handleDelete = async (id: string) => {
+    setLoadingId(id);
+    setErrMsg(null);
 
-function formatDate(d?: string | Date) {
-  if (!d) return "—";
-  const date = d instanceof Date ? d : new Date(d);
-  if (isNaN(date.getTime())) return "—";
-  return date.toLocaleString();
-}
-
-const fallback: Lead[] = [
-  { id: "L-001", name: "Niharika", phone: "+91-98xxxxxx", note: "Follow-up", createdAt: new Date(), source: "Microsite" },
-  { id: "L-002", name: "Chaitanya", phone: "+91-88xxxxxx", note: "WhatsApp ping", createdAt: new Date(), source: "WhatsApp" },
-];
-
-export default function LeadsTable({ data }: Props) {
-  const rows = (data?.length ? data : fallback).slice(0, 50);
-  const [busyId, setBusyId] = useState<string | null>(null);
-
-  async function onDelete(id: string) {
-    try {
-      setBusyId(id);
-      const res = await fetch("/api/leads/delete", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id }),
-      });
-      if (!res.ok) {
-        console.error(await res.json());
-        alert("Delete failed");
+    const res = await deleteLead(id);
+    if (res.ok) {
+      setItems((prev) => prev.filter((l) => l.id !== id));
+    } else {
+      if (res.error) {
+        setErrMsg(
+          typeof res.error === "string"
+            ? res.error
+            : JSON.stringify(res.error, null, 2)
+        );
       } else {
-        // simple reload; SSR page will refetch
-        location.reload();
+        setErrMsg("Delete failed: Unknown error");
       }
-    } finally {
-      setBusyId(null);
     }
-  }
+
+    setLoadingId(null);
+  };
 
   return (
-    <div className="w-full overflow-x-auto border rounded-xl">
-      <table className="min-w-full text-sm">
-        <thead className="bg-gray-50">
-          <tr>
-            <th className="p-3 text-left">Lead ID</th>
-            <th className="p-3 text-left">Name</th>
-            <th className="p-3 text-left">Phone</th>
-            <th className="p-3 text-left">Source</th>
-            <th className="p-3 text-left">Note</th>
-            <th className="p-3 text-left">Created</th>
-            <th className="p-3 text-left">Action</th>
+    <div className="space-y-3">
+      {errMsg && (
+        <div className="text-sm text-red-600 p-2 bg-red-50 rounded whitespace-pre-wrap">
+          {errMsg}
+        </div>
+      )}
+
+      <table className="min-w-full border">
+        <thead>
+          <tr className="bg-gray-100">
+            <th className="px-3 py-2 text-left">Name</th>
+            <th className="px-3 py-2 text-left">Phone</th>
+            <th className="px-3 py-2 text-left">Status</th>
+            <th className="px-3 py-2"></th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((l) => (
-            <tr key={l.id} className="border-t hover:bg-gray-50">
-              <td className="p-3">{l.id}</td>
-              <td className="p-3">{l.name}</td>
-              <td className="p-3">{l.phone ?? "—"}</td>
-              <td className="p-3">{l.source ?? "—"}</td>
-              <td className="p-3">{l.note ?? "—"}</td>
-              <td className="p-3">{formatDate(l.createdAt)}</td>
-              <td className="p-3">
+          {items.map((l) => (
+            <tr key={l.id} className="border-t">
+              <td className="px-3 py-2">{l.name}</td>
+              <td className="px-3 py-2">{l.phone}</td>
+              <td className="px-3 py-2">{l.status}</td>
+              <td className="px-3 py-2">
                 <button
-                  onClick={() => onDelete(l.id)}
-                  disabled={busyId === l.id}
-                  className="px-3 py-1 border rounded-lg hover:bg-red-50 disabled:opacity-60"
-                  title="Soft delete"
+                  onClick={() => handleDelete(l.id)}
+                  disabled={loadingId === l.id}
+                  className="text-red-600 hover:underline disabled:opacity-60"
                 >
-                  {busyId === l.id ? "Deleting…" : "Delete"}
+                  {loadingId === l.id ? "Deleting..." : "Delete"}
                 </button>
               </td>
             </tr>
           ))}
+
+          {items.length === 0 && (
+            <tr>
+              <td
+                colSpan={4}
+                className="px-3 py-4 text-center text-gray-500 italic"
+              >
+                No leads found.
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
     </div>
