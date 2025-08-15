@@ -1,5 +1,6 @@
 // @ts-nocheck
 "use client";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ErrorNotice from "@/components/ui/ErrorNotice";
 
@@ -8,8 +9,18 @@ type Lead = {
   patient_name: string | null;
   phone: string | null;
   note: string | null;
+  status: string | null;
+  source_slug: string | null;
   created_at: string;
 };
+
+const STATUS_OPTIONS = [
+  { value: "all", label: "All" },
+  { value: "new", label: "New" },
+  { value: "contacted", label: "Contacted" },
+  { value: "booked", label: "Booked" },
+  { value: "lost", label: "Lost" },
+];
 
 function formatDate(s?: string | null) {
   if (!s) return "-";
@@ -18,6 +29,7 @@ function formatDate(s?: string | null) {
 }
 
 export default function LeadInbox({ slug }: { slug: string }) {
+  const [status, setStatus] = useState("all");
   const [q, setQ] = useState("");
   const [from, setFrom] = useState<string>("");
   const [to, setTo] = useState<string>("");
@@ -29,16 +41,12 @@ export default function LeadInbox({ slug }: { slug: string }) {
   const [err, setErr] = useState<string | null>(null);
 
   const fetchLeads = useCallback(async () => {
-    setLoading(true);
-    setErr(null);
+    setLoading(true); setErr(null);
     try {
-      const params = new URLSearchParams({
-        slug, page: String(page), limit: String(limit),
-      });
+      const params = new URLSearchParams({ slug, status, page: String(page), limit: String(limit) });
       if (q) params.set("q", q);
       if (from) params.set("from", from);
       if (to) params.set("to", to);
-
       const res = await fetch(`/api/leads/list?${params.toString()}`, { cache: "no-store" });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data?.error || `HTTP ${res.status}`);
@@ -46,28 +54,27 @@ export default function LeadInbox({ slug }: { slug: string }) {
       setTotal(data.total || 0);
     } catch (e: any) {
       setErr(e.message || "Failed to load leads");
-    } finally {
-      setLoading(false);
-    }
-  }, [slug, q, from, to, page, limit]);
+    } finally { setLoading(false); }
+  }, [slug, status, q, from, to, page, limit]);
 
-  useEffect(() => { setPage(1); }, [q, from, to]);
+  useEffect(() => { setPage(1); }, [status, q, from, to]);
   useEffect(() => { fetchLeads(); }, [fetchLeads]);
 
   const pages = useMemo(() => Math.max(1, Math.ceil(total / limit)), [total, limit]);
 
   return (
     <div className="space-y-4">
-      {/* Search + Dates */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+      {/* Filters */}
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+        <div>
+          <label className="text-sm font-medium">Status</label>
+          <select className="mt-1 w-full rounded-xl border p-2" value={status} onChange={(e) => setStatus(e.target.value)}>
+            {STATUS_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+        </div>
         <div className="md:col-span-2">
           <label className="text-sm font-medium">Search (name or phone)</label>
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="e.g. Riya or +91…"
-            className="mt-1 w-full rounded-xl border p-2"
-          />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="e.g. Riya or +91…" className="mt-1 w-full rounded-xl border p-2" />
         </div>
         <div>
           <label className="text-sm font-medium">From</label>
@@ -87,9 +94,15 @@ export default function LeadInbox({ slug }: { slug: string }) {
         {!loading && rows.length === 0 && <div className="text-sm opacity-70">No leads found.</div>}
         {rows.map((l) => (
           <div key={l.id} className="rounded-2xl border p-3 shadow-sm bg-white">
-            <div className="font-semibold">{l.patient_name || "—"}</div>
+            <div className="flex items-center justify-between">
+              <div className="font-semibold">{l.patient_name || "—"}</div>
+              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs">{l.status || "new"}</span>
+            </div>
             <div className="text-sm text-gray-600">{l.phone || "—"}</div>
             {l.note && <div className="mt-1 text-sm">{l.note}</div>}
+            <div className="mt-2 text-xs text-gray-500">
+              <span>Source: {l.source_slug || "-"}</span>
+            </div>
             <div className="mt-1 text-xs text-gray-400">Created: {formatDate(l.created_at)}</div>
           </div>
         ))}
@@ -102,17 +115,21 @@ export default function LeadInbox({ slug }: { slug: string }) {
             <tr>
               <th className="px-3 py-2 text-left">Name</th>
               <th className="px-3 py-2 text-left">Phone</th>
+              <th className="px-3 py-2 text-left">Status</th>
+              <th className="px-3 py-2 text-left">Source</th>
               <th className="px-3 py-2 text-left">Created</th>
               <th className="px-3 py-2 text-left">Note</th>
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td className="px-3 py-3" colSpan={4}>Loading…</td></tr>}
-            {!loading && rows.length === 0 && <tr><td className="px-3 py-3 text-gray-500" colSpan={4}>No leads found.</td></tr>}
+            {loading && <tr><td className="px-3 py-3" colSpan={6}>Loading…</td></tr>}
+            {!loading && rows.length === 0 && <tr><td className="px-3 py-3 text-gray-500" colSpan={6}>No leads found.</td></tr>}
             {rows.map((l) => (
               <tr key={l.id} className="border-t">
                 <td className="px-3 py-2 font-medium">{l.patient_name || "—"}</td>
                 <td className="px-3 py-2">{l.phone || "—"}</td>
+                <td className="px-3 py-2"><span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs">{l.status || "new"}</span></td>
+                <td className="px-3 py-2">{l.source_slug || "—"}</td>
                 <td className="px-3 py-2">{formatDate(l.created_at)}</td>
                 <td className="px-3 py-2 max-w-[320px] truncate" title={l.note || ""}>{l.note || "—"}</td>
               </tr>

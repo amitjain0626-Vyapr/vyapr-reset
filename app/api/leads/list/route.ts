@@ -4,14 +4,15 @@ import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
 /**
- * GET /api/leads/list?slug=<slug>&q=<str>&from=YYYY-MM-DD&to=YYYY-MM-DD&page=1&limit=20
+ * GET /api/leads/list?slug=<provider-or-microsite-slug>&status=<all|new|...>&q=<text>&from=YYYY-MM-DD&to=YYYY-MM-DD&page=1&limit=20
  * - Resolves provider by providers.slug OR microsites.slug
- * - Tries filtering by owner_id, then falls back to provider_id
- * - Selects "*" and safely maps only present fields
+ * - Filters leads by dentist_id
+ * - Selects schema-accurate fields only (no meta/when/source)
  */
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const slug = (searchParams.get("slug") || "").trim();
+  const status = (searchParams.get("status") || "all").trim();
   const q = (searchParams.get("q") || "").trim();
   const from = (searchParams.get("from") || "").trim();
   const to = (searchParams.get("to") || "").trim();
@@ -21,79 +22,47 @@ export async function GET(req: NextRequest) {
 
   if (!slug) return NextResponse.json({ ok: false, error: "slug required" }, { status: 400 });
 
-  const supaSSR = createServerClient(
+  const supa = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { cookies: { get: (n: string) => cookies().get(n)?.value } }
   );
 
-  // 1) Resolve providerId by providers.slug OR microsites.slug
+  // Resolve provider id via providers.slug OR microsites.slug → provider_id
   let providerId: string | null = null;
 
-  const { data: p1 } = await supaSSR
-    .from("providers")
-    .select("id")
-    .eq("slug", slug)
-    .maybeSingle();
-
+  const { data: p1 } = await supa.from("providers").select("id").eq("slug", slug).maybeSingle();
   if (p1?.id) providerId = p1.id;
 
   if (!providerId) {
-    const { data: p2 } = await supaSSR
-      .from("microsites")
-      .select("provider_id")
-      .eq("slug", slug)
-      .maybeSingle();
-    providerId = p2?.provider_id ?? null;
+    const { data: m1 } = await supa.from("microsites").select("provider_id").eq("slug", slug).maybeSingle();
+    if (m1?.provider_id) providerId = m1.provider_id;
   }
 
   if (!providerId) {
     return NextResponse.json({ ok: false, error: "provider not found" }, { status: 404 });
   }
 
-  // Helper to run query with a candidate FK column
-  async function fetchWithFk(fkCol: "owner_id" | "provider_id") {
-    let q1 = supaSSR
-      .from("leads")
-      .select("*", { count: "exact" })
-      .eq(fkCol, providerId)
-      .order("created_at", { ascending: false });
+  // leads.dentist_id FK -> providers.id
+  let query = supa
+    .from("leads")
+    .select("id, patient_name, phone, note, status, source_slug, created_at", { count: "exact" })
+    .eq("dentist_id", providerId)
+    .order("created_at", { ascending: false });
 
-    if (q) q1 = q1.or(`patient_name.ilike.%${q}%,phone.ilike.%${q}%`);
-    if (from) q1 = q1.gte("created_at", `${from}T00:00:00Z`);
-    if (to) q1 = q1.lte("created_at", `${to}T23:59:59Z`);
+  if (status && status !== "all") query = query.eq("status", status);
+  if (q) query = query.or(`patient_name.ilike.%${q}%,phone.ilike.%${q}%`);
+  if (from) query = query.gte("created_at", `${from}T00:00:00Z`);
+  if (to) query = query.lte("created_at", `${to}T23:59:59Z`);
 
-    const { data, error, count } = await q1.range(offset, offset + limit - 1);
-    return { data, error, count, fk: fkCol };
-  }
-
-  // 2) Try owner_id, then provider_id
-  let out = await fetchWithFk("owner_id");
-  if (out.error && /column.*owner_id.*does not exist/i.test(out.error.message || "")) {
-    out = await fetchWithFk("provider_id");
-  }
-
-  if (out.error) {
-    return NextResponse.json({ ok: false, error: out.error.message }, { status: 400 });
-  }
-
-  const rows = (out.data || []).map((r: any) => {
-    // Map only fields that exist on the row
-    return {
-      id: r.id,
-      patient_name: r.patient_name ?? r.name ?? null,
-      phone: r.phone ?? null,
-      note: r.note ?? null,
-      created_at: r.created_at ?? null,
-    };
-  });
+  const { data: rows, error, count } = await query.range(offset, offset + limit - 1);
+  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
 
   return NextResponse.json({
     ok: true,
-    rows,
+    rows: rows || [],
     page,
     limit,
-    total: out.count || 0,
-    fk: out.fk, // for diagnosis; safe to keep
+    total: count || 0,
   });
 }
