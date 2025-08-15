@@ -1,6 +1,5 @@
 // @ts-nocheck
 "use client";
-
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ErrorNotice from "@/components/ui/ErrorNotice";
 
@@ -9,9 +8,9 @@ type Lead = {
   patient_name: string | null;
   phone: string | null;
   note: string | null;
-  status: string | null;
-  source: string | null;
-  when: string | null;
+  status?: string | null; // may come from meta
+  source?: string | null; // may come from meta
+  when?: string | null;   // may come from meta
   created_at: string;
 };
 
@@ -25,12 +24,8 @@ const STATUS_OPTIONS = [
 
 function formatDate(s?: string | null) {
   if (!s) return "-";
-  try {
-    const d = new Date(s);
-    return d.toLocaleString();
-  } catch {
-    return s!;
-  }
+  const d = new Date(s);
+  return isNaN(+d) ? s! : d.toLocaleString();
 }
 
 export default function LeadInbox({ slug }: { slug: string }) {
@@ -50,10 +45,7 @@ export default function LeadInbox({ slug }: { slug: string }) {
     setErr(null);
     try {
       const params = new URLSearchParams({
-        slug,
-        status,
-        page: String(page),
-        limit: String(limit),
+        slug, status, page: String(page), limit: String(limit),
       });
       if (q) params.set("q", q);
       if (from) params.set("from", from);
@@ -61,9 +53,7 @@ export default function LeadInbox({ slug }: { slug: string }) {
 
       const res = await fetch(`/api/leads/list?${params.toString()}`, { cache: "no-store" });
       const data = await res.json();
-      if (!res.ok || !data.ok) {
-        throw new Error(data?.error || `HTTP ${res.status}`);
-      }
+      if (!res.ok || !data.ok) throw new Error(data?.error || `HTTP ${res.status}`);
       setRows(data.rows || []);
       setTotal(data.total || 0);
     } catch (e: any) {
@@ -73,14 +63,8 @@ export default function LeadInbox({ slug }: { slug: string }) {
     }
   }, [slug, status, q, from, to, page, limit]);
 
-  useEffect(() => {
-    // reset to page 1 on filter/search change
-    setPage(1);
-  }, [status, q, from, to]);
-
-  useEffect(() => {
-    fetchLeads();
-  }, [fetchLeads]);
+  useEffect(() => { setPage(1); }, [status, q, from, to]);
+  useEffect(() => { fetchLeads(); }, [fetchLeads]);
 
   const pages = useMemo(() => Math.max(1, Math.ceil(total / limit)), [total, limit]);
 
@@ -88,46 +72,23 @@ export default function LeadInbox({ slug }: { slug: string }) {
     <div className="space-y-4">
       {/* Filters */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
-        <div className="md:col-span-1">
+        <div>
           <label className="text-sm font-medium">Status</label>
-          <select
-            className="mt-1 w-full rounded-xl border p-2"
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-          >
-            {STATUS_OPTIONS.map((s) => (
-              <option key={s.value} value={s.value}>{s.label}</option>
-            ))}
+          <select className="mt-1 w-full rounded-xl border p-2" value={status} onChange={(e) => setStatus(e.target.value)}>
+            {STATUS_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
         </div>
-
         <div className="md:col-span-2">
           <label className="text-sm font-medium">Search (name or phone)</label>
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="e.g. Riya or +91…"
-            className="mt-1 w-full rounded-xl border p-2"
-          />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="e.g. Riya or +91…" className="mt-1 w-full rounded-xl border p-2" />
         </div>
-
         <div>
           <label className="text-sm font-medium">From</label>
-          <input
-            type="date"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-            className="mt-1 w-full rounded-xl border p-2"
-          />
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="mt-1 w-full rounded-xl border p-2" />
         </div>
         <div>
           <label className="text-sm font-medium">To</label>
-          <input
-            type="date"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            className="mt-1 w-full rounded-xl border p-2"
-          />
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="mt-1 w-full rounded-xl border p-2" />
         </div>
       </div>
 
@@ -168,19 +129,13 @@ export default function LeadInbox({ slug }: { slug: string }) {
             </tr>
           </thead>
           <tbody>
-            {loading && (
-              <tr><td className="px-3 py-3" colSpan={7}>Loading…</td></tr>
-            )}
-            {!loading && rows.length === 0 && (
-              <tr><td className="px-3 py-3 text-gray-500" colSpan={7}>No leads found.</td></tr>
-            )}
+            {loading && <tr><td className="px-3 py-3" colSpan={7}>Loading…</td></tr>}
+            {!loading && rows.length === 0 && <tr><td className="px-3 py-3 text-gray-500" colSpan={7}>No leads found.</td></tr>}
             {rows.map((l) => (
               <tr key={l.id} className="border-t">
                 <td className="px-3 py-2 font-medium">{l.patient_name || "—"}</td>
                 <td className="px-3 py-2">{l.phone || "—"}</td>
-                <td className="px-3 py-2">
-                  <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs">{l.status || "new"}</span>
-                </td>
+                <td className="px-3 py-2"><span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs">{l.status || "new"}</span></td>
                 <td className="px-3 py-2">{l.when || "—"}</td>
                 <td className="px-3 py-2">{l.source || "—"}</td>
                 <td className="px-3 py-2">{formatDate(l.created_at)}</td>
@@ -193,24 +148,10 @@ export default function LeadInbox({ slug }: { slug: string }) {
 
       {/* Pagination */}
       <div className="flex items-center justify-between">
-        <div className="text-xs text-gray-600">
-          Showing {(page - 1) * limit + 1}–{Math.min(page * limit, total)} of {total}
-        </div>
+        <div className="text-xs text-gray-600">Showing {(page - 1) * limit + 1}–{Math.min(page * limit, total)} of {total}</div>
         <div className="flex gap-2">
-          <button
-            disabled={page <= 1}
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            className="rounded-xl border px-3 py-1.5 disabled:opacity-50"
-          >
-            Prev
-          </button>
-          <button
-            disabled={page >= pages}
-            onClick={() => setPage((p) => Math.min(pages, p + 1))}
-            className="rounded-xl border px-3 py-1.5 disabled:opacity-50"
-          >
-            Next
-          </button>
+          <button disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="rounded-xl border px-3 py-1.5 disabled:opacity-50">Prev</button>
+          <button disabled={page >= pages} onClick={() => setPage((p) => Math.min(pages, p + 1))} className="rounded-xl border px-3 py-1.5 disabled:opacity-50">Next</button>
         </div>
       </div>
     </div>
