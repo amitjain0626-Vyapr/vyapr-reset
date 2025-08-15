@@ -1,132 +1,69 @@
 // @ts-nocheck
-import { getSupabaseServer } from "@/lib/supabaseServer";
-
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
-function json(data: any, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "no-store, no-cache, must-revalidate",
-    },
+import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { createAdminClient } from "@/lib/supabaseAdmin";
+
+export async function POST(req: NextRequest) {
+  const supabase = createRouteHandlerClient({ cookies }); // <-- critical
+  const admin = createAdminClient();
+
+  // 1) Auth: must have user
+  const { data: { user }, error: userErr } = await supabase.auth.getUser();
+  if (userErr || !user) {
+    return NextResponse.json(
+      { ok: false, code: "AUTH_USER_ERROR", message: "Unable to read session user.", details: "Auth session missing!" },
+      { status: 401 }
+    );
+  }
+
+  // 2) Parse body
+  let body: any = {};
+  try { body = await req.json(); } catch {}
+  const {
+    name = "", phone = "", category = "", // provider fields
+    slug = "",                             // microsite slug
+    // ...any other fields you already collect
+  } = body;
+
+  if (!name || !phone || !slug) {
+    return NextResponse.json({ ok: false, error: "Missing required fields" }, { status: 400 });
+  }
+
+  // 3) Upsert provider tied to the logged-in user
+  //    Your schema: providers(id, slug, category, owner_id, ...)
+  const { data: prov, error: provErr } = await admin
+    .from("providers")
+    .upsert(
+      { owner_id: user.id, name, phone, category, slug },
+      { onConflict: "owner_id" }
+    )
+    .select("id, slug")
+    .maybeSingle();
+
+  if (provErr || !prov) {
+    return NextResponse.json({ ok: false, error: provErr?.message || "provider upsert failed" }, { status: 400 });
+  }
+
+  // 4) Ensure microsite (unique per provider), your schema: microsites(provider_id, slug, ...)
+  const { error: msErr } = await admin
+    .from("microsites")
+    .upsert({ provider_id: prov.id, slug }, { onConflict: "provider_id" });
+
+  if (msErr) {
+    return NextResponse.json({ ok: false, error: msErr.message || "microsite upsert failed" }, { status: 400 });
+  }
+
+  // 5) Telemetry (provider_published)
+  const { error: evtErr } = await admin.from("events").insert({
+    type: "provider_published",
+    provider_id: prov.id,
+    ts: new Date().toISOString(),
+    meta: { slug, source: "publish-api" },
   });
-}
+  // Non‑blocking: ignore evtErr in response
 
-function jerr(status: number, code: string, message: string, meta: any = {}) {
-  const metaOut: any = { ...meta };
-  const err =
-    meta?.error ||
-    meta?.upsertErr ||
-    meta?.existErr ||
-    meta?.microErr ||
-    meta?.userErr;
-  if (err) {
-    metaOut.code = err.code || err.name;
-    metaOut.details = err.details || err.message || String(err);
-    metaOut.hint = err.hint ?? undefined;
-    metaOut.msg = err.message ?? undefined;
-  }
-  return json({ ok: false, error: { code, message }, meta: metaOut }, status);
-}
-
-export async function POST(req: Request) {
-  try {
-    const body = await req.json();
-
-    // Required (keep lean to avoid schema mismatches)
-    for (const k of ["name", "phone", "category", "slug"] as const) {
-      if (!body?.[k] || String(body[k]).trim() === "") {
-        return jerr(400, "VALIDATION_FAILED", `Missing field: ${k}`);
-      }
-    }
-
-    const supabase = getSupabaseServer();
-
-    const {
-      data: { user },
-      error: userErr,
-    } = await supabase.auth.getUser();
-
-    if (userErr) return jerr(401, "AUTH_USER_ERROR", "Unable to read session user.", { userErr });
-    if (!user) return jerr(401, "UNAUTHENTICATED", "No active session. Please sign in again.");
-
-    const PROVIDERS = "providers";
-    const MICROSITES = "microsites";
-    const EVENTS = "events";
-
-    // Check/adjust slug
-    const { data: existing, error: existErr } = await supabase
-      .from(PROVIDERS)
-      .select("id, slug")
-      .eq("slug", body.slug)
-      .limit(1)
-      .maybeSingle();
-    if (existErr) return jerr(500, "SLUG_CHECK_FAILED", "Failed checking slug.", { existErr });
-
-    let finalSlug = body.slug;
-    if (existing) finalSlug = `${body.slug}-${Math.random().toString(36).slice(2, 6)}`;
-
-    // Provider upsert (minimal payload)
-    const providerPayload = {
-      owner_id: user.id,
-      name: body.name,
-      phone: body.phone,
-      category: body.category,
-      slug: finalSlug,
-    };
-
-    const { data: upserted, error: upsertErr } = await supabase
-      .from(PROVIDERS)
-      .upsert(providerPayload, { onConflict: "slug" })
-      .select("id, slug")
-      .single();
-
-    if (upsertErr) {
-      return jerr(400, "UPSERT_FAILED", "Could not publish provider.", {
-        upsertErr,
-        providerPayload,
-      });
-    }
-
-    // Microsite upsert (1:1 by provider_id)
-    const { error: microErr } = await supabase
-      .from(MICROSITES)
-      .upsert(
-        {
-          owner_id: user.id,
-          provider_id: upserted.id,
-          slug: upserted.slug,
-          is_live: true,
-        },
-        { onConflict: "provider_id" }
-      );
-    if (microErr) return jerr(500, "MICROSITE_UPSERT_FAILED", "Microsite creation failed.", { microErr });
-
-    // ✅ Telemetry: record publish success (best-effort; never block)
-    try {
-      await supabase.from(EVENTS).insert({
-        provider_id: upserted.id,
-        type: "provider_published",
-        meta: {
-          slug: upserted.slug,
-          source: "onboarding",
-          category: body.category ?? null,
-          city: body.city ?? null,
-        },
-      });
-    } catch (telemetryErr) {
-      console.log("[publish] telemetry insert failed", telemetryErr);
-    }
-
-    return json({
-      ok: true,
-      provider_id: upserted.id,
-      slug: upserted.slug,
-      redirect: `/dashboard?slug=${upserted.slug}`,
-    });
-  } catch (e: any) {
-    return jerr(500, "UNHANDLED", "Unexpected server error.", { message: e?.message });
-  }
+  return NextResponse.json({ ok: true, provider_id: prov.id, slug: prov.slug });
 }
