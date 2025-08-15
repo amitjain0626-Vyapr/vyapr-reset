@@ -1,89 +1,65 @@
-// app/api/auth/magiclink/route.ts
-// @ts-nocheck
-import { NextResponse } from "next/server";
-import { headers, cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
-
+// No TypeScript here. Pure JS.
+// Forces Node runtime (supabase-js is safer on Node than Edge for this route)
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
-function baseUrl() {
-  const envUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim();
-  if (envUrl) return envUrl.replace(/\/+$/, "");
-  const h = headers();
-  const host = h.get("x-forwarded-host") || h.get("host") || "localhost:3000";
-  const proto = (h.get("x-forwarded-proto") || "https").split(",")[0].trim();
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+
+function getBaseUrl(req) {
+  const proto = req.headers.get("x-forwarded-proto") || "https";
+  const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "localhost:3000";
   return `${proto}://${host}`;
 }
 
-async function readFormOrJson(req: Request) {
+async function readFormOrJson(req) {
   const ctype = req.headers.get("content-type") || "";
   if (ctype.includes("application/json")) {
     const j = await req.json().catch(() => ({}));
-    return {
-      email: String(j.email || "").trim(),
-      next: String(j.next || "/onboarding"),
-    };
-    }
-  const fd = await req.formData();
-  return {
-    email: String(fd.get("email") || "").trim(),
-    next: String(fd.get("next") || "/onboarding"),
-  };
+    return j || {};
+  }
+  if (ctype.includes("application/x-www-form-urlencoded")) {
+    const form = await req.formData().catch(() => null);
+    if (!form) return {};
+    const obj = {};
+    for (const [k, v] of form.entries()) obj[k] = typeof v === "string" ? v : "";
+    return obj;
+  }
+  return {};
 }
 
-export async function POST(req: Request) {
+export async function POST(req) {
   try {
-    const { email, next } = await readFormOrJson(req);
+    const body = await readFormOrJson(req);
+    const email = (body.email || "").trim();
+    if (!email) {
+      return NextResponse.json({ ok: false, error: "email required" }, { status: 400 });
+    }
 
-    const redirectBack = (params: Record<string, string>) => {
-      const u = new URL("/login", baseUrl());
-      Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
-      return NextResponse.redirect(u, { status: 303 });
-    };
+    const base = getBaseUrl(req);
+    const redirectTo = `${base}/auth/callback`;
 
-    if (!email) return redirectBack({ error: "email", next });
-
-    const cookieStore = cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return cookieStore.getAll().map(({ name, value }) => ({ name, value }));
-          },
-          setAll(cookiesToSet) {
-            cookiesToSet.forEach(({ name, value, options }) => {
-              // @ts-ignore
-              cookieStore.set({ name, value, ...options });
-            });
-          },
-        },
-      }
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      { auth: { persistSession: false, autoRefreshToken: false } }
     );
-
-    const redirectTo = `${baseUrl()}/auth/callback?next=${encodeURIComponent(next)}`;
 
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: { emailRedirectTo: redirectTo },
     });
 
-    if (error) return redirectBack({ error: encodeURIComponent(error.message), next });
+    if (error) {
+      return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+    }
 
-    return redirectBack({ sent: "1", next });
-  } catch (e: any) {
-    console.error("magiclink POST error:", e?.message || e);
-    const u = new URL("/login", baseUrl());
-    u.searchParams.set("error", "magiclink_500");
-    u.searchParams.set("next", "/onboarding");
-    return NextResponse.redirect(u, { status: 303 });
+    return NextResponse.json({ ok: true, redirectTo });
+  } catch (e) {
+    return NextResponse.json({ ok: false, error: "unexpected error" }, { status: 500 });
   }
 }
 
-// Simple GET to confirm the route is live (for diagnosis)
-export function GET() {
-  return NextResponse.json({ ok: true, route: "/api/auth/magiclink" });
+export async function GET() {
+  // Optional: simple ping for health checks
+  return NextResponse.json({ ok: true, route: "auth/magiclink" });
 }
