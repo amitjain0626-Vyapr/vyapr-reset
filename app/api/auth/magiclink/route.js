@@ -1,5 +1,4 @@
-// No TypeScript here. Pure JS.
-// Forces Node runtime (supabase-js is safer on Node than Edge for this route)
+// @ts-nocheck
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
@@ -31,12 +30,11 @@ export async function POST(req) {
   try {
     const body = await readFormOrJson(req);
     const email = (body.email || "").trim();
-    if (!email) {
-      return NextResponse.json({ ok: false, error: "email required" }, { status: 400 });
-    }
+    if (!email) return NextResponse.json({ ok: false, error: "email required" }, { status: 400 });
 
     const base = getBaseUrl(req);
-    const redirectTo = `${base}/auth/callback`;
+    // Send user to dashboard after verifying the email
+    const redirectTo = `${base}/auth/callback?next=/dashboard`;
 
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -48,10 +46,7 @@ export async function POST(req) {
       email,
       options: { emailRedirectTo: redirectTo },
     });
-
-    if (error) {
-      return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
-    }
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
 
     return NextResponse.json({ ok: true, redirectTo });
   } catch (e) {
@@ -60,6 +55,5 @@ export async function POST(req) {
 }
 
 export async function GET() {
-  // Optional: simple ping for health checks
-  return NextResponse.json({ ok: true, route: "auth/magiclink" });
+  return NextResponse.json({ ok: true, route: "/api/auth/magiclink" });
 }
