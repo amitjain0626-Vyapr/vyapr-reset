@@ -6,15 +6,17 @@ import { cookies } from "next/headers";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 
 /**
- * Debuggable auth callback.
- * - If ?debug=1 → returns JSON: { hasCode, exchanged, error, user_id, next }
- * - Otherwise → normal redirect to `next` (default /onboarding)
+ * Debug-first callback.
+ * - Always attempts: supabase.auth.exchangeCodeForSession(<full URL>)
+ * - If ?debug=1, returns JSON with the exact params and outcome (no redirect)
+ * - Otherwise, redirects to ?next=... or /onboarding
  */
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  const code = url.searchParams.get("code") || "";
   const next = url.searchParams.get("next") || "/onboarding";
   const debug = url.searchParams.get("debug") === "1";
+
+  const params = Object.fromEntries(url.searchParams.entries()); // <- see what Supabase sent
 
   const supabase = createRouteHandlerClient({ cookies });
 
@@ -22,31 +24,30 @@ export async function GET(request: Request) {
   let error: string | null = null;
   let user_id: string | null = null;
 
-  if (!code) {
-    if (debug) {
-      return NextResponse.json({ hasCode: false, exchanged: false, error: "missing code", user_id, next });
+  try {
+    // IMPORTANT: pass the FULL URL so it handles both `code` and `token_hash` flows
+    const { error: exErr } = await supabase.auth.exchangeCodeForSession(url.toString());
+    if (exErr) {
+      error = exErr.message || "exchange failed";
+    } else {
+      exchanged = true;
+      const { data: { user } } = await supabase.auth.getUser();
+      user_id = user?.id ?? null;
+      if (!user_id && !error) error = "no_user_after_exchange";
     }
-    url.pathname = "/login";
-    return NextResponse.redirect(url, { status: 302 });
-  }
-
-  // Exchange the *code* (not the full URL) for a session.
-  const { error: exErr } = await supabase.auth.exchangeCodeForSession(code);
-  if (exErr) {
-    error = exErr.message || "exchange failed";
-  } else {
-    exchanged = true;
-    const { data: { user } } = await supabase.auth.getUser();
-    user_id = user?.id ?? null;
+  } catch (e: any) {
+    error = e?.message || "exception during exchange";
   }
 
   if (debug) {
-    return NextResponse.json({ hasCode: true, exchanged, error, user_id, next });
+    return NextResponse.json({
+      params, exchanged, error, user_id, next,
+    });
   }
 
   if (!exchanged || !user_id) {
     const fail = new URL(url.origin + "/login");
-    fail.searchParams.set("reason", error ? `exchange:${error}` : "no_user");
+    if (error) fail.searchParams.set("reason", error);
     return NextResponse.redirect(fail, { status: 302 });
   }
 
