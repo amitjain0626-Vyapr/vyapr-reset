@@ -9,28 +9,32 @@ export default function AuthCallbackPage() {
 
   useEffect(() => {
     const run = async () => {
+      const supabase = createClientComponentClient();
+      const href = window.location.href;
+      const url = new URL(href);
+      const next = url.searchParams.get("next") || "/onboarding";
+
+      const code = url.searchParams.get("code");            // OAuth/PKCE case
+      const token_hash = url.searchParams.get("token_hash"); // Magic-link case
+      const type = url.searchParams.get("type") || "magiclink";
+      const email = (url.searchParams.get("email") || "").trim(); // passed from sender
+
       try {
-        const supabase = createClientComponentClient();
-        // Use FULL URL so Supabase JS can pick up code + verifier (PKCE) from storage
-        const href = window.location.href;
-
-        const { error } = await supabase.auth.exchangeCodeForSession(href);
-        if (error) {
-          setMsg(`Sign-in failed: ${error.message}`);
-          // stay on this page and show error
-          return;
+        if (code) {
+          // OAuth-style; Supabase JS will use stored verifier
+          const { error } = await supabase.auth.exchangeCodeForSession(href);
+          if (error) throw new Error(error.message);
+        } else if (token_hash) {
+          if (!email) throw new Error("Missing email for magic link verify");
+          const { error } = await supabase.auth.verifyOtp({ type, token_hash, email });
+          if (error) throw new Error(error.message);
+        } else {
+          throw new Error("Missing code/token_hash");
         }
 
-        // Optional: confirm we have a user before redirect
+        // Confirm session, then go
         const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-          setMsg("Sign-in failed: no user after exchange");
-          return;
-        }
-
-        // Redirect to ?next=/dashboard (default /onboarding)
-        const url = new URL(href);
-        const next = url.searchParams.get("next") || "/onboarding";
+        if (!user) throw new Error("no user after exchange");
         window.location.replace(next);
       } catch (e: any) {
         setMsg(`Sign-in failed: ${e?.message || "unexpected error"}`);

@@ -26,12 +26,14 @@ export async function POST(req) {
   try {
     const body = await readFormOrJson(req);
     const email = (body.email || "").trim();
-    const debug = !!body.debug;
     if (!email) return NextResponse.json({ ok: false, error: "email required" }, { status: 400 });
 
     const base = getBaseUrl(req);
-    const params = new URLSearchParams({ next: "/dashboard" });
-    if (debug) params.set("debug", "1");
+    const params = new URLSearchParams({
+      next: "/dashboard",
+      email,                 // <-- include email for verifyOtp()
+    });
+    if (body.debug) params.set("debug", "1");
     const redirectTo = `${base}/auth/callback?${params.toString()}`;
 
     const supabase = createClient(
@@ -40,7 +42,10 @@ export async function POST(req) {
       { auth: { persistSession: false, autoRefreshToken: false } }
     );
 
-    const { error } = await supabase.auth.signInWithOtp({ email, options: { emailRedirectTo: redirectTo } });
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: redirectTo },
+    });
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
 
     return NextResponse.json({ ok: true, redirectTo });
