@@ -3,14 +3,13 @@ import LeadInbox from "@/components/inbox/LeadInbox";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
-/**
- * /inbox?slug=<microsite-slug>
- * Renders the Lead Inbox with filters/search/mobile UI.
- */
-export default async function InboxPage({ searchParams }: { searchParams: { slug?: string } }) {
-  const slug = (searchParams?.slug || "").trim();
+// Works with Next 15 where searchParams may be a Promise.
+export default async function InboxPage(props: any) {
+  const sp = (props?.searchParams && typeof props.searchParams.then === "function")
+    ? await props.searchParams
+    : (props?.searchParams || {});
+  const slug = (sp?.slug || "").toString().trim();
 
-  // Optional: assert slug belongs to current user (SSR) to pre-fail fast.
   const cookieStore = cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -20,11 +19,7 @@ export default async function InboxPage({ searchParams }: { searchParams: { slug
 
   let ownerOk = true;
   if (slug) {
-    const { data: p } = await supabase
-      .from("providers")
-      .select("id")
-      .eq("slug", slug)
-      .maybeSingle();
+    const { data: p } = await supabase.from("providers").select("id").eq("slug", slug).maybeSingle();
     ownerOk = !!p;
   }
 

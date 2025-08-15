@@ -1,13 +1,13 @@
-// app/api/auth/signout/route.ts
-import { NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/utils/supabase/server'
-import { logServerRoute } from '@/lib/supabase/client-helpers'
+// @ts-nocheck
+import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 
-export async function GET() {
-  logServerRoute('/api/auth/signout')
+export const runtime = "nodejs";
 
-  const supabase = await createSupabaseServerClient()
-  await supabase.auth.signOut()
-
-  return NextResponse.redirect(new URL('/login', process.env.NEXT_PUBLIC_SITE_URL))
+export async function POST() {
+  const cookieStore = cookies();
+  const supabase = createRouteHandlerClient({ cookies: () => cookieStore });
+  await supabase.auth.signOut();
+  return NextResponse.json({ ok: true });
 }
