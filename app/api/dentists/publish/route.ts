@@ -35,7 +35,7 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    // Required fields only
+    // Required (keep lean to avoid schema mismatches)
     for (const k of ["name", "phone", "category", "slug"] as const) {
       if (!body?.[k] || String(body[k]).trim() === "") {
         return jerr(400, "VALIDATION_FAILED", `Missing field: ${k}`);
@@ -52,31 +52,29 @@ export async function POST(req: Request) {
     if (userErr) return jerr(401, "AUTH_USER_ERROR", "Unable to read session user.", { userErr });
     if (!user) return jerr(401, "UNAUTHENTICATED", "No active session. Please sign in again.");
 
-    // Use lowercase table names to match your schema
     const PROVIDERS = "providers";
     const MICROSITES = "microsites";
+    const EVENTS = "events";
 
-    // Ensure unique slug
+    // Check/adjust slug
     const { data: existing, error: existErr } = await supabase
       .from(PROVIDERS)
       .select("id, slug")
       .eq("slug", body.slug)
       .limit(1)
       .maybeSingle();
-
     if (existErr) return jerr(500, "SLUG_CHECK_FAILED", "Failed checking slug.", { existErr });
 
     let finalSlug = body.slug;
     if (existing) finalSlug = `${body.slug}-${Math.random().toString(36).slice(2, 6)}`;
 
-    // ✅ Minimal payload only (avoid unknown columns)
+    // Provider upsert (minimal payload)
     const providerPayload = {
       owner_id: user.id,
       name: body.name,
       phone: body.phone,
       category: body.category,
       slug: finalSlug,
-      // leave out city/about/price_range/status/verified etc.
     };
 
     const { data: upserted, error: upsertErr } = await supabase
@@ -92,7 +90,7 @@ export async function POST(req: Request) {
       });
     }
 
-    // Minimal microsite upsert (skip extra columns)
+    // Microsite upsert (1:1 by provider_id)
     const { error: microErr } = await supabase
       .from(MICROSITES)
       .upsert(
@@ -104,9 +102,22 @@ export async function POST(req: Request) {
         },
         { onConflict: "provider_id" }
       );
+    if (microErr) return jerr(500, "MICROSITE_UPSERT_FAILED", "Microsite creation failed.", { microErr });
 
-    if (microErr) {
-      return jerr(500, "MICROSITE_UPSERT_FAILED", "Microsite creation failed.", { microErr });
+    // ✅ Telemetry: record publish success (best-effort; never block)
+    try {
+      await supabase.from(EVENTS).insert({
+        provider_id: upserted.id,
+        type: "provider_published",
+        meta: {
+          slug: upserted.slug,
+          source: "onboarding",
+          category: body.category ?? null,
+          city: body.city ?? null,
+        },
+      });
+    } catch (telemetryErr) {
+      console.log("[publish] telemetry insert failed", telemetryErr);
     }
 
     return json({
