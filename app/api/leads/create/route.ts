@@ -1,85 +1,81 @@
-// app/api/leads/create/route.ts
 // @ts-nocheck
-import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { getSupabaseServer } from "@/lib/supabaseServer";
 
-function supabaseServer() {
-  const cookieStore = cookies();
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-        set() {},
-        remove() {},
-      },
-    }
-  );
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+function json(data: any, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "no-store, no-cache, must-revalidate",
+    },
+  });
+}
+
+function jerr(status: number, code: string, message: string, meta: any = {}) {
+  const metaOut: any = { ...meta };
+  const err = meta?.error;
+  if (err) {
+    metaOut.code = err.code || err.name;
+    metaOut.details = err.details || err.message || String(err);
+    metaOut.hint = err.hint ?? undefined;
+  }
+  return json({ ok: false, error: { code, message }, meta: metaOut }, status);
 }
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json().catch(() => ({}));
-    const { slug, patient_name, phone, note, utm } = body || {};
+    const body = await req.json();
 
-    if (!slug || !patient_name || !phone) {
-      return NextResponse.json(
-        { ok: false, error: "Missing required fields" },
-        { status: 400 }
-      );
+    // Required minimal lead data
+    for (const k of ["slug", "patient_name", "phone"] as const) {
+      if (!body?.[k] || String(body[k]).trim() === "") {
+        return jerr(400, "VALIDATION_FAILED", `Missing field: ${k}`);
+      }
     }
 
-    const supabase = supabaseServer();
+    const supabase = getSupabaseServer();
 
-    // Resolve dentist by slug (must be published)
-    const { data: dentist, error: dErr } = await supabase
-      .from("Dentists")
-      .select("*")
-      .eq("slug", String(slug))
-      .maybeSingle();
-
-    if (dErr) {
-      return NextResponse.json(
-        { ok: false, error: "Lookup failed", details: dErr.message },
-        { status: 500 }
-      );
-    }
-    if (!dentist || dentist.is_published !== true) {
-      return NextResponse.json(
-        { ok: false, error: "Microsite not found or unpublished" },
-        { status: 404 }
-      );
+    // 1) Provider lookup by slug
+    const { data: provider, error: provErr } = await supabase
+      .from("providers")
+      .select("id, owner_id, slug")
+      .eq("slug", body.slug)
+      .single();
+    if (provErr || !provider) {
+      return jerr(404, "NO_PROVIDER", "Provider not found.", { provErr });
     }
 
-    // Insert lead (public INSERT allowed by RLS). Do NOT .select() — public has no SELECT.
-    const payload = {
-      dentist_id: dentist.id,
-      source_slug: String(slug),
-      patient_name: String(patient_name),
-      phone: String(phone),
-      note: note ? String(note) : null,
-      utm: typeof utm === "object" && utm !== null ? utm : {},
-    };
+    // 2) Insert lead
+    const { error: leadErr } = await supabase.from("leads").insert({
+      provider_id: provider.id,
+      name: body.patient_name,
+      phone: body.phone,
+      note: body.note || null,
+      utm: body.utm || null,
+    });
+    if (leadErr) return jerr(500, "LEAD_INSERT_FAILED", "Could not save lead.", { leadErr });
 
-    const { error } = await supabase.from("Leads").insert(payload);
-
-    if (error) {
-      return NextResponse.json(
-        { ok: false, error: "Insert failed", details: error.message },
-        { status: 500 }
-      );
+    // 3) ✅ Telemetry (best-effort; don't block main flow)
+    try {
+      await supabase.from("events").insert({
+        provider_id: provider.id,
+        type: "lead_created",
+        meta: {
+          slug: provider.slug,
+          patient_name: body.patient_name,
+          phone: body.phone,
+          utm: body.utm || null,
+        },
+      });
+    } catch (telemetryErr) {
+      console.log("[lead:create] telemetry insert failed", telemetryErr);
     }
 
-    // Success (no row returned due to RLS)
-    return NextResponse.json({ ok: true }, { status: 200 });
+    return json({ ok: true });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: "Unhandled error", details: e?.message ?? String(e) },
-      { status: 500 }
-    );
+    return jerr(500, "UNHANDLED", "Unexpected server error.", { message: e?.message });
   }
 }
