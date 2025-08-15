@@ -12,17 +12,15 @@ export async function GET(req: NextRequest) {
   const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
   const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "20", 10)));
   const offset = (page - 1) * limit;
-
   if (!slug) return NextResponse.json({ ok: false, error: "slug required" }, { status: 400 });
 
-  const cookieStore = cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { get: (n: string) => cookieStore.get(n)?.value } }
+    { cookies: { get: (n: string) => cookies().get(n)?.value } }
   );
 
-  // Resolve provider_id via providers.slug OR microsites.slug (either works)
+  // Resolve provider via providers.slug or microsites.slug
   let providerId: string | null = null;
   const { data: p1 } = await supabase.from("providers").select("id").eq("slug", slug).maybeSingle();
   if (p1?.id) providerId = p1.id;
@@ -32,11 +30,11 @@ export async function GET(req: NextRequest) {
   }
   if (!providerId) return NextResponse.json({ ok: false, error: "provider not found" }, { status: 404 });
 
-  // Select only universally-safe columns. No source/status/when/meta here.
+  // NOTE: filter by owner_id (your Leads schema)
   let query = supabase
     .from("leads")
     .select("id, patient_name, phone, note, created_at", { count: "exact" })
-    .eq("provider_id", providerId)
+    .eq("owner_id", providerId)
     .order("created_at", { ascending: false });
 
   if (q) query = query.or(`patient_name.ilike.%${q}%,phone.ilike.%${q}%`);
@@ -46,11 +44,5 @@ export async function GET(req: NextRequest) {
   const { data: rows, error, count } = await query.range(offset, offset + limit - 1);
   if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
 
-  return NextResponse.json({
-    ok: true,
-    rows: rows || [],
-    page,
-    limit,
-    total: count || 0,
-  });
+  return NextResponse.json({ ok: true, rows: rows || [], page, limit, total: count || 0 });
 }
