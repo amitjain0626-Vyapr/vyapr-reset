@@ -1,10 +1,10 @@
 // app/book/[slug]/page.tsx
-// Renders a simple booking form that posts to /api/leads/create
 import type { Metadata } from "next";
 import LeadForm from "./LeadForm";
 
 export const dynamic = "force-dynamic";
 
+// Correct typing: let Next.js inject params
 export function generateMetadata({ params }: { params: { slug: string } }): Metadata {
   const slug = params.slug;
   return {
@@ -14,8 +14,8 @@ export function generateMetadata({ params }: { params: { slug: string } }): Meta
   };
 }
 
-export default function BookPage({ params }: { params: { slug: string } }) {
-  const { slug } = params;
+export default function BookPage(props: any) {
+  const { slug } = props.params;
   return (
     <main className="mx-auto max-w-xl px-4 py-10">
       <h1 className="text-2xl font-semibold mb-2">Request an appointment</h1>
