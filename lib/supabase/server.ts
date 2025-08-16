@@ -1,5 +1,12 @@
 // @ts-nocheck
 // lib/supabase/server.ts
+//
+// Backward-compatible server-side Supabase client.
+// Exports aliases for legacy imports used across the codebase:
+// - getServerSupabase
+// - getSupabaseServer
+// - default export (createSupabaseServerClient)
+
 import { cookies, headers } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
@@ -19,14 +26,14 @@ export function createSupabaseServerClient() {
           try {
             cookieStore.set({ name, value, ...options });
           } catch {
-            // ignore set errors on edge
+            // ignore on edge
           }
         },
         remove(name: string, options: any) {
           try {
             cookieStore.set({ name, value: "", ...options });
           } catch {
-            // ignore remove errors on edge
+            // ignore on edge
           }
         },
       },
@@ -41,3 +48,8 @@ export function createSupabaseServerClient() {
 
   return supabase;
 }
+
+// ---- legacy aliases (keep old imports working) ----
+export const getServerSupabase = createSupabaseServerClient;
+export const getSupabaseServer = createSupabaseServerClient;
+export default createSupabaseServerClient;
