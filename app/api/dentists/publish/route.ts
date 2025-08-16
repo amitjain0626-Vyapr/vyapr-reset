@@ -3,8 +3,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { cookies, headers as nextHeaders } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
+import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 
 /* ---------- helpers ---------- */
 function jerr(status: number, code: string, msg: string, details?: any) {
@@ -45,64 +45,20 @@ async function ensureUniqueSlug(supabase: any, base: string) {
 /* ---------- route ---------- */
 export async function POST(req: Request) {
   try {
-    const cookieStore = cookies();
+    // ✅ This client reads/writes Supabase auth cookies for us
+    const supabase = createRouteHandlerClient({ cookies });
 
-    // ✅ Read bearer from header (handles both cases)
-    const incomingAuth =
-      req.headers.get("Authorization") || req.headers.get("authorization") || "";
-    const bearer = incomingAuth.startsWith("Bearer ") ? incomingAuth.slice(7) : "";
+    // 1) Auth guard (cookie-based; no Authorization header needed)
+    const { data: { user }, error: userErr } = await supabase.auth.getUser();
+    if (userErr || !user) return jerr(401, "unauthorized", "Please sign in to continue.", userErr?.message || null);
 
-    // Build Supabase SSR client
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          get: (n: string) => cookieStore.get(n)?.value,
-          set: (n: string, v: string, o: any) => {
-            try {
-              cookieStore.set({ name: n, value: v, ...o });
-            } catch {}
-          },
-          remove: (n: string, o: any) => {
-            try {
-              cookieStore.set({ name: n, value: "", ...o });
-            } catch {}
-          },
-        },
-        global: {
-          headers: {
-            authorization: incomingAuth, // pass-through for completeness
-            "x-forwarded-for": nextHeaders().get("x-forwarded-for") || "",
-            "x-request-id": nextHeaders().get("x-request-id") || "",
-          },
-        },
-      }
-    );
-
-    // ✅ Ensure the client uses the token
-    if (bearer && supabase?.auth?.setAuth) {
-      await supabase.auth.setAuth(bearer);
-    }
-
-    // ✅ Bypass cookie/header quirks: ask Supabase for user using the token directly
-    const { data: userRes, error: userErr } = await supabase.auth.getUser(bearer);
-    if (userErr || !userRes?.user) {
-      return jerr(401, "unauthorized", "Please sign in to continue.", userErr?.message || null);
-    }
-    const user = userRes.user;
-
-    // Parse input
+    // 2) Parse input
     let payload: any;
-    try {
-      payload = await req.json();
-    } catch {
-      return jerr(400, "bad_json", "Invalid JSON body.");
-    }
+    try { payload = await req.json(); } catch { return jerr(400, "bad_json", "Invalid JSON body."); }
     const { out, missing } = parseBody(payload);
     if (missing.length) return jerr(422, "validation_error", `Missing: ${missing.join(", ")}`);
 
-    // Read existing provider (use correct columns)
+    // 3) Idempotent read
     const { data: existing, error: selErr } = await supabase
       .from("providers")
       .select("id, owner_id, name, phone, city, category")
@@ -112,8 +68,8 @@ export async function POST(req: Request) {
       .maybeSingle();
     if (selErr) return jerr(500, "select_provider_failed", "Failed to read provider.", selErr.message || selErr);
 
-    // If exists: patch + ensure microsite
     if (existing) {
+      // Patch provider
       const patch: any = {};
       if (out.name && out.name !== existing.name) patch.name = out.name;
       if (out.phone && out.phone !== existing.phone) patch.phone = out.phone;
@@ -125,6 +81,7 @@ export async function POST(req: Request) {
         if (upErr) return jerr(500, "provider_update_failed", "Could not update provider.", upErr.message || upErr);
       }
 
+      // Ensure microsite
       const { data: ms, error: msSelErr } = await supabase
         .from("microsites")
         .select("id, slug, published")
@@ -151,7 +108,6 @@ export async function POST(req: Request) {
         if (msPubErr) return jerr(500, "microsite_publish_failed", "Could not publish microsite.", msPubErr.message || msPubErr);
       }
 
-      // best-effort telemetry
       await supabase.from("events").insert({
         type: "provider_published",
         person_id: null,
@@ -167,7 +123,7 @@ export async function POST(req: Request) {
       });
     }
 
-    // Create provider + microsite
+    // 4) Create provider + microsite
     const { data: prov, error: pErr } = await supabase
       .from("providers")
       .insert({
@@ -192,7 +148,6 @@ export async function POST(req: Request) {
     });
     if (msErr) return jerr(500, "microsite_create_failed", "Could not create microsite.", msErr.message || msErr);
 
-    // best-effort telemetry
     await supabase.from("events").insert({
       type: "provider_published",
       person_id: null,
