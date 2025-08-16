@@ -52,7 +52,37 @@ export default function OnboardingPage() {
     setLoading(true);
     setErrText(null);
     setMsg(null);
+try {
+      const res = await fetch("/api/dentists/publish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
 
+      // Read as text first (so we can show raw body on errors), then try JSON.
+      const text = await res.text();
+      let json: any = null;
+      try { json = text ? JSON.parse(text) : null; } catch { /* keep null */ }
+
+      if (!res.ok || !json?.ok) {
+        const msgParts = [
+          `Publish failed (HTTP ${res.status})`,
+          text && text !== "{}" ? text : "",
+        ].filter(Boolean);
+        setErrText(msgParts.join("\n\n"));
+        console.error("publish:error", { status: res.status, text }); // dev aid
+        setLoading(false);
+        return;
+      }
+
+      setMsg("Published! Redirecting…");
+      const nextSlug = json.slug || payload.slug;
+      window.location.href = `/dashboard?slug=${encodeURIComponent(nextSlug)}`;
+    } catch (e: any) {
+      setErrText(toMsg(e));
+      setLoading(false);
+    }
     if (!form.name.trim() || !form.phone.trim() || !form.category.trim()) {
       setErrText("Missing field: name, phone and category are required");
       setLoading(false);
