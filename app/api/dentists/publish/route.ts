@@ -12,13 +12,15 @@ function jerr(status: number, code: string, msg: string, details?: any) {
 }
 
 function parseBody(obj: any) {
+  // Map UI "city" -> DB "location"
+  const location = (obj?.location || obj?.city || "").toString().trim();
   const out = {
     name: (obj?.name || "").toString().trim(),
     phone: (obj?.phone || "").toString().trim(),
-    city: (obj?.city || "").toString().trim(),
+    location, // DB column
     category: (obj?.category || "").toString().trim(),
     slug: obj?.slug ? obj.slug.toString().trim().toLowerCase() : "",
-    publish: Boolean(obj?.publish ?? true),
+    publish: Boolean(obj?.publish ?? true), // will map to microsites.is_live
   };
   const missing: string[] = [];
   if (!out.name) missing.push("name");
@@ -45,10 +47,10 @@ async function ensureUniqueSlug(supabase: any, base: string) {
 /* ---------- route ---------- */
 export async function POST(req: Request) {
   try {
-    // ✅ This client reads/writes Supabase auth cookies for us
+    // Cookie-based Supabase (no bearer header needed)
     const supabase = createRouteHandlerClient({ cookies });
 
-    // 1) Auth guard (cookie-based; no Authorization header needed)
+    // 1) Auth guard
     const { data: { user }, error: userErr } = await supabase.auth.getUser();
     if (userErr || !user) return jerr(401, "unauthorized", "Please sign in to continue.", userErr?.message || null);
 
@@ -58,10 +60,10 @@ export async function POST(req: Request) {
     const { out, missing } = parseBody(payload);
     if (missing.length) return jerr(422, "validation_error", `Missing: ${missing.join(", ")}`);
 
-    // 3) Idempotent read
+    // 3) Idempotent read (match your schema)
     const { data: existing, error: selErr } = await supabase
       .from("providers")
-      .select("id, owner_id, name, phone, city, category")
+      .select("id, owner_id, name, phone, location, category, slug, published")
       .eq("owner_id", user.id)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -69,22 +71,21 @@ export async function POST(req: Request) {
     if (selErr) return jerr(500, "select_provider_failed", "Failed to read provider.", selErr.message || selErr);
 
     if (existing) {
-      // Patch provider
+      // Patch provider (use `location`)
       const patch: any = {};
       if (out.name && out.name !== existing.name) patch.name = out.name;
       if (out.phone && out.phone !== existing.phone) patch.phone = out.phone;
-      if (out.city !== undefined && out.city !== (existing.city || "")) patch.city = out.city || null;
+      if (out.location !== undefined && out.location !== (existing.location || "")) patch.location = out.location || null;
       if (out.category && out.category !== existing.category) patch.category = out.category;
-
       if (Object.keys(patch).length) {
         const { error: upErr } = await supabase.from("providers").update(patch).eq("id", existing.id);
         if (upErr) return jerr(500, "provider_update_failed", "Could not update provider.", upErr.message || upErr);
       }
 
-      // Ensure microsite
+      // Ensure microsite (uses `is_live`)
       const { data: ms, error: msSelErr } = await supabase
         .from("microsites")
-        .select("id, slug, published")
+        .select("id, slug, is_live")
         .eq("owner_id", user.id)
         .eq("provider_id", existing.id)
         .order("created_at", { ascending: false })
@@ -100,14 +101,15 @@ export async function POST(req: Request) {
           owner_id: user.id,
           provider_id: existing.id,
           slug: finalSlug,
-          published: Boolean(out.publish),
+          is_live: Boolean(out.publish),
         });
         if (msInsErr) return jerr(500, "microsite_create_failed", "Could not create microsite.", msInsErr.message || msInsErr);
-      } else if (out.publish && !ms.published) {
-        const { error: msPubErr } = await supabase.from("microsites").update({ published: true }).eq("id", ms.id);
+      } else if (out.publish && !ms.is_live) {
+        const { error: msPubErr } = await supabase.from("microsites").update({ is_live: true }).eq("id", ms.id);
         if (msPubErr) return jerr(500, "microsite_publish_failed", "Could not publish microsite.", msPubErr.message || msPubErr);
       }
 
+      // best-effort telemetry
       await supabase.from("events").insert({
         type: "provider_published",
         person_id: null,
@@ -123,16 +125,17 @@ export async function POST(req: Request) {
       });
     }
 
-    // 4) Create provider + microsite
+    // 4) Create provider + microsite (match schema)
     const { data: prov, error: pErr } = await supabase
       .from("providers")
       .insert({
         owner_id: user.id,
         name: out.name,
         phone: out.phone,
-        city: out.city || null,
-        category: out.category,
+        location: out.location || null,  // <— schema uses location
+        category: out.category,          // (category exists in your table)
         verified: false,
+        // published is optional; keep default
       })
       .select("id")
       .single();
@@ -144,10 +147,11 @@ export async function POST(req: Request) {
       owner_id: user.id,
       provider_id: prov.id,
       slug: finalSlug,
-      published: Boolean(out.publish),
+      is_live: Boolean(out.publish), // <— schema uses is_live
     });
     if (msErr) return jerr(500, "microsite_create_failed", "Could not create microsite.", msErr.message || msErr);
 
+    // best-effort telemetry
     await supabase.from("events").insert({
       type: "provider_published",
       person_id: null,
