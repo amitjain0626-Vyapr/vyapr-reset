@@ -1,11 +1,15 @@
 // @ts-nocheck
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { cookies, headers as nextHeaders } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
-// ------- small helpers -------
+function jerr(status: number, code: string, msg: string, details?: any) {
+  return NextResponse.json({ ok: false, error: { code, message: msg, details } }, { status });
+}
+
 function parseBody(obj: any) {
   const out = {
     name: (obj?.name || "").toString().trim(),
@@ -22,160 +26,127 @@ function parseBody(obj: any) {
   return { out, missing };
 }
 
-function toSlug(input: string) {
-  return input
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)+/g, "")
-    .slice(0, 48);
+function toSlug(s: string) {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)+/g, "").slice(0, 48);
 }
 
-async function ensureUniqueSlug(supabase: any, baseSlug: string) {
-  let candidate = baseSlug || "site";
+async function ensureUniqueSlug(supabase: any, base: string) {
+  let cand = base || "site";
   for (let i = 0; i < 5; i++) {
-    const { data, error } = await supabase
-      .from("microsites")
-      .select("id")
-      .eq("slug", candidate)
-      .limit(1);
+    const { data, error } = await supabase.from("microsites").select("id").eq("slug", cand).limit(1);
     if (error) throw error;
-    if (!data || data.length === 0) return candidate;
-    const suffix = Math.random().toString(36).slice(2, 6);
-    candidate = `${baseSlug}-${suffix}`.slice(0, 58);
+    if (!data || data.length === 0) return cand;
+    cand = `${base}-${Math.random().toString(36).slice(2, 6)}`.slice(0, 58);
   }
   throw new Error("slug_unavailable");
 }
 
-function jsonError(status: number, code: string, message: string, extra?: any) {
-  return NextResponse.json(
-    { ok: false, error: { code, message, ...(extra ? { details: extra } : {}) } },
-    { status }
-  );
-}
-
-// ------- route -------
 export async function POST(req: Request) {
-  // Supabase server client that honors Authorization header
-  const cookieStore = cookies();
-  const incomingAuth = req.headers.get("authorization") || "";
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get: (n: string) => cookieStore.get(n)?.value,
-        set: (n: string, v: string, o: any) => {
-          try { cookieStore.set({ name: n, value: v, ...o }); } catch {}
-        },
-        remove: (n: string, o: any) => {
-          try { cookieStore.set({ name: n, value: "", ...o }); } catch {}
-        },
-      },
-      global: {
-        headers: {
-          authorization: incomingAuth,
-          "x-forwarded-for": nextHeaders().get("x-forwarded-for") || "",
-          "x-request-id": nextHeaders().get("x-request-id") || "",
-        },
-      },
-    }
-  );
-
-  // Explicitly set bearer (ensures auth context)
-  const bearer = incomingAuth.startsWith("Bearer ") ? incomingAuth.slice(7) : "";
-  if (bearer) await supabase.auth.setAuth(bearer);
-
-  // 1) Auth guard
-  const { data: userRes, error: userErr } = await supabase.auth.getUser();
-  if (userErr || !userRes?.user) {
-    return jsonError(401, "unauthorized", "Please sign in to continue.");
-  }
-  const user = userRes.user;
-
-  // 2) Parse input
-  let body;
   try {
-    body = await req.json();
-  } catch {
-    return jsonError(400, "bad_json", "Invalid JSON body.");
-  }
-  const { out, missing } = parseBody(body);
-  if (missing.length) {
-    return jsonError(422, "validation_error", `Missing: ${missing.join(", ")}`);
-  }
+    const cookieStore = cookies();
+    const incomingAuth = req.headers.get("authorization") || "";
 
-  // 3) Idempotent read (NO display_name here)
-  const { data: existingProvider, error: selErr } = await supabase
-    .from("providers")
-    .select("id, owner_id, name, phone, city, category")
-    .eq("owner_id", user.id)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    // Build SSR client and **explicitly** set bearer
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          get: (n: string) => cookieStore.get(n)?.value,
+          set: (n: string, v: string, o: any) => { try { cookieStore.set({ name: n, value: v, ...o }); } catch {} },
+          remove: (n: string, o: any) => { try { cookieStore.set({ name: n, value: "", ...o }); } catch {} },
+        },
+        global: {
+          headers: {
+            authorization: incomingAuth,
+            "x-forwarded-for": nextHeaders().get("x-forwarded-for") || "",
+            "x-request-id": nextHeaders().get("x-request-id") || "",
+          },
+        },
+      }
+    );
 
-  if (selErr) {
-    return jsonError(500, "select_provider_failed", "Failed to read provider.", selErr.message ?? selErr);
-  }
-
-  if (existingProvider) {
-    // Patch provider if needed (use column `name`)
-    const patch: any = {};
-    if (out.name && out.name !== existingProvider.name) patch.name = out.name;
-    if (out.phone && out.phone !== existingProvider.phone) patch.phone = out.phone;
-    if (out.city !== undefined && out.city !== (existingProvider.city || "")) patch.city = out.city || null;
-    if (out.category && out.category !== existingProvider.category) patch.category = out.category;
-
-    if (Object.keys(patch).length) {
-      const { error: upErr } = await supabase.from("providers").update(patch).eq("id", existingProvider.id);
-      if (upErr) return jsonError(500, "provider_update_failed", "Could not update provider.", upErr.message ?? upErr);
+    const bearer = incomingAuth.startsWith("Bearer ") ? incomingAuth.slice(7) : "";
+    if (bearer && supabase?.auth?.setAuth) {
+      await supabase.auth.setAuth(bearer);
     }
 
-    // Ensure microsite exists
-    const { data: msExisting, error: msSelErr } = await supabase
-      .from("microsites")
-      .select("id, slug, published")
+    const { data: userRes, error: userErr } = await supabase.auth.getUser();
+    if (userErr || !userRes?.user) {
+      return jerr(401, "unauthorized", "Please sign in to continue.", userErr?.message || null);
+    }
+    const user = userRes.user;
+
+    let payload: any;
+    try { payload = await req.json(); } catch { return jerr(400, "bad_json", "Invalid JSON body."); }
+    const { out, missing } = parseBody(payload);
+    if (missing.length) return jerr(422, "validation_error", `Missing: ${missing.join(", ")}`);
+
+    // Read existing provider (use correct columns)
+    const { data: existing, error: selErr } = await supabase
+      .from("providers")
+      .select("id, owner_id, name, phone, city, category")
       .eq("owner_id", user.id)
-      .eq("provider_id", existingProvider.id)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (msSelErr) return jsonError(500, "microsite_select_failed", "Failed to read microsite.", msSelErr.message ?? msSelErr);
+    if (selErr) return jerr(500, "select_provider_failed", "Failed to read provider.", selErr.message || selErr);
 
-    let finalSlug = msExisting?.slug;
-    if (!msExisting) {
-      const desired = out.slug || toSlug(out.name);
-      finalSlug = await ensureUniqueSlug(supabase, desired);
-      const { error: msInsErr } = await supabase.from("microsites").insert({
-        owner_id: user.id,
-        provider_id: existingProvider.id,
-        slug: finalSlug,
-        published: Boolean(out.publish),
+    // If exists: patch + ensure microsite
+    if (existing) {
+      const patch: any = {};
+      if (out.name && out.name !== existing.name) patch.name = out.name;
+      if (out.phone && out.phone !== existing.phone) patch.phone = out.phone;
+      if (out.city !== undefined && out.city !== (existing.city || "")) patch.city = out.city || null;
+      if (out.category && out.category !== existing.category) patch.category = out.category;
+
+      if (Object.keys(patch).length) {
+        const { error: upErr } = await supabase.from("providers").update(patch).eq("id", existing.id);
+        if (upErr) return jerr(500, "provider_update_failed", "Could not update provider.", upErr.message || upErr);
+      }
+
+      const { data: ms, error: msSelErr } = await supabase
+        .from("microsites")
+        .select("id, slug, published")
+        .eq("owner_id", user.id)
+        .eq("provider_id", existing.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (msSelErr) return jerr(500, "microsite_select_failed", "Failed to read microsite.", msSelErr.message || msSelErr);
+
+      let finalSlug = ms?.slug;
+      if (!ms) {
+        const desired = out.slug || toSlug(out.name);
+        finalSlug = await ensureUniqueSlug(supabase, desired);
+        const { error: msInsErr } = await supabase.from("microsites").insert({
+          owner_id: user.id,
+          provider_id: existing.id,
+          slug: finalSlug,
+          published: Boolean(out.publish),
+        });
+        if (msInsErr) return jerr(500, "microsite_create_failed", "Could not create microsite.", msInsErr.message || msInsErr);
+      } else if (out.publish && !ms.published) {
+        const { error: msPubErr } = await supabase.from("microsites").update({ published: true }).eq("id", ms.id);
+        if (msPubErr) return jerr(500, "microsite_publish_failed", "Could not publish microsite.", msPubErr.message || msPubErr);
+      }
+
+      await supabase.from("events").insert({
+        type: "provider_published",
+        person_id: null,
+        provider_id: existing.id,
+        meta: { source: "onboarding/update" },
       });
-      if (msInsErr) return jsonError(500, "microsite_create_failed", "Could not create microsite.", msInsErr.message ?? msInsErr);
-    } else if (out.publish && !msExisting.published) {
-      const { error: msPubErr } = await supabase.from("microsites").update({ published: true }).eq("id", msExisting.id);
-      if (msPubErr) return jsonError(500, "microsite_publish_failed", "Could not publish microsite.", msPubErr.message ?? msPubErr);
+
+      return NextResponse.json({
+        ok: true,
+        provider_id: existing.id,
+        slug: finalSlug,
+        redirectTo: `/dashboard?slug=${finalSlug}`,
+      });
     }
 
-    // Telemetry (best-effort)
-    await supabase.from("events").insert({
-      type: "provider_published",
-      person_id: null,
-      provider_id: existingProvider.id,
-      meta: { source: "onboarding/update" },
-    });
-
-    return NextResponse.json({
-      ok: true,
-      provider_id: existingProvider.id,
-      slug: finalSlug,
-      redirectTo: `/dashboard?slug=${finalSlug}`,
-    });
-  }
-
-  // 4) Create provider + microsite (use column `name`)
-  try {
+    // Create provider + microsite
     const { data: prov, error: pErr } = await supabase
       .from("providers")
       .insert({
@@ -188,43 +159,7 @@ export async function POST(req: Request) {
       })
       .select("id")
       .single();
-
-    if (pErr) {
-      if (pErr.code === "23505") {
-        const { data: prov2, error: sel2Err } = await supabase
-          .from("providers")
-          .select("id")
-          .eq("owner_id", user.id)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (sel2Err || !prov2) {
-          return jsonError(409, "provider_conflict", "A provider already exists but couldn't be retrieved.", sel2Err?.message || null);
-        }
-        const desired = out.slug || toSlug(out.name);
-        const finalSlug = await ensureUniqueSlug(supabase, desired);
-        const { error: msInsErr } = await supabase.from("microsites").insert({
-          owner_id: user.id,
-          provider_id: prov2.id,
-          slug: finalSlug,
-          published: Boolean(out.publish),
-        });
-        if (msInsErr) return jsonError(500, "microsite_create_failed", "Could not create microsite.", msInsErr.message ?? msInsErr);
-        await supabase.from("events").insert({
-          type: "provider_published",
-          person_id: null,
-          provider_id: prov2.id,
-          meta: { source: "onboarding/race_recover" },
-        });
-        return NextResponse.json({
-          ok: true,
-          provider_id: prov2.id,
-          slug: finalSlug,
-          redirectTo: `/dashboard?slug=${finalSlug}`,
-        });
-      }
-      return jsonError(500, "provider_create_failed", "Could not create provider.", pErr.message ?? pErr);
-    }
+    if (pErr) return jerr(500, "provider_create_failed", "Could not create provider.", pErr.message || pErr);
 
     const desired = out.slug || toSlug(out.name);
     const finalSlug = await ensureUniqueSlug(supabase, desired);
@@ -234,7 +169,7 @@ export async function POST(req: Request) {
       slug: finalSlug,
       published: Boolean(out.publish),
     });
-    if (msErr) return jsonError(500, "microsite_create_failed", "Could not create microsite.", msErr.message ?? msErr);
+    if (msErr) return jerr(500, "microsite_create_failed", "Could not create microsite.", msErr.message || msErr);
 
     await supabase.from("events").insert({
       type: "provider_published",
@@ -250,6 +185,7 @@ export async function POST(req: Request) {
       redirectTo: `/dashboard?slug=${finalSlug}`,
     });
   } catch (e: any) {
-    return jsonError(500, "unexpected", "Unexpected error.", e?.message || String(e));
+    // 🔴 This ensures we never send an empty 500 — we return details for diagnosis
+    return jerr(500, "unexpected", "Unexpected error (debug).", e?.stack || e?.message || String(e));
   }
 }
