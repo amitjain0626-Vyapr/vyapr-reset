@@ -52,43 +52,15 @@ export default function OnboardingPage() {
     setLoading(true);
     setErrText(null);
     setMsg(null);
-try {
-      const res = await fetch("/api/dentists/publish", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(payload),
-      });
 
-      // Read as text first (so we can show raw body on errors), then try JSON.
-      const text = await res.text();
-      let json: any = null;
-      try { json = text ? JSON.parse(text) : null; } catch { /* keep null */ }
-
-      if (!res.ok || !json?.ok) {
-        const msgParts = [
-          `Publish failed (HTTP ${res.status})`,
-          text && text !== "{}" ? text : "",
-        ].filter(Boolean);
-        setErrText(msgParts.join("\n\n"));
-        console.error("publish:error", { status: res.status, text }); // dev aid
-        setLoading(false);
-        return;
-      }
-
-      setMsg("Published! Redirecting…");
-      const nextSlug = json.slug || payload.slug;
-      window.location.href = `/dashboard?slug=${encodeURIComponent(nextSlug)}`;
-    } catch (e: any) {
-      setErrText(toMsg(e));
-      setLoading(false);
-    }
+    // 1) Validate FIRST
     if (!form.name.trim() || !form.phone.trim() || !form.category.trim()) {
       setErrText("Missing field: name, phone and category are required");
       setLoading(false);
       return;
     }
 
+    // 2) Build payload BEFORE fetch
     const payload = {
       name: form.name.trim(),
       phone: form.phone.trim(),
@@ -96,6 +68,7 @@ try {
       slug: finalSlug || undefined,
     };
 
+    // 3) Single fetch block with robust error handling
     try {
       const res = await fetch("/api/dentists/publish", {
         method: "POST",
@@ -104,22 +77,21 @@ try {
         body: JSON.stringify(payload),
       });
 
-      let json: any = {};
-      try { json = await res.json(); } catch {}
+      const text = await res.text();
+      let json: any = null;
+      try { json = text ? JSON.parse(text) : null; } catch { /* keep null */ }
 
       if (!res.ok || !json?.ok) {
         const msg =
-          json?.error ||
-          json?.message ||
-          toMsg(json) ||
-          `Publish failed (HTTP ${res.status})`;
+          (json?.error || json?.message) ??
+          (text && text !== "{}" ? `Publish failed (HTTP ${res.status})\n\n${text}` : `Publish failed (HTTP ${res.status})`);
         setErrText(msg);
         setLoading(false);
         return;
       }
 
       setMsg("Published! Redirecting…");
-      const nextSlug = json.slug || payload.slug;
+      const nextSlug = json.slug || payload.slug!;
       window.location.href = `/dashboard?slug=${encodeURIComponent(nextSlug)}`;
     } catch (e: any) {
       setErrText(toMsg(e));
