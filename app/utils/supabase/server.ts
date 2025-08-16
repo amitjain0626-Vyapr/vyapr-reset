@@ -1,13 +1,13 @@
+// app/utils/supabase/server.ts
 // @ts-nocheck
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
-// READ-ONLY client for Server Components (page.tsx/layout.tsx)
-// Never writes cookies here (no set/delete) to avoid Next 15 restriction.
-export async function createSupabaseServerClient() {
-  const cookieStore = await cookies(); // using your async-safe pattern
+// This file exports ONE thing: createClient
+export function createClient() {
+  const cookieStore = cookies();
 
-  const supabase = createServerClient(
+  return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -15,12 +15,13 @@ export async function createSupabaseServerClient() {
         get(name: string) {
           return cookieStore.get(name)?.value;
         },
-        // Block writes in server components
-        set() {},
-        remove() {},
+        set() {
+          // no-op on server
+        },
+        remove() {
+          // no-op on server
+        },
       },
     }
   );
-
-  return supabase;
 }
