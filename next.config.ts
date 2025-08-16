@@ -1,23 +1,12 @@
+// next.config.ts
 import type { NextConfig } from "next";
 
-const isPWAOff = process.env.NEXT_DISABLE_PWA === "1";
-
-let config: NextConfig = {
-  experimental: {
-    // ✅ Next 15 expects an object, not `true`
-    serverActions: {},
-  },
+const nextConfig: NextConfig = {
   reactStrictMode: true,
-  swcMinify: true,
+  // ✅ removed swcMinify (deprecated)
+  experimental: {
+    ppr: true,
+  },
 };
 
-if (!isPWAOff) {
-  // Load PWA only when enabled
-  const withPWA = require("next-pwa")({
-    dest: "public",
-    disable: process.env.NODE_ENV === "development",
-  });
-  config = withPWA(config);
-}
-
-export default config;
+export default nextConfig;
