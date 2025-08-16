@@ -56,7 +56,7 @@ export async function POST(req: Request) {
     if (siteErr) return NextResponse.json({ ok: false, error: "microsite lookup failed", details: siteErr.message }, { status: 500 });
     if (!site) return NextResponse.json({ ok: false, error: "microsite not found" }, { status: 404 });
 
-    // 2) resolve provider id (dentist/provider/owner)
+    // 2) resolve provider id
     const providerId = site.provider_id ?? site.owner_id ?? site.dentist_id ?? null;
     if (!providerId) {
       return NextResponse.json(
@@ -65,17 +65,17 @@ export async function POST(req: Request) {
       );
     }
 
-    // 3) build payload aligned to your leads schema
+    // 3) payload (include source_slug explicitly)
     const payload = {
-      dentist_id: providerId,       // NOT NULL in your DB
-      owner_id: providerId,         // present in your DB
-      slug,                         // you added this earlier
-      source_slug: slug,            // ✅ NEW: satisfy NOT NULL source_slug
+      dentist_id: providerId,
+      owner_id: providerId,
+      slug,
+      source_slug: slug,        // ✅ critical
       patient_name,
       phone,
       note,
       utm,
-      source: "microsite",          // present/required in your DB
+      source: "microsite",
       status: "new",
     };
 
