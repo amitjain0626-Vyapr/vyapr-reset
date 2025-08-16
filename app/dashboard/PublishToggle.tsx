@@ -1,58 +1,37 @@
-// @ts-nocheck
 "use client";
 
 import { useState } from "react";
-import { togglePublish } from "./publish-action";
+import { supabase } from "@/utils/supabase/client";
 
-export default function PublishToggle({ slug, current }) {
-  const [published, setPublished] = useState(current);
+export default function PublishToggle({ providerId, published }: { providerId: string; published: boolean }) {
+  const [isPublished, setIsPublished] = useState(published);
   const [loading, setLoading] = useState(false);
-  const [errMsg, setErrMsg] = useState<string | null>(null);
 
   const handleToggle = async () => {
     setLoading(true);
-    setErrMsg(null);
+    try {
+      const { error } = await supabase
+        .from("providers")
+        .update({ published: !isPublished })
+        .eq("id", providerId);
 
-    const res = await togglePublish(slug, !published);
-    if (res.ok) {
-      setPublished(!published);
-    } else {
-      // Replace alert with readable error panel
-      if (res.error) {
-        setErrMsg(
-          typeof res.error === "string"
-            ? res.error
-            : JSON.stringify(res.error, null, 2)
-        );
-      } else {
-        setErrMsg("Unknown error occurred while publishing.");
-      }
+      if (error) throw error;
+      setIsPublished(!isPublished);
+    } catch (err: any) {
+      console.error(err);
+      alert("Failed to update publish status");
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   return (
-    <div className="flex flex-col gap-2">
-      <button
-        onClick={handleToggle}
-        disabled={loading}
-        className={`px-3 py-1 rounded text-sm ${
-          published ? "bg-green-600 text-white" : "bg-gray-300"
-        }`}
-      >
-        {loading
-          ? "Saving..."
-          : published
-          ? "Published (Click to Unpublish)"
-          : "Unpublished (Click to Publish)"}
-      </button>
-
-      {errMsg && (
-        <div className="text-sm text-red-600 p-2 bg-red-50 rounded whitespace-pre-wrap">
-          {errMsg}
-        </div>
-      )}
-    </div>
+    <button
+      onClick={handleToggle}
+      disabled={loading}
+      className={`px-4 py-2 rounded ${isPublished ? "bg-green-600 text-white" : "bg-gray-300 text-black"}`}
+    >
+      {loading ? "Saving..." : isPublished ? "Published" : "Unpublished"}
+    </button>
   );
 }

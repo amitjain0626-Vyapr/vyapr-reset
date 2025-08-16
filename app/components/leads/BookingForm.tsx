@@ -4,10 +4,10 @@ import { useState } from "react";
 
 export default function BookingForm({ slug }: { slug: string }) {
   const [form, setForm] = useState({
-    name: "",
-    email: "",
+    patient_name: "",
     phone: "",
-    message: "",
+    note: "",
+    email: "",
   });
   const [submitting, setSubmitting] = useState(false);
   const [okId, setOkId] = useState<string | null>(null);
@@ -29,14 +29,16 @@ export default function BookingForm({ slug }: { slug: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           slug,
-          ...form,
-          source: "microsite",
+          patient_name: form.patient_name,
+          phone: form.phone,
+          note: form.note,
+          utm: {},
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Failed");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) throw new Error(data?.error || "Failed");
       setOkId(data?.lead?.id || "ok");
-      setForm({ name: "", email: "", phone: "", message: "" });
+      setForm({ patient_name: "", email: "", phone: "", note: "" });
     } catch (e: any) {
       setErr(e?.message || "Something went wrong");
     } finally {
@@ -49,16 +51,43 @@ export default function BookingForm({ slug }: { slug: string }) {
       <div>
         <label className="block text-sm mb-1">Name</label>
         <input
-          name="name"
-          value={form.name}
+          name="patient_name"
+          value={form.patient_name}
           onChange={onChange}
           className="w-full border rounded-xl px-3 py-2"
           placeholder="Your name"
           required
         />
       </div>
+
       <div>
-        <label className="block text-sm mb-1">Email</label>
+        <label className="block text-sm mb-1">Phone</label>
+        <input
+          name="phone"
+          value={form.phone}
+          onChange={onChange}
+          className="w-full border rounded-xl px-3 py-2"
+          placeholder="+91…"
+          inputMode="tel"
+          required
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm mb-1">Note (optional)</label>
+        <textarea
+          name="note"
+          value={form.note}
+          onChange={onChange}
+          className="w-full border rounded-xl px-3 py-2"
+          rows={3}
+          placeholder="Tell us what you need"
+        />
+      </div>
+
+      {/* keep email if you want to collect it (not sent to leads API now) */}
+      <div>
+        <label className="block text-sm mb-1">Email (optional)</label>
         <input
           name="email"
           type="email"
@@ -68,27 +97,7 @@ export default function BookingForm({ slug }: { slug: string }) {
           placeholder="you@example.com"
         />
       </div>
-      <div>
-        <label className="block text-sm mb-1">Phone</label>
-        <input
-          name="phone"
-          value={form.phone}
-          onChange={onChange}
-          className="w-full border rounded-xl px-3 py-2"
-          placeholder="+91…"
-        />
-      </div>
-      <div>
-        <label className="block text-sm mb-1">Message</label>
-        <textarea
-          name="message"
-          value={form.message}
-          onChange={onChange}
-          className="w-full border rounded-xl px-3 py-2"
-          rows={3}
-          placeholder="Tell us what you need"
-        />
-      </div>
+
       <button
         type="submit"
         disabled={submitting}

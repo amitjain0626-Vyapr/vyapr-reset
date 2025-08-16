@@ -1,99 +1,60 @@
 // app/api/leads/create/route.ts
 // @ts-nocheck
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
-function getSupabaseServiceClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceKey) {
-    return { error: "Missing env: NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY" } as const;
-  }
-  return {
-    client: createClient(url, serviceKey, {
-      auth: { persistSession: false },
-      global: { headers: { "X-Client-Info": "vyapr/api/leads/create" } },
-    }),
-  } as const;
-}
-
-function normalizePhone(raw: string) {
-  const s = (raw || "").trim();
-  if (/^\d{10}$/.test(s)) return `+91${s}`;
-  if (/^\+?\d{7,15}$/.test(s)) return s.startsWith("+") ? s : `+${s}`;
-  return s;
-}
-
-async function fetchMicrositeBySlug(supabase: any, slug: string) {
-  return await supabase.from("microsites").select("*").eq("slug", slug).maybeSingle();
-}
+import { createClient } from "@/utils/supabase/server";
 
 export async function POST(req: Request) {
   try {
-    const { client: supabase, error: envErr } = getSupabaseServiceClient();
-    if (envErr) return NextResponse.json({ ok: false, error: envErr }, { status: 500 });
+    const supabase = createClient();
+    const body = await req.json();
 
-    const body = await req.json().catch(() => ({}));
-    if (typeof body.website === "string" && body.website.trim() !== "") {
-      return NextResponse.json({ ok: true, skipped: true }, { status: 204 });
-    }
+    const { slug, patient_name, phone, note, utm } = body;
 
-    const slug = String(body.slug || "").trim();
-    const patient_name = String(body.patient_name || "").trim();
-    const phone = normalizePhone(String(body.phone || "").trim());
-    const note = typeof body.note === "string" ? body.note.slice(0, 2000) : "";
-    const utm = typeof body.utm === "object" && body.utm !== null ? body.utm : {};
+    // Find provider by slug
+    const { data: provider, error: providerError } = await supabase
+      .from("providers")
+      .select("id, owner_id")
+      .eq("slug", slug)
+      .single();
 
-    if (!slug) return NextResponse.json({ ok: false, error: "slug required" }, { status: 400 });
-    if (!patient_name) return NextResponse.json({ ok: false, error: "patient_name required" }, { status: 400 });
-    if (!/^\+?\d{7,15}$/.test(phone)) return NextResponse.json({ ok: false, error: "invalid phone" }, { status: 400 });
-
-    // 1) find microsite
-    const { data: site, error: siteErr } = await fetchMicrositeBySlug(supabase, slug);
-    if (siteErr) return NextResponse.json({ ok: false, error: "microsite lookup failed", details: siteErr.message }, { status: 500 });
-    if (!site) return NextResponse.json({ ok: false, error: "microsite not found" }, { status: 404 });
-
-    // 2) resolve provider id
-    const providerId = site.provider_id ?? site.owner_id ?? site.dentist_id ?? null;
-    if (!providerId) {
+    if (providerError || !provider) {
       return NextResponse.json(
-        { ok: false, error: "microsite not linked to a provider (missing provider_id/owner_id/dentist_id)", microsite: { id: site.id, slug: site.slug } },
-        { status: 422 }
+        { ok: false, error: "Provider not found", details: providerError?.message },
+        { status: 400 }
       );
     }
 
-    // 3) payload (include source_slug explicitly)
+    // Insert lead
     const payload = {
-      dentist_id: providerId,
-      owner_id: providerId,
-      slug,
-      source_slug: slug,        // ✅ critical
+      dentist_id: provider.id,
+      owner_id: provider.owner_id,
+      source_slug: slug,
       patient_name,
-      phone,
+      phone: phone.startsWith("+91") ? phone : `+91${phone}`,
       note,
       utm,
       source: "microsite",
       status: "new",
     };
 
-    const { data: inserted, error: insErr } = await supabase
+    const { data: lead, error: insertError } = await supabase
       .from("leads")
-      .insert(payload)
+      .insert([payload])
       .select()
-      .maybeSingle();
+      .single();
 
-    if (insErr) {
+    if (insertError) {
       return NextResponse.json(
-        { ok: false, error: "Insert failed", details: insErr.message, attempted_payload: payload },
+        { ok: false, error: "Insert failed", details: insertError.message, attempted_payload: payload },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({ ok: true, lead: inserted }, { status: 201 });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || "unhandled" }, { status: 500 });
+    return NextResponse.json({ ok: true, lead }, { status: 201 });
+  } catch (err: any) {
+    return NextResponse.json(
+      { ok: false, error: "Server error", details: err.message },
+      { status: 500 }
+    );
   }
 }
