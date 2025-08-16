@@ -3,10 +3,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  // ✅ removed swcMinify (deprecated)
-  experimental: {
-    ppr: true,
-  },
+  // ✅ No swcMinify, no ppr (both deprecated or canary-only)
 };
 
 export default nextConfig;
