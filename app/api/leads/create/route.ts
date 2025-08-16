@@ -28,19 +28,15 @@ function normalizePhone(raw: string) {
 }
 
 async function fetchMicrositeBySlug(supabase: any, slug: string) {
-  // use lowercase table name (your schema uses lowercase)
   return await supabase.from("microsites").select("*").eq("slug", slug).maybeSingle();
 }
 
 export async function POST(req: Request) {
   try {
     const { client: supabase, error: envErr } = getSupabaseServiceClient();
-    if (envErr) {
-      return NextResponse.json({ ok: false, error: envErr }, { status: 500 });
-    }
+    if (envErr) return NextResponse.json({ ok: false, error: envErr }, { status: 500 });
 
     const body = await req.json().catch(() => ({}));
-    // basic honeypot support (optional)
     if (typeof body.website === "string" && body.website.trim() !== "") {
       return NextResponse.json({ ok: true, skipped: true }, { status: 204 });
     }
@@ -55,18 +51,13 @@ export async function POST(req: Request) {
     if (!patient_name) return NextResponse.json({ ok: false, error: "patient_name required" }, { status: 400 });
     if (!/^\+?\d{7,15}$/.test(phone)) return NextResponse.json({ ok: false, error: "invalid phone" }, { status: 400 });
 
-    // 1) Load microsite
+    // 1) find microsite
     const { data: site, error: siteErr } = await fetchMicrositeBySlug(supabase, slug);
     if (siteErr) return NextResponse.json({ ok: false, error: "microsite lookup failed", details: siteErr.message }, { status: 500 });
     if (!site) return NextResponse.json({ ok: false, error: "microsite not found" }, { status: 404 });
 
-    // 2) Derive the provider id robustly (handles different column names)
-    const providerId =
-      site.provider_id ??
-      site.owner_id ??
-      site.dentist_id ??
-      null;
-
+    // 2) resolve provider id (dentist/provider/owner)
+    const providerId = site.provider_id ?? site.owner_id ?? site.dentist_id ?? null;
     if (!providerId) {
       return NextResponse.json(
         { ok: false, error: "microsite not linked to a provider (missing provider_id/owner_id/dentist_id)", microsite: { id: site.id, slug: site.slug } },
@@ -74,22 +65,20 @@ export async function POST(req: Request) {
       );
     }
 
-    // 3) Build payload aligned to your leads schema:
-    //    - dentist_id is NOT NULL in your DB → set to providerId
-    //    - owner_id exists in your DB → also set to providerId for consistency
+    // 3) build payload aligned to your leads schema
     const payload = {
-      dentist_id: providerId,
-      owner_id: providerId,
-      slug,
+      dentist_id: providerId,       // NOT NULL in your DB
+      owner_id: providerId,         // present in your DB
+      slug,                         // you added this earlier
+      source_slug: slug,            // ✅ NEW: satisfy NOT NULL source_slug
       patient_name,
       phone,
       note,
       utm,
-      source: "microsite",
+      source: "microsite",          // present/required in your DB
       status: "new",
     };
 
-    // 4) Insert (your table name is lowercase "leads" per errors)
     const { data: inserted, error: insErr } = await supabase
       .from("leads")
       .insert(payload)
