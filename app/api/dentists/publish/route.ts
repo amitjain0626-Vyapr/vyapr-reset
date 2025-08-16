@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import { cookies, headers as nextHeaders } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
+/* ---------- helpers ---------- */
 function jerr(status: number, code: string, msg: string, details?: any) {
   return NextResponse.json({ ok: false, error: { code, message: msg, details } }, { status });
 }
@@ -41,24 +42,37 @@ async function ensureUniqueSlug(supabase: any, base: string) {
   throw new Error("slug_unavailable");
 }
 
+/* ---------- route ---------- */
 export async function POST(req: Request) {
   try {
     const cookieStore = cookies();
-    const incomingAuth = req.headers.get("authorization") || "";
 
-    // Build SSR client and **explicitly** set bearer
+    // ✅ Read bearer from header (handles both cases)
+    const incomingAuth =
+      req.headers.get("Authorization") || req.headers.get("authorization") || "";
+    const bearer = incomingAuth.startsWith("Bearer ") ? incomingAuth.slice(7) : "";
+
+    // Build Supabase SSR client
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         cookies: {
           get: (n: string) => cookieStore.get(n)?.value,
-          set: (n: string, v: string, o: any) => { try { cookieStore.set({ name: n, value: v, ...o }); } catch {} },
-          remove: (n: string, o: any) => { try { cookieStore.set({ name: n, value: "", ...o }); } catch {} },
+          set: (n: string, v: string, o: any) => {
+            try {
+              cookieStore.set({ name: n, value: v, ...o });
+            } catch {}
+          },
+          remove: (n: string, o: any) => {
+            try {
+              cookieStore.set({ name: n, value: "", ...o });
+            } catch {}
+          },
         },
         global: {
           headers: {
-            authorization: incomingAuth,
+            authorization: incomingAuth, // pass-through for completeness
             "x-forwarded-for": nextHeaders().get("x-forwarded-for") || "",
             "x-request-id": nextHeaders().get("x-request-id") || "",
           },
@@ -66,19 +80,25 @@ export async function POST(req: Request) {
       }
     );
 
-    const bearer = incomingAuth.startsWith("Bearer ") ? incomingAuth.slice(7) : "";
+    // ✅ Ensure the client uses the token
     if (bearer && supabase?.auth?.setAuth) {
       await supabase.auth.setAuth(bearer);
     }
 
-    const { data: userRes, error: userErr } = await supabase.auth.getUser();
+    // ✅ Bypass cookie/header quirks: ask Supabase for user using the token directly
+    const { data: userRes, error: userErr } = await supabase.auth.getUser(bearer);
     if (userErr || !userRes?.user) {
       return jerr(401, "unauthorized", "Please sign in to continue.", userErr?.message || null);
     }
     const user = userRes.user;
 
+    // Parse input
     let payload: any;
-    try { payload = await req.json(); } catch { return jerr(400, "bad_json", "Invalid JSON body."); }
+    try {
+      payload = await req.json();
+    } catch {
+      return jerr(400, "bad_json", "Invalid JSON body.");
+    }
     const { out, missing } = parseBody(payload);
     if (missing.length) return jerr(422, "validation_error", `Missing: ${missing.join(", ")}`);
 
@@ -131,6 +151,7 @@ export async function POST(req: Request) {
         if (msPubErr) return jerr(500, "microsite_publish_failed", "Could not publish microsite.", msPubErr.message || msPubErr);
       }
 
+      // best-effort telemetry
       await supabase.from("events").insert({
         type: "provider_published",
         person_id: null,
@@ -171,6 +192,7 @@ export async function POST(req: Request) {
     });
     if (msErr) return jerr(500, "microsite_create_failed", "Could not create microsite.", msErr.message || msErr);
 
+    // best-effort telemetry
     await supabase.from("events").insert({
       type: "provider_published",
       person_id: null,
@@ -185,7 +207,6 @@ export async function POST(req: Request) {
       redirectTo: `/dashboard?slug=${finalSlug}`,
     });
   } catch (e: any) {
-    // 🔴 This ensures we never send an empty 500 — we return details for diagnosis
     return jerr(500, "unexpected", "Unexpected error (debug).", e?.stack || e?.message || String(e));
   }
 }
