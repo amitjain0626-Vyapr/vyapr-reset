@@ -1,143 +1,161 @@
 // @ts-nocheck
 "use client";
-export const dynamic = "force-dynamic";
 
-import { useState, useMemo } from "react";
-
-function toMsg(x: unknown): string {
-  try {
-    if (!x) return "Unknown error";
-    if (typeof x === "string") return x;
-    if (x instanceof Error) return x.message || String(x);
-    return JSON.stringify(x, null, 2);
-  } catch {
-    return "Unexpected error";
-  }
-}
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 export default function OnboardingPage() {
-  // VERSION: VYAPR-ONBOARDING-V4
-  const [loading, setLoading] = useState(false);
-  const [errText, setErrText] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
+  const router = useRouter();
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [city, setCity] = useState("");
+  const [category, setCategory] = useState("");
+  const [slug, setSlug] = useState("");
+  const [publish, setPublish] = useState(true);
 
-  const [form, setForm] = useState({
-    name: "",
-    phone: "",
-    city: "",
-    category: "",
-    about: "",
-    slug: "",
-    published: true,
-  });
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<null | { code: string; message: string; details?: any }>(
+    null
+  );
 
-  const autoSlug = useMemo(() => {
-    const base = (form.name || "").trim().toLowerCase();
-    return base.replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-").slice(0, 48);
-  }, [form.name]);
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setSubmitting(true);
 
-  const finalSlug = (form.slug || autoSlug || "").trim();
-
-  const onChange =
-    (k: keyof typeof form) =>
-    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-      const v =
-        e.currentTarget.type === "checkbox"
-          ? (e as any).currentTarget.checked
-          : e.currentTarget.value;
-      setForm((f) => ({ ...f, [k]: v as any }));
-    };
-
-  async function onPublish() {
-    setLoading(true);
-    setErrText(null);
-    setMsg(null);
-
-    // 1) Validate FIRST
-    if (!form.name.trim() || !form.phone.trim() || !form.category.trim()) {
-      setErrText("Missing field: name, phone and category are required");
-      setLoading(false);
-      return;
-    }
-
-    // 2) Build payload BEFORE fetch
-    const payload = {
-      name: form.name.trim(),
-      phone: form.phone.trim(),
-      category: form.category.trim(),
-      slug: finalSlug || undefined,
-    };
-
-    // 3) Single fetch block with robust error handling
     try {
       const res = await fetch("/api/dentists/publish", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          phone,
+          city,
+          category,
+          slug,
+          publish,
+        }),
         credentials: "include",
-        body: JSON.stringify(payload),
       });
 
-      const text = await res.text();
-      let json: any = null;
-      try { json = text ? JSON.parse(text) : null; } catch { /* keep null */ }
+      const json = await res.json().catch(() => null);
 
       if (!res.ok || !json?.ok) {
-        const msg =
-          (json?.error || json?.message) ??
-          (text && text !== "{}" ? `Publish failed (HTTP ${res.status})\n\n${text}` : `Publish failed (HTTP ${res.status})`);
-        setErrText(msg);
-        setLoading(false);
+        const err = json?.error || { code: "unknown", message: "Something went wrong." };
+        setError({
+          code: String(err.code || "unknown"),
+          message: String(err.message || "Unexpected error"),
+          details: err.details ?? null,
+        });
+        setSubmitting(false);
         return;
       }
 
-      setMsg("Published! Redirecting…");
-      const nextSlug = json.slug || payload.slug!;
-      window.location.href = `/dashboard?slug=${encodeURIComponent(nextSlug)}`;
+      // success — go to dashboard
+      const dest = json.redirectTo || `/dashboard?slug=${json.slug}`;
+      router.push(dest);
     } catch (e: any) {
-      setErrText(toMsg(e));
-      setLoading(false);
+      setError({
+        code: "network_error",
+        message: "Network error while publishing. Please retry.",
+        details: e?.message || String(e),
+      });
+      setSubmitting(false);
     }
   }
 
   return (
-    <main className="max-w-3xl mx-auto p-6 space-y-5">
-      <h1 className="text-2xl font-semibold">Create your Vyapr microsite</h1>
-      <p className="text-xs text-gray-500 mb-2">VYAPR-ONBOARDING-V4</p>
-      <p className="text-sm text-gray-600">Name, phone, category → instant site with blurred preview.</p>
+    <div className="mx-auto max-w-md p-6">
+      <h1 className="text-2xl font-semibold mb-2">Create your Vyapr microsite</h1>
+      <p className="text-sm text-gray-600 mb-6">VYAPR-ONBOARDING-V4</p>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <input className="border rounded-xl px-3 py-2" placeholder="Name" value={form.name} onChange={onChange("name")} />
-        <input className="border rounded-xl px-3 py-2" placeholder="Phone (+91…)" value={form.phone} onChange={onChange("phone")} />
-        <input className="border rounded-xl px-3 py-2" placeholder="City" value={form.city} onChange={onChange("city")} />
-        <input className="border rounded-xl px-3 py-2" placeholder="Category (e.g., Dentist, Yoga Teacher)" value={form.category} onChange={onChange("category")} />
-        <textarea className="md:col-span-2 border rounded-xl px-3 py-2 min-h-[90px]" placeholder="About" value={form.about} onChange={onChange("about")} />
-        <input className="border rounded-xl px-3 py-2" placeholder="Slug (optional)" value={form.slug} onChange={onChange("slug")} />
-        <div className="flex items-center gap-2 text-sm text-gray-600">
-          <span>Final link will be</span>
-          <code className="px-2 py-1 bg-gray-100 rounded">/d/{finalSlug || "your-name"}</code>
+      {error && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm">
+          <div className="font-medium text-red-700">
+            {error.code}: {error.message}
+          </div>
+          {error.details ? (
+            <pre className="mt-2 whitespace-pre-wrap text-red-700/80">
+              {typeof error.details === "string"
+                ? error.details
+                : JSON.stringify(error.details, null, 2)}
+            </pre>
+          ) : null}
         </div>
-        <label className="flex items-center gap-2 md:col-span-2 text-sm">
-          <input type="checkbox" checked={!!form.published} onChange={onChange("published")} />
-          <span>Published</span>
+      )}
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-sm mb-1">Name</label>
+          <input
+            className="w-full rounded-md border px-3 py-2"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Chic"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm mb-1">Phone</label>
+          <input
+            className="w-full rounded-md border px-3 py-2"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="+91XXXXXXXXXX"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm mb-1">City (optional)</label>
+          <input
+            className="w-full rounded-md border px-3 py-2"
+            value={city}
+            onChange={(e) => setCity(e.target.value)}
+            placeholder="Indore"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm mb-1">Category</label>
+          <input
+            className="w-full rounded-md border px-3 py-2"
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            placeholder="Yoga"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm mb-1">Slug (optional)</label>
+          <input
+            className="w-full rounded-md border px-3 py-2"
+            value={slug}
+            onChange={(e) => setSlug(e.target.value)}
+            placeholder="your-handle"
+          />
+          <p className="mt-1 text-xs text-gray-500">Final link will be /d/&lt;slug&gt;</p>
+        </div>
+
+        <label className="inline-flex items-center space-x-2">
+          <input
+            type="checkbox"
+            checked={publish}
+            onChange={(e) => setPublish(e.target.checked)}
+          />
+          <span className="text-sm">Publish</span>
         </label>
-      </div>
 
-      <div className="space-y-3">
-        <button onClick={onPublish} disabled={loading} className="rounded-2xl px-4 py-2 bg-black text-white disabled:opacity-70">
-          {loading ? "Publishing…" : "Publish"}
+        <button
+          type="submit"
+          disabled={submitting}
+          className="w-full rounded-md bg-black px-4 py-2 text-white disabled:opacity-60"
+        >
+          {submitting ? "Publishing…" : "Publish"}
         </button>
-
-        {errText && (
-          <div className="text-sm text-red-700 border border-red-200 rounded-md p-3 bg-red-50 whitespace-pre-wrap">
-            {errText}
-          </div>
-        )}
-        {msg && (
-          <div className="text-sm text-green-700 border border-green-200 rounded-md p-3 bg-green-50">
-            {msg}
-          </div>
-        )}
-      </div>
-    </main>
+      </form>
+    </div>
   );
 }

@@ -1,46 +1,60 @@
 // @ts-nocheck
 "use server";
 
-import { cookies } from "next/headers";
-import { createServerActionClient } from "@supabase/auth-helpers-nextjs";
-import { createAdminClient } from "@/lib/supabaseAdmin";
+import { cookies, headers } from "next/headers";
 
-export async function submitOnboarding(formData: FormData) {
-  const supabase = createServerActionClient({ cookies }); // <-- critical
-  const admin = createAdminClient();
+export async function publishProviderAction(formData: FormData | Record<string, any>) {
+  // Accept both FormData and plain objects
+  const body =
+    typeof (formData as any).get === "function"
+      ? {
+          name: (formData as any).get("name")?.toString() || "",
+          phone: (formData as any).get("phone")?.toString() || "",
+          city: (formData as any).get("city")?.toString() || "",
+          category: (formData as any).get("category")?.toString() || "",
+          slug: (formData as any).get("slug")?.toString() || "",
+          publish: ((formData as any).get("publish") ?? "true").toString() !== "false",
+        }
+      : {
+          name: (formData as any)?.name?.toString?.() || "",
+          phone: (formData as any)?.phone?.toString?.() || "",
+          city: (formData as any)?.city?.toString?.() || "",
+          category: (formData as any)?.category?.toString?.() || "",
+          slug: (formData as any)?.slug?.toString?.() || "",
+          publish: Boolean((formData as any)?.publish ?? true),
+        };
 
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    return { ok: false, code: "AUTH_USER_ERROR", message: "Unable to read session user.", details: "Auth session missing!" };
+  // Server action posts to our hardened API
+  try {
+    const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || ""}/api/dentists/publish`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        // Forward a couple of headers to preserve auth context if needed
+        "x-forwarded-for": headers().get("x-forwarded-for") || "",
+        "x-request-id": headers().get("x-request-id") || "",
+      },
+      body: JSON.stringify(body),
+      // cookies() are sent by default on same-origin in Next server actions
+    });
+
+    let json: any = null;
+    try {
+      json = await res.json();
+    } catch {
+      json = null;
+    }
+
+    if (!res.ok || !json?.ok) {
+      const err = json?.error || { code: "unknown", message: "Unexpected error" };
+      return { ok: false, error: err };
+    }
+
+    return { ok: true, slug: json.slug, redirectTo: json.redirectTo || `/dashboard?slug=${json.slug}` };
+  } catch (e: any) {
+    return {
+      ok: false,
+      error: { code: "network_error", message: "Network error during publish.", details: e?.message || String(e) },
+    };
   }
-
-  const name = String(formData.get("name") || "");
-  const phone = String(formData.get("phone") || "");
-  const category = String(formData.get("category") || "");
-  const slug = String(formData.get("slug") || "");
-
-  if (!name || !phone || !slug) {
-    return { ok: false, error: "Missing required fields" };
-  }
-
-  const { data: prov, error: provErr } = await admin
-    .from("providers")
-    .upsert({ owner_id: user.id, name, phone, category, slug }, { onConflict: "owner_id" })
-    .select("id, slug")
-    .maybeSingle();
-  if (provErr || !prov) return { ok: false, error: provErr?.message || "provider upsert failed" };
-
-  const { error: msErr } = await admin
-    .from("microsites")
-    .upsert({ provider_id: prov.id, slug }, { onConflict: "provider_id" });
-  if (msErr) return { ok: false, error: msErr.message || "microsite upsert failed" };
-
-  await admin.from("events").insert({
-    type: "provider_published",
-    provider_id: prov.id,
-    ts: new Date().toISOString(),
-    meta: { slug, source: "onboarding-action" },
-  }).catch(() => {});
-
-  return { ok: true, provider_id: prov.id, slug: prov.slug };
 }
