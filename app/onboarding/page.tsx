@@ -4,8 +4,20 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+// Helper: never render objects directly
+function toText(v: any): string {
+  if (v == null) return "";
+  if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return String(v);
+  }
+}
+
 export default function OnboardingPage() {
   const router = useRouter();
+
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [city, setCity] = useState("");
@@ -14,9 +26,7 @@ export default function OnboardingPage() {
   const [publish, setPublish] = useState(true);
 
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<null | { code: string; message: string; details?: any }>(
-    null
-  );
+  const [error, setError] = useState<null | { code?: any; message?: any; details?: any }>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -27,38 +37,34 @@ export default function OnboardingPage() {
       const res = await fetch("/api/dentists/publish", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          phone,
-          city,
-          category,
-          slug,
-          publish,
-        }),
         credentials: "include",
+        body: JSON.stringify({ name, phone, city, category, slug, publish }),
       });
 
-      const json = await res.json().catch(() => null);
+      let json: any = null;
+      try {
+        json = await res.json();
+      } catch {
+        json = null;
+      }
 
       if (!res.ok || !json?.ok) {
-        const err = json?.error || { code: "unknown", message: "Something went wrong." };
+        const err = json?.error || { code: "unknown", message: "Unexpected error" };
         setError({
-          code: String(err.code || "unknown"),
-          message: String(err.message || "Unexpected error"),
-          details: err.details ?? null,
+          code: toText(err.code),
+          message: toText(err.message),
+          details: err.details,
         });
         setSubmitting(false);
         return;
       }
 
-      // success — go to dashboard
       const dest = json.redirectTo || `/dashboard?slug=${json.slug}`;
       router.push(dest);
     } catch (e: any) {
       setError({
         code: "network_error",
-        message: "Network error while publishing. Please retry.",
-        details: e?.message || String(e),
+        message: toText(e?.message || e),
       });
       setSubmitting(false);
     }
@@ -69,20 +75,18 @@ export default function OnboardingPage() {
       <h1 className="text-2xl font-semibold mb-2">Create your Vyapr microsite</h1>
       <p className="text-sm text-gray-600 mb-6">VYAPR-ONBOARDING-V4</p>
 
-      {error && (
+      {error ? (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm">
           <div className="font-medium text-red-700">
-            {error.code}: {error.message}
+            {toText(error.code)}: {toText(error.message)}
           </div>
           {error.details ? (
-            <pre className="mt-2 whitespace-pre-wrap text-red-700/80">
-              {typeof error.details === "string"
-                ? error.details
-                : JSON.stringify(error.details, null, 2)}
+            <pre className="mt-2 whitespace-pre-wrap text-red-700/80 text-xs">
+              {toText(error.details)}
             </pre>
           ) : null}
         </div>
-      )}
+      ) : null}
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
@@ -140,11 +144,7 @@ export default function OnboardingPage() {
         </div>
 
         <label className="inline-flex items-center space-x-2">
-          <input
-            type="checkbox"
-            checked={publish}
-            onChange={(e) => setPublish(e.target.checked)}
-          />
+          <input type="checkbox" checked={publish} onChange={(e) => setPublish(e.target.checked)} />
           <span className="text-sm">Publish</span>
         </label>
 
