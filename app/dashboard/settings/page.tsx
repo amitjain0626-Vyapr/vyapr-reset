@@ -1,8 +1,8 @@
 // app/dashboard/settings/page.tsx
-import { createSupabaseServerClient } from '@/utils/supabase/server'
+import { createClient } from '@/utils/supabase/server'
 
 export default async function SettingsPage() {
-  const supabase = await createSupabaseServerClient()
+  const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
   const { data: dentist } = await supabase

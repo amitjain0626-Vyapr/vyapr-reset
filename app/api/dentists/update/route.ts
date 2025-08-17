@@ -1,9 +1,9 @@
 // app/api/dentists/update/route.ts
 import { NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/utils/supabase/server'
+import { createClient } from '@/utils/supabase/server'
 
 export async function POST(req: Request) {
-  const supabase = await createSupabaseServerClient()
+  const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
   if (!user) {

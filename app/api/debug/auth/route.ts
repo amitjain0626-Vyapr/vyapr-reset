@@ -1,55 +1,57 @@
+// app/api/debug/auth/route.ts
 // @ts-nocheck
+
+// Force per-request cookie read (no caching)
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import { cookies, headers as nextHeaders } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { cookies as nextCookies } from "next/headers";
+import { createClient } from "@/utils/supabase/server";
 
 export async function GET(req: Request) {
-  const cookieStore = cookies();
-  const incomingAuth = req.headers.get("authorization") || "";
+  try {
+    const supabase = createClient();
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get: (n: string) => cookieStore.get(n)?.value,
-        set: (n: string, v: string, o: any) => { try { cookieStore.set({ name: n, value: v, ...o }); } catch {} },
-        remove: (n: string, o: any) => { try { cookieStore.set({ name: n, value: "", ...o }); } catch {} },
-      },
-      global: {
-        headers: {
-          authorization: incomingAuth,
-          "x-forwarded-for": nextHeaders().get("x-forwarded-for") || "",
-          "x-request-id": nextHeaders().get("x-request-id") || "",
-        },
-      },
+    // show what cookies the server sees (names only)
+    const cookieList = (nextCookies().getAll?.() || []).map((c) => c.name);
+    const hasSbCookie = cookieList.some((n) => n.startsWith("sb-"));
+
+    // auth check
+    const { data: userData, error: userErr } = await supabase.auth.getUser();
+
+    // also try a minimal RLS query that uses the correct columns in your schema
+    let providers_select_ok = false;
+    let providers_error: string | null = null;
+    try {
+      const { error: provErr } = await supabase
+        .from("providers")
+        .select("id, owner_id, slug")
+        .limit(1);
+      if (!provErr) providers_select_ok = true;
+      else providers_error = provErr.message;
+    } catch (e: any) {
+      providers_error = e?.message || String(e);
     }
-  );
 
-  // Also set the bearer explicitly (some SSR contexts need this)
-  const bearer = incomingAuth.startsWith("Bearer ") ? incomingAuth.slice(7) : "";
-  if (bearer) await supabase.auth.setAuth(bearer);
-
-  const { data: session } = await supabase.auth.getSession();
-  const { data: userRes, error: userErr } = await supabase.auth.getUser();
-
-  // Try a safe RLS read to see if policies work
-  const { data: prov, error: provErr } = await supabase
-    .from("providers")
-    .select("id, owner_id, display_name")
-    .order("created_at", { ascending: false })
-    .limit(1);
-
-  return NextResponse.json({
-    ok: true,
-    incomingAuth: incomingAuth ? "present" : "missing",
-    session_present: Boolean(session?.session),
-    user_present: Boolean(userRes?.user),
-    user_error: userErr?.message || null,
-    user: userRes?.user ? { id: userRes.user.id, email: userRes.user.email } : null,
-    providers_select_ok: !!prov && Array.isArray(prov),
-    providers_error: provErr?.message || null,
-  });
+    return NextResponse.json({
+      ok: true,
+      cookie_names_seen: cookieList,
+      has_sb_cookie: hasSbCookie,
+      session_present: Boolean(userData?.user),
+      user_present: Boolean(userData?.user),
+      user_error: userErr?.message || (userData?.user ? null : "Auth session missing!"),
+      user: userData?.user || null,
+      providers_select_ok,
+      providers_error,
+      site_url_env: process.env.NEXT_PUBLIC_SITE_URL || null,
+    });
+  } catch (e: any) {
+    return NextResponse.json(
+      { ok: false, error: e?.message || String(e) },
+      { status: 500 }
+    );
+  }
 }

@@ -3,7 +3,7 @@
 import { cookies } from 'next/headers';
 import { createServerClient } from '@supabase/ssr';
 
-export function createSupabaseServerClient() {
+export function createClient() {
   const cookieStore = cookies();
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -23,5 +23,5 @@ export function createSupabaseServerClient() {
 }
 
 // Back-compat alias some modules may import
-export const supabaseServer = createSupabaseServerClient;
-export default createSupabaseServerClient;
+export const supabaseServer = createClient;
+export default createClient;

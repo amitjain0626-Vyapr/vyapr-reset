@@ -1,9 +1,9 @@
 // app/api/storage/sign/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/utils/supabase/server'
+import { createClient } from '@/utils/supabase/server'
 
 export async function POST(req: NextRequest) {
-  const supabase = await createSupabaseServerClient()
+  const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
 
   if (!user) {

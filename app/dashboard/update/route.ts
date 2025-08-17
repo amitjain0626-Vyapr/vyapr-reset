@@ -1,8 +1,8 @@
-import { createSupabaseServerClient } from '@/utils/supabase/server';
+import { createClient } from '@/utils/supabase/server';
 import { redirect } from 'next/navigation';
 
 export async function POST(req: Request) {
-  const supabase = createSupabaseServerClient();
+  const supabase = createClient();
 
   // Placeholder logic
   console.log('Update route hit');

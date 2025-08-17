@@ -1,111 +1,98 @@
-// app/api/leads/create/route.ts
+// app/api/leads/list/route.ts
 // @ts-nocheck
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/utils/supabase/admin";
+import { createClient } from "@/utils/supabase/server";
+
+// ✅ ensure cookies are read per-request (no static cache / revalidate)
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
+export const runtime = "nodejs";
 
 /**
- * Creates a lead for a public microsite booking.
- * - Uses admin client to bypass RLS safely for this endpoint.
- * - Inserts WITHOUT owner_id first (most schemas don't need it here).
- * - If FK demands owner_id, retries mapping to provider.id.
+ * GET /api/leads/list?q=&status=&from=&to=&limit=&offset=
+ * Uses logged-in session (RLS). Returns leads for providers owned by the user.
+ * No slug required.
  */
-export async function POST(req: Request) {
+export async function GET(req: Request) {
   try {
-    const body = await req.json().catch(() => ({}));
+    const supabase = createClient();
+    const url = new URL(req.url);
 
-    // Honeypot
-    if (typeof body.website === "string" && body.website.trim()) {
-      return new NextResponse(null, { status: 204 });
+    const q = (url.searchParams.get("q") || "").trim();
+    const status = (url.searchParams.get("status") || "").trim();
+    const from = url.searchParams.get("from");
+    const to = url.searchParams.get("to");
+    const limit = Math.min(Number(url.searchParams.get("limit") || 50), 200);
+    const offset = Math.max(Number(url.searchParams.get("offset") || 0), 0);
+
+    // auth via RLS (must see the cookie on each request)
+    const {
+      data: { user },
+      error: userErr,
+    } = await supabase.auth.getUser();
+
+    if (userErr || !user) {
+      return NextResponse.json({ ok: false, error: "Not authenticated" }, { status: 401 });
     }
 
-    const slug = String(body.slug || "").trim().toLowerCase();
-    const patient_name = String(body.patient_name || "").trim();
-    const phone_raw = String(body.phone || "").trim();
-    const note = (body.note ?? "").toString().slice(0, 1000);
-    const utm = body.utm && typeof body.utm === "object" ? body.utm : {};
-
-    if (!slug || !patient_name || !phone_raw) {
-      return NextResponse.json(
-        { ok: false, error: "Missing required fields (slug, patient_name, phone)" },
-        { status: 400 }
-      );
-    }
-
-    // Normalize phone (+91 if 10 digits)
-    const digits = phone_raw.replace(/[^\d+]/g, "");
-    const phone =
-      /^\d{10}$/.test(digits) ? `+91${digits}` :
-      /^\+?\d{7,15}$/.test(digits) ? (digits.startsWith("+") ? digits : `+${digits}`) :
-      null;
-
-    if (!phone) {
-      return NextResponse.json({ ok: false, error: "Invalid phone format" }, { status: 400 });
-    }
-
-    // Find provider by slug
-    const { data: provider, error: providerError } = await supabaseAdmin
+    // provider ids owned by this user
+    const { data: providers, error: provErr } = await supabase
       .from("providers")
-      .select("id, owner_id, slug")
-      .eq("slug", slug)
-      .single();
+      .select("id")
+      .eq("owner_id", user.id);
 
-    if (providerError || !provider) {
+    if (provErr) {
       return NextResponse.json(
-        { ok: false, error: "Provider not found", details: providerError?.message },
-        { status: 404 }
-      );
-    }
-
-    // Base payload (no owner_id)
-    const basePayload = {
-      dentist_id: provider.id,      // provider.id == dentist_id in our mapping
-      source_slug: slug,
-      slug,                         // keep if your table has this column
-      patient_name,
-      phone,
-      note,
-      utm,
-      source: "microsite",
-      status: "new",
-    };
-
-    // 1) Try insert WITHOUT owner_id
-    let insert = await supabaseAdmin
-      .from("leads")
-      .insert([basePayload])
-      .select()
-      .single();
-
-    // 2) If FK complains about owner, retry with owner_id = provider.id (fallback schema)
-    if (insert.error && /owner/i.test(insert.error.message)) {
-      const retryPayload = { ...basePayload, owner_id: provider.id };
-      insert = await supabaseAdmin
-        .from("leads")
-        .insert([retryPayload])
-        .select()
-        .single();
-
-      if (insert.error) {
-        return NextResponse.json(
-          { ok: false, error: "Insert failed", details: insert.error.message, attempted_payload: retryPayload },
-          { status: 500 }
-        );
-      }
-      return NextResponse.json({ ok: true, lead: insert.data }, { status: 201 });
-    }
-
-    if (insert.error) {
-      return NextResponse.json(
-        { ok: false, error: "Insert failed", details: insert.error.message, attempted_payload: basePayload },
+        { ok: false, error: "Failed to load providers", details: provErr.message },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({ ok: true, lead: insert.data }, { status: 201 });
-  } catch (err: any) {
-    return NextResponse.json(
-      { ok: false, error: "Server error", details: err?.message || String(err) },
-      { status: 500 }
-    );
+    const providerIds = (providers || []).map((p) => p.id);
+    if (providerIds.length === 0) {
+      return NextResponse.json({ ok: true, rows: [], total: 0 }, { status: 200 });
+    }
+
+    // base query
+    let query = supabase
+      .from("leads")
+      .select(
+        "id, patient_name, phone, status, source, created_at, note, source_slug, dentist_id",
+        { count: "exact" }
+      )
+      .in("dentist_id", providerIds)
+      .order("created_at", { ascending: false });
+
+    // filters
+    if (status) query = query.eq("status", status);
+    if (from) query = query.gte("created_at", new Date(from).toISOString());
+    if (to) query = query.lte("created_at", new Date(to).toISOString());
+
+    // search
+    if (q) {
+      const nameTry = await query.ilike("patient_name", `%${q}%`).range(offset, offset + limit - 1);
+      if (nameTry.error) {
+        return NextResponse.json({ ok: false, error: "Search failed", details: nameTry.error.message }, { status: 500 });
+      }
+      if ((nameTry.data || []).length > 0) {
+        return NextResponse.json({ ok: true, rows: nameTry.data || [], total: nameTry.count || 0 }, { status: 200 });
+      }
+      const phoneTry = await query.ilike("phone", `%${q}%`).range(offset, offset + limit - 1);
+      if (phoneTry.error) {
+        return NextResponse.json({ ok: false, error: "Search failed", details: phoneTry.error.message }, { status: 500 });
+      }
+      return NextResponse.json({ ok: true, rows: phoneTry.data || [], total: phoneTry.count || 0 }, { status: 200 });
+    }
+
+    // pagination
+    const { data: rows, count, error } = await query.range(offset, offset + limit - 1);
+    if (error) {
+      return NextResponse.json({ ok: false, error: "Query failed", details: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ ok: true, rows: rows || [], total: count || 0 }, { status: 200 });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: "Server error", details: e?.message || String(e) }, { status: 500 });
   }
 }

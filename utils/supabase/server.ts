@@ -1,32 +1,63 @@
-// utils/supabase/server.ts
+// app/utils/supabase/server.ts
 // @ts-nocheck
-import { cookies } from "next/headers";
+import { cookies as nextCookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
-// canonical export
+// Server-side Supabase client that can READ and WRITE cookies in route handlers.
+// In server components cookies() is readonly; we soft-handle that with try/catch.
 export function createClient() {
-  const cookieStore = cookies();
+  const cookieStore = nextCookies();
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
+        // read one
         get(name: string) {
-          return cookieStore.get(name)?.value;
+          try {
+            return cookieStore.get(name)?.value;
+          } catch {
+            return undefined;
+          }
         },
-        set() {},
-        remove() {},
+        // write/overwrite
+        set(name: string, value: string, options: any) {
+          try {
+            // In route handlers, cookies() is mutable.
+            cookieStore.set(name, value, options);
+          } catch {
+            // In server components, it's readonly — ignore.
+          }
+        },
+        // remove
+        remove(name: string, options: any) {
+          try {
+            cookieStore.set(name, "", { ...options, maxAge: 0 });
+          } catch {
+            // readonly context — ignore
+          }
+        },
 
+        // fallback methods for older @supabase/ssr builds during prerender
         getAll() {
-          const list = cookieStore.getAll?.() || [];
-          return Array.from(list).map((c: any) => ({ name: c.name, value: c.value }));
+          try {
+            const list = cookieStore.getAll?.() || [];
+            return Array.from(list).map((c: any) => ({ name: c.name, value: c.value }));
+          } catch {
+            return [];
+          }
         },
-        setAll(_cookiesToSet: { name: string; value: string; options: any }[]) {},
+        setAll(cookiesToSet: { name: string; value: string; options: any }[]) {
+          try {
+            for (const c of cookiesToSet) {
+              cookieStore.set(c.name, c.value, c.options);
+            }
+          } catch {
+            // readonly context — ignore
+          }
+        },
       },
     }
   );
 }
-
-// alias for legacy imports
-export const createSupabaseServerClient = createClient;

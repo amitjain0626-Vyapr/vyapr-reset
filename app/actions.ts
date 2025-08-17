@@ -2,7 +2,7 @@
 'use server'
 // @ts-nocheck
 import { redirect } from 'next/navigation'
-import { createSupabaseServerClient } from '@/utils/supabase/server'
+import { createClient } from '@/utils/supabase/server'
 
 export async function createDentist(formData: FormData) {
   const name = String(formData.get('name') || '').trim()
@@ -12,7 +12,7 @@ export async function createDentist(formData: FormData) {
 
   if (!name || !slug) redirect('/onboarding')
 
-  const supabase = await createSupabaseServerClient()
+  const supabase = await createClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
@@ -40,7 +40,7 @@ export async function createLead(formData: FormData) {
   const dentist_slug = String(formData.get('dentist_slug') || '').trim().toLowerCase()
   if (!name || !phone || !dentist_slug) return
 
-  const supabase = await createSupabaseServerClient()
+  const supabase = await createClient()
   const { data: dentist } = await supabase
     .from('Dentists')
     .select('id, slug')
@@ -58,7 +58,7 @@ export async function updateLeadStatus(formData: FormData) {
   const status = String(formData.get('status') || '').trim().toLowerCase()
   if (!id || !status) return
 
-  const supabase = await createSupabaseServerClient()
+  const supabase = await createClient()
   await supabase.from('Leads').update({ status }).eq('id', id)
 }
 
@@ -66,7 +66,7 @@ export async function deleteLead(formData: FormData) {
   const id = String(formData.get('lead_id') || '').trim()
   if (!id) return
 
-  const supabase = await createSupabaseServerClient()
+  const supabase = await createClient()
   await supabase.from('Leads').delete().eq('id', id)
 }
 
@@ -77,7 +77,7 @@ export async function updateDentistProfile(formData: FormData) {
   const phone = String(formData.get('phone') || '').trim() || null
   const city = String(formData.get('city') || '').trim() || null
 
-  const supabase = await createSupabaseServerClient()
+  const supabase = await createClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
@@ -109,7 +109,7 @@ export async function deleteAccount(formData: FormData) {
   const confirm = String(formData.get('confirm') || '').trim()
   if (!id || confirm !== 'DELETE') return
 
-  const supabase = await createSupabaseServerClient()
+  const supabase = await createClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()

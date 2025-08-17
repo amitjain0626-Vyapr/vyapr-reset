@@ -4,6 +4,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+/* ---------- types & helpers ---------- */
+
 type Lead = {
   id: string;
   patient_name: string;
@@ -15,18 +17,15 @@ type Lead = {
   source_slug?: string | null;
 };
 
-type HistoryRow = {
+type LeadHistory = {
   id: string;
-  lead_id: string;
-  action: "status_change" | "note_update" | string;
-  old_value: string | null;
-  new_value: string | null;
+  type: string;
+  detail?: string | null;
   created_at: string;
-  actor: string | null;
 };
 
 function normalizePhone(p: string) {
-  const digits = p.replace(/[^\d+]/g, "");
+  const digits = (p || "").replace(/[^\d+]/g, "");
   if (digits.startsWith("+")) return digits;
   if (/^\d{10}$/.test(digits)) return `+91${digits}`;
   return digits;
@@ -34,29 +33,37 @@ function normalizePhone(p: string) {
 
 function waLink(name: string, phone: string, slug?: string | null) {
   const to = normalizePhone(phone).replace(/^\+/, "");
-  const text = `Hi ${name || ""}, I'm contacting you about my appointment request via Vyapr ${
-    slug ? `(/${slug})` : ""
+  const text = `Hi ${name || ""}, I'm contacting you about my appointment request via Vyapr${
+    slug ? ` (/d/${slug})` : ""
   }.`;
   return `https://wa.me/${to}?text=${encodeURIComponent(text)}`;
 }
 
+/* ---------- page ---------- */
+
 export default function LeadsPage() {
+  // filters
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<string>("");
   const [from, setFrom] = useState<string>("");
   const [to, setTo] = useState<string>("");
+
+  // table state
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [rows, setRows] = useState<Lead[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [noteBusy, setNoteBusy] = useState<Record<string, boolean>>({});
 
-  // history modal state
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [historyFor, setHistoryFor] = useState<Lead | null>(null);
-  const [historyRows, setHistoryRows] = useState<HistoryRow[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyErr, setHistoryErr] = useState<string | null>(null);
+  // inline note edits (leadId -> note string)
+  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
+  const [noteBusy, setNoteBusy] = useState<string | null>(null);
+
+  // history panel
+  const [histOpenFor, setHistOpenFor] = useState<string | null>(null);
+  const [histLead, setHistLead] = useState<Lead | null>(null);
+  const [history, setHistory] = useState<LeadHistory[]>([]);
+  const [histErr, setHistErr] = useState<string | null>(null);
+  const [histLoading, setHistLoading] = useState(false);
 
   const params = useMemo(() => {
     const u = new URLSearchParams();
@@ -66,6 +73,8 @@ export default function LeadsPage() {
     if (to) u.set("to", to);
     return u.toString();
   }, [q, status, from, to]);
+
+  /* ---------- data ---------- */
 
   async function load() {
     setLoading(true);
@@ -78,7 +87,12 @@ export default function LeadsPage() {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok) throw new Error(json?.error || `HTTP ${res.status}`);
-      setRows(json.rows || []);
+      const items: Lead[] = json.rows || [];
+      setRows(items);
+      // seed note drafts from server values
+      const seed: Record<string, string> = {};
+      for (const r of items) seed[r.id] = r.note || "";
+      setNoteDrafts(seed);
     } catch (e: any) {
       setErr(e?.message || "Couldn’t load leads");
       setRows([]);
@@ -86,6 +100,13 @@ export default function LeadsPage() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params]);
+
+  /* ---------- actions ---------- */
 
   async function updateStatus(id: string, next: Lead["status"]) {
     setBusyId(id);
@@ -106,53 +127,54 @@ export default function LeadsPage() {
     }
   }
 
-  async function saveNote(id: string, note: string) {
-    setNoteBusy((b) => ({ ...b, [id]: true }));
-    const prev = rows;
-    setRows((rs) => rs.map((r) => (r.id === id ? { ...r, note } : r)));
+  async function saveNote(id: string) {
+    const draft = noteDrafts[id] ?? "";
+    setNoteBusy(id);
     try {
       const res = await fetch("/api/leads/update-note", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, note }),
+        body: JSON.stringify({ id, note: draft }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok) throw new Error(json?.error || `HTTP ${res.status}`);
+      const updated: Lead = json.lead;
+      setRows((rs) => rs.map((r) => (r.id === id ? { ...r, note: updated.note } : r)));
+      // toast-lite
+      console.log("Note saved");
     } catch (e: any) {
-      setRows(prev);
-      alert(e?.message || "Could not save note");
+      alert(e?.message || "Could not update note");
     } finally {
-      setNoteBusy((b) => ({ ...b, [id]: false }));
+      setNoteBusy(null);
     }
   }
 
-  async function openHistory(lead: Lead) {
-    setHistoryFor(lead);
-    setHistoryRows([]);
-    setHistoryErr(null);
-    setHistoryOpen(true);
-    setHistoryLoading(true);
+  async function openHistory(id: string) {
+    setHistOpenFor(id);
+    setHistLead(null);
+    setHistory([]);
+    setHistErr(null);
+    setHistLoading(true);
+
     try {
-      const res = await fetch(`/api/leads/history?id=${encodeURIComponent(lead.id)}`, {
+      const res = await fetch(`/api/leads/history?id=${encodeURIComponent(id)}`, {
         method: "GET",
         credentials: "include",
         cache: "no-store",
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok) throw new Error(json?.error || `HTTP ${res.status}`);
-      setHistoryRows(json.rows || []);
+      setHistLead(json.lead || null);
+      setHistory(json.history || []);
     } catch (e: any) {
-      setHistoryErr(e?.message || "Couldn’t fetch history");
+      setHistErr(e?.message || "Could not load history");
     } finally {
-      setHistoryLoading(false);
+      setHistLoading(false);
     }
   }
 
-  useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params]);
+  /* ---------- render ---------- */
 
   return (
     <div className="p-4 md:p-6">
@@ -223,6 +245,7 @@ export default function LeadsPage() {
               {rows.map((lead) => {
                 const telHref = `tel:${normalizePhone(lead.phone)}`;
                 const waHref = waLink(lead.patient_name || "there", lead.phone, lead.source_slug);
+                const draft = noteDrafts[lead.id] ?? (lead.note || "");
 
                 return (
                   <tr key={lead.id}>
@@ -234,24 +257,26 @@ export default function LeadsPage() {
                       {new Date(lead.created_at).toLocaleString()}
                     </td>
 
-                    {/* Editable Note */}
-                    <td className="border px-2 py-1">
-                      <input
-                        type="text"
-                        className="w-full border rounded-md px-2 py-1 text-sm"
-                        value={lead.note || ""}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setRows((rs) => rs.map((r) => (r.id === lead.id ? { ...r, note: v } : r)));
-                        }}
-                        onBlur={(e) => saveNote(lead.id, e.currentTarget.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") e.currentTarget.blur();
-                        }}
-                      />
-                      {noteBusy[lead.id] ? (
-                        <div className="mt-1 text-[11px] text-gray-500">Saving…</div>
-                      ) : null}
+                    {/* NOTE editor */}
+                    <td className="border px-2 py-1 min-w-[220px]">
+                      <div className="flex items-center gap-2">
+                        <input
+                          className="w-full border rounded px-2 py-1"
+                          value={draft}
+                          onChange={(e) =>
+                            setNoteDrafts((m) => ({ ...m, [lead.id]: e.target.value }))
+                          }
+                          placeholder="Add a note…"
+                        />
+                        <button
+                          className="border rounded px-2 py-1"
+                          disabled={noteBusy === lead.id}
+                          onClick={() => saveNote(lead.id)}
+                          title="Save note"
+                        >
+                          {noteBusy === lead.id ? "…" : "Save"}
+                        </button>
+                      </div>
                     </td>
 
                     <td className="border px-2 py-1">
@@ -285,8 +310,8 @@ export default function LeadsPage() {
                           Close
                         </button>
                         <button
-                          onClick={() => openHistory(lead)}
                           className="border rounded-md px-2 py-1"
+                          onClick={() => openHistory(lead.id)}
                           title="View history"
                         >
                           View
@@ -301,62 +326,48 @@ export default function LeadsPage() {
         </div>
       )}
 
-      {/* History Modal */}
-      {historyOpen && (
-        <div
-          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
-          onClick={() => setHistoryOpen(false)}
-        >
-          <div
-            className="bg-white rounded-xl shadow-xl w-full max-w-xl p-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-lg font-semibold">
-                History — {historyFor?.patient_name} ({normalizePhone(historyFor?.phone || "")})
-              </h2>
-              <button className="text-sm" onClick={() => setHistoryOpen(false)}>
-                Close
-              </button>
+      {/* History panel */}
+      {histOpenFor && (
+        <div className="mt-6 rounded-lg border p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="font-semibold">
+              History — {histLead?.patient_name} ({normalizePhone(histLead?.phone || "")})
             </div>
-
-            {historyLoading ? (
-              <div className="text-sm text-gray-600">Loading…</div>
-            ) : historyErr ? (
-              <div className="text-sm text-red-600">Error — {historyErr}</div>
-            ) : historyRows.length === 0 ? (
-              <div className="text-sm text-gray-600">No history yet.</div>
-            ) : (
-              <div className="max-h-80 overflow-auto">
-                <table className="w-full border text-sm">
-                  <thead>
-                    <tr className="bg-gray-100">
-                      <th className="border px-2 py-1 text-left">When</th>
-                      <th className="border px-2 py-1 text-left">Action</th>
-                      <th className="border px-2 py-1 text-left">Old</th>
-                      <th className="border px-2 py-1 text-left">New</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {historyRows.map((h) => (
-                      <tr key={h.id}>
-                        <td className="border px-2 py-1">
-                          {new Date(h.created_at).toLocaleString()}
-                        </td>
-                        <td className="border px-2 py-1">{h.action}</td>
-                        <td className="border px-2 py-1 whitespace-pre-wrap">
-                          {h.old_value || ""}
-                        </td>
-                        <td className="border px-2 py-1 whitespace-pre-wrap">
-                          {h.new_value || ""}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            <button
+              className="border rounded px-2 py-1"
+              onClick={() => {
+                setHistOpenFor(null);
+                setHistLead(null);
+                setHistory([]);
+                setHistErr(null);
+              }}
+            >
+              Close
+            </button>
           </div>
+          {histLoading ? (
+            <div className="text-sm text-gray-600">Loading…</div>
+          ) : histErr ? (
+            <div className="text-sm text-red-600">Error — {histErr}</div>
+          ) : (
+            <div className="text-sm">
+              {history.length === 0 ? (
+                <div>No timeline yet.</div>
+              ) : (
+                <ul className="list-disc pl-5 space-y-1">
+                  {history.map((h) => (
+                    <li key={h.id}>
+                      <span className="opacity-70 mr-2">
+                        {new Date(h.created_at).toLocaleString()}:
+                      </span>
+                      <span className="font-medium">{h.type}</span>
+                      {h.detail ? <span className="opacity-80"> — {h.detail}</span> : null}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

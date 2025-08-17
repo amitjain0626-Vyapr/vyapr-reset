@@ -1,9 +1,9 @@
 // @ts-nocheck
-import { createSupabaseServerClient } from '@/utils/supabase/server';
+import { createClient } from '@/utils/supabase/server';
 import { cookies } from 'next/headers';
 
 export default async function ServicesPage() {
-  const supabase = await createSupabaseServerClient();
+  const supabase = await createClient();
 
   const {
     data: { user },

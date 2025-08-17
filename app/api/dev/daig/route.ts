@@ -1,9 +1,9 @@
 // app/api/dev/daig/route.ts
 import { NextResponse } from 'next/server'
-import { createSupabaseServerClient } from '@/utils/supabase/server'
+import { createClient } from '@/utils/supabase/server'
 
 export async function GET() {
-  const supabase = await createSupabaseServerClient()
+  const supabase = await createClient()
 
   const {
     data: { user },
