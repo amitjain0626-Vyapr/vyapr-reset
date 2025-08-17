@@ -1,53 +1,75 @@
+// app/auth/callback/page.tsx
 // @ts-nocheck
-"use client";
+import { redirect } from "next/navigation";
+import { createClient } from "@/utils/supabase/server";
 
-import { useEffect, useState } from "react";
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+// ensure per-request cookie read/write
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+export const fetchCache = "force-no-store";
+export const runtime = "nodejs";
 
-export default function AuthCallbackPage() {
-  const [msg, setMsg] = useState("Signing you in…");
+type Props = {
+  searchParams?: {
+    token_hash?: string;
+    type?: string;          // "magiclink" | "signup" | "recovery" | ...
+    next?: string;          // where to go after login
+    code?: string;          // OAuth / PKCE fallback
+  };
+};
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const supabase = createClientComponentClient();
-        const href = window.location.href;
-        const url = new URL(href);
-        const next = url.searchParams.get("next") || "/onboarding";
+export default async function AuthCallback({ searchParams }: Props) {
+  const supabase = createClient();
 
-        const code = url.searchParams.get("code");            // PKCE / OAuth flow
-        const token_hash = url.searchParams.get("token_hash"); // Magic-link flow
-        const type = (url.searchParams.get("type") || "magiclink") as
-          "magiclink" | "recovery" | "email_change" | "signup" | "invite";
+  const token_hash = (searchParams?.token_hash || "").toString();
+  const type = (searchParams?.type || "magiclink").toString();
+  const code = (searchParams?.code || "").toString();
+  const next = decodeURIComponent(searchParams?.next || "/dashboard/leads");
 
-        if (code) {
-          // PKCE: browser holds the verifier
-          const { error } = await supabase.auth.exchangeCodeForSession(href);
-          if (error) throw new Error(error.message);
-        } else if (token_hash) {
-          // MAGIC LINK: must *not* include email here
-          const { error } = await supabase.auth.verifyOtp({ type, token_hash });
-          if (error) throw new Error(error.message);
-        } else {
-          throw new Error("Missing code or token_hash");
-        }
-
-        // Confirm session
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) throw new Error("no user after auth");
-
-        // Go to destination
-        window.location.replace(next);
-      } catch (e: any) {
-        setMsg(`Sign-in failed: ${e?.message || "unexpected error"}`);
+  try {
+    // 1) Magic-link / OTP flow
+    if (token_hash) {
+      const { error } = await supabase.auth.verifyOtp({
+        type: (type as any) || "magiclink",
+        token_hash,
+      });
+      if (error) {
+        // fall through to show a simple error page
+        return (
+          <div className="p-6">
+            <h1 className="text-xl font-semibold">Sign-in error</h1>
+            <p className="text-sm text-red-600 mt-2">{error.message}</p>
+          </div>
+        );
       }
-    })();
-  }, []);
+      // success → redirect to next
+      redirect(next);
+    }
 
-  return (
-    <main className="mx-auto max-w-md p-6">
-      <h1 className="text-xl font-semibold mb-2">Authentication</h1>
-      <p className="text-sm text-gray-700">{msg}</p>
-    </main>
-  );
+    // 2) OAuth / PKCE (if ever used)
+    if (code) {
+      const { error } = await supabase.auth.exchangeCodeForSession(code);
+      if (error) {
+        return (
+          <div className="p-6">
+            <h1 className="text-xl font-semibold">Sign-in error</h1>
+            <p className="text-sm text-red-600 mt-2">{error.message}</p>
+          </div>
+        );
+      }
+      redirect(next);
+    }
+
+    // 3) Nothing to verify → bounce home
+    redirect("/login");
+  } catch (e: any) {
+    return (
+      <div className="p-6">
+        <h1 className="text-xl font-semibold">Sign-in error</h1>
+        <p className="text-sm text-red-600 mt-2">
+          {e?.message || "Unexpected error"}
+        </p>
+      </div>
+    );
+  }
 }
