@@ -1,56 +1,48 @@
 // app/api/leads/history/route.ts
 // @ts-nocheck
-import { NextResponse } from "next/server";
-import { createClient } from "@/utils/supabase/server";
+import { NextRequest, NextResponse } from "next/server";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-/**
- * GET /api/leads/history?id=<lead_id>
- * Returns history rows for a lead if the signed-in user owns the lead.
- */
-export async function GET(req: Request) {
-  try {
-    const supabase = createClient();
-    const { searchParams } = new URL(req.url);
-    const id = searchParams.get("id");
+export const runtime = "nodejs";         // ensure Node, not Edge
+export const dynamic = "force-dynamic";  // no caching of auth
 
-    if (!id) {
-      return NextResponse.json({ ok: false, error: "Missing lead id" }, { status: 400 });
-    }
+function isUUIDv4(v?: string | null) {
+  if (!v) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
+}
 
-    // auth
-    const {
-      data: { user },
-      error: userErr,
-    } = await supabase.auth.getUser();
-    if (userErr || !user) {
-      return NextResponse.json({ ok: false, error: "Not authenticated" }, { status: 401 });
-    }
+export async function GET(req: NextRequest) {
+  const url = new URL(req.url);
+  const id = url.searchParams.get("id");
 
-    // verify ownership (tables are lowercase!)
-    const { data: lead, error: leadErr } = await supabase
-      .from("leads")
-      .select("id, owner_id")
-      .eq("id", id)
-      .single();
-
-    if (leadErr || !lead) {
-      return NextResponse.json({ ok: false, error: "Lead not found" }, { status: 404 });
-    }
-    if (lead.owner_id !== user.id) {
-      return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
-    }
-
-    // fetch history (use your actual table name; common: lead_history)
-    const { data: rows, error } = await supabase
-      .from("lead_history")
-      .select("*")
-      .eq("lead_id", id)
-      .order("created_at", { ascending: false });
-
-    if (error) throw error;
-
-    return NextResponse.json({ ok: true, rows }, { status: 200 });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e.message || "Unexpected error" }, { status: 500 });
+  if (!isUUIDv4(id)) {
+    return NextResponse.json({ error: "Invalid id" }, { status: 400 });
   }
+
+  const supabase = createSupabaseServerClient();
+
+  // Must have an authenticated user so RLS can authorize
+  const { data: authData, error: authErr } = await supabase.auth.getUser();
+  if (authErr || !authData?.user) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+
+  // RLS: returns row only if owner_id = auth.uid()
+  const { data, error } = await supabase
+    .from("Leads")
+    .select("id, patient_name, phone, status, source, created_at, note, owner_id")
+    .eq("id", id);
+
+  if (error) {
+    return NextResponse.json(
+      { error: "Forbidden or query error", details: error.message },
+      { status: 403 }
+    );
+  }
+
+  if (!data || data.length === 0) {
+    return NextResponse.json({ error: "Lead not found" }, { status: 404 });
+  }
+
+  return NextResponse.json({ ok: true, lead: data[0] }, { status: 200 });
 }
