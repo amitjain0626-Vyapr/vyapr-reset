@@ -12,7 +12,24 @@ type Lead = {
   source: string;
   created_at: string;
   note: string | null;
+  source_slug?: string | null;
 };
+
+function normalizePhone(p: string) {
+  const digits = p.replace(/[^\d+]/g, "");
+  if (digits.startsWith("+")) return digits;
+  // default to +91 if 10-digit local
+  if (/^\d{10}$/.test(digits)) return `+91${digits}`;
+  return digits;
+}
+
+function waLink(name: string, phone: string, slug?: string | null) {
+  const to = normalizePhone(phone).replace(/^\+/, "");
+  const text = `Hi ${name || ""}, I'm contacting you about my appointment request via Vyapr ${
+    slug ? `(/${slug})` : ""
+  }.`;
+  return `https://wa.me/${to}?text=${encodeURIComponent(text)}`;
+}
 
 export default function LeadsPage() {
   const [q, setQ] = useState("");
@@ -64,8 +81,6 @@ export default function LeadsPage() {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok) throw new Error(json?.error || `HTTP ${res.status}`);
-
-      // patch local row
       setRows((rs) => rs.map((r) => (r.id === id ? { ...r, status: next } : r)));
     } catch (e: any) {
       alert(e?.message || "Could not update status");
@@ -145,36 +160,59 @@ export default function LeadsPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((lead) => (
-                <tr key={lead.id}>
-                  <td className="border px-2 py-1">{lead.patient_name}</td>
-                  <td className="border px-2 py-1">{lead.phone}</td>
-                  <td className="border px-2 py-1 capitalize">{lead.status}</td>
-                  <td className="border px-2 py-1">{lead.source}</td>
-                  <td className="border px-2 py-1">
-                    {new Date(lead.created_at).toLocaleString()}
-                  </td>
-                  <td className="border px-2 py-1">{lead.note || ""}</td>
-                  <td className="border px-2 py-1">
-                    <div className="flex gap-2">
-                      <button
-                        disabled={busyId === lead.id || lead.status === "contacted"}
-                        onClick={() => updateStatus(lead.id, "contacted")}
-                        className="border rounded-md px-2 py-1 disabled:opacity-50"
-                      >
-                        Mark Contacted
-                      </button>
-                      <button
-                        disabled={busyId === lead.id || lead.status === "closed"}
-                        onClick={() => updateStatus(lead.id, "closed")}
-                        className="border rounded-md px-2 py-1 disabled:opacity-50"
-                      >
-                        Close
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {rows.map((lead) => {
+                const telHref = `tel:${normalizePhone(lead.phone)}`;
+                const waHref = waLink(lead.patient_name || "there", lead.phone, lead.source_slug);
+
+                return (
+                  <tr key={lead.id}>
+                    <td className="border px-2 py-1">{lead.patient_name}</td>
+                    <td className="border px-2 py-1">{normalizePhone(lead.phone)}</td>
+                    <td className="border px-2 py-1 capitalize">{lead.status}</td>
+                    <td className="border px-2 py-1">{lead.source}</td>
+                    <td className="border px-2 py-1">
+                      {new Date(lead.created_at).toLocaleString()}
+                    </td>
+                    <td className="border px-2 py-1">{lead.note || ""}</td>
+                    <td className="border px-2 py-1">
+                      <div className="flex flex-wrap gap-2">
+                        <a
+                          href={telHref}
+                          className="border rounded-md px-2 py-1"
+                          title="Call"
+                        >
+                          Call
+                        </a>
+                        <a
+                          href={waHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="border rounded-md px-2 py-1"
+                          title="WhatsApp"
+                        >
+                          WhatsApp
+                        </a>
+                        <button
+                          disabled={busyId === lead.id || lead.status === "contacted"}
+                          onClick={() => updateStatus(lead.id, "contacted")}
+                          className="border rounded-md px-2 py-1 disabled:opacity-50"
+                          title="Mark Contacted"
+                        >
+                          Mark Contacted
+                        </button>
+                        <button
+                          disabled={busyId === lead.id || lead.status === "closed"}
+                          onClick={() => updateStatus(lead.id, "closed")}
+                          className="border rounded-md px-2 py-1 disabled:opacity-50"
+                          title="Close"
+                        >
+                          Close
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
