@@ -3,371 +3,253 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-
-/* ---------- types & helpers ---------- */
+import { createBrowserClient } from "@supabase/ssr";
 
 type Lead = {
   id: string;
-  patient_name: string;
-  phone: string;
-  status: "new" | "contacted" | "closed" | string;
-  source: string;
+  patient_name: string | null;
+  phone: string | null;
+  status: "new" | "contacted" | "closed" | string | null;
+  source: string | null;
   created_at: string;
   note: string | null;
-  source_slug?: string | null;
+  owner_id?: string | null;
 };
 
-type LeadHistory = {
-  id: string;
-  type: string;
-  detail?: string | null;
-  created_at: string;
-};
-
-function normalizePhone(p: string) {
-  const digits = (p || "").replace(/[^\d+]/g, "");
+function normalizePhone(p?: string | null) {
+  if (!p) return "";
+  const digits = p.replace(/[^\d+]/g, "");
   if (digits.startsWith("+")) return digits;
   if (/^\d{10}$/.test(digits)) return `+91${digits}`;
   return digits;
 }
 
-function waLink(name: string, phone: string, slug?: string | null) {
-  const to = normalizePhone(phone).replace(/^\+/, "");
-  const text = `Hi ${name || ""}, I'm contacting you about my appointment request via Vyapr${
-    slug ? ` (/d/${slug})` : ""
-  }.`;
-  return `https://wa.me/${to}?text=${encodeURIComponent(text)}`;
+function waLink(name: string, phone: string, slug?: string) {
+  const to = normalizePhone(phone);
+  const text = encodeURIComponent(
+    `Hi${name ? " " + name : ""}! This is Amit from Vyapr. Following up on your request${slug ? ` for ${slug}` : ""}.`
+  );
+  return `https://wa.me/${to.replace("+", "")}?text=${text}`;
 }
 
-/* ---------- page ---------- */
+const supabase = createBrowserClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export default function LeadsPage() {
-  // filters
-  const [q, setQ] = useState("");
-  const [status, setStatus] = useState<string>("");
-  const [from, setFrom] = useState<string>("");
-  const [to, setTo] = useState<string>("");
-
-  // table state
+  const [leads, setLeads] = useState<Lead[]>([]);
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
-  const [rows, setRows] = useState<Lead[]>([]);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<"all" | "new" | "contacted" | "closed">("all");
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draftNote, setDraftNote] = useState<string>("");
 
-  // inline note edits (leadId -> note string)
-  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
-  const [noteBusy, setNoteBusy] = useState<string | null>(null);
-
-  // history panel
-  const [histOpenFor, setHistOpenFor] = useState<string | null>(null);
-  const [histLead, setHistLead] = useState<Lead | null>(null);
-  const [history, setHistory] = useState<LeadHistory[]>([]);
-  const [histErr, setHistErr] = useState<string | null>(null);
-  const [histLoading, setHistLoading] = useState(false);
-
-  const params = useMemo(() => {
-    const u = new URLSearchParams();
-    if (q.trim()) u.set("q", q.trim());
-    if (status) u.set("status", status);
-    if (from) u.set("from", from);
-    if (to) u.set("to", to);
-    return u.toString();
-  }, [q, status, from, to]);
-
-  /* ---------- data ---------- */
-
-  async function load() {
-    setLoading(true);
-    setErr(null);
-    try {
-      const res = await fetch(`/api/leads/list${params ? `?${params}` : ""}`, {
-        method: "GET",
-        credentials: "include",
-        cache: "no-store",
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json?.ok) throw new Error(json?.error || `HTTP ${res.status}`);
-      const items: Lead[] = json.rows || [];
-      setRows(items);
-      // seed note drafts from server values
-      const seed: Record<string, string> = {};
-      for (const r of items) seed[r.id] = r.note || "";
-      setNoteDrafts(seed);
-    } catch (e: any) {
-      setErr(e?.message || "Couldn’t load leads");
-      setRows([]);
-    } finally {
-      setLoading(false);
-    }
-  }
-
+  // Fetch leads owned by the current user (RLS-enforced)
   useEffect(() => {
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params]);
+    let isMounted = true;
+    (async () => {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from("Leads")
+        .select("id, patient_name, phone, status, source, created_at, note")
+        .order("created_at", { ascending: false });
 
-  /* ---------- actions ---------- */
+      if (!isMounted) return;
 
-  async function updateStatus(id: string, next: Lead["status"]) {
-    setBusyId(id);
-    try {
-      const res = await fetch("/api/leads/update-status", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, status: next }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json?.ok) throw new Error(json?.error || `HTTP ${res.status}`);
-      setRows((rs) => rs.map((r) => (r.id === id ? { ...r, status: next } : r)));
-    } catch (e: any) {
-      alert(e?.message || "Could not update status");
-    } finally {
-      setBusyId(null);
-    }
-  }
+      if (error) {
+        console.error("Error loading leads:", error.message);
+        setLeads([]);
+      } else {
+        setLeads(data || []);
+      }
+      setLoading(false);
+    })();
 
-  async function saveNote(id: string) {
-    const draft = noteDrafts[id] ?? "";
-    setNoteBusy(id);
-    try {
-      const res = await fetch("/api/leads/update-note", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, note: draft }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json?.ok) throw new Error(json?.error || `HTTP ${res.status}`);
-      const updated: Lead = json.lead;
-      setRows((rs) => rs.map((r) => (r.id === id ? { ...r, note: updated.note } : r)));
-      // toast-lite
-      console.log("Note saved");
-    } catch (e: any) {
-      alert(e?.message || "Could not update note");
-    } finally {
-      setNoteBusy(null);
-    }
-  }
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const visible = useMemo(() => {
+    if (filter === "all") return leads;
+    return leads.filter((l) => (l.status || "new").toLowerCase() === filter);
+  }, [leads, filter]);
 
   async function openHistory(id: string) {
-    setHistOpenFor(id);
-    setHistLead(null);
-    setHistory([]);
-    setHistErr(null);
-    setHistLoading(true);
+    // Uses secured API to read one lead (proves auth + RLS ok)
+    const res = await fetch(`/api/leads/history?id=${id}`, { credentials: "include" });
+    const json = await res.json();
+    if (!res.ok) {
+      alert(json?.error || "Failed to load history");
+      return;
+    }
+    // You can enhance this to show a modal; for now just alert key fields
+    const lead = json.lead as Lead;
+    alert(
+      `Lead: ${lead.patient_name || "N/A"}\nPhone: ${lead.phone || "N/A"}\nStatus: ${
+        lead.status || "N/A"
+      }\nNote: ${lead.note || ""}\nCreated: ${new Date(lead.created_at).toLocaleString()}`
+    );
+  }
 
+  function onEditNote(lead: Lead) {
+    setEditingId(lead.id);
+    setDraftNote(lead.note || "");
+  }
+
+  function onCancelEdit() {
+    setEditingId(null);
+    setDraftNote("");
+  }
+
+  async function onSaveNote(lead: Lead) {
+    setSavingId(lead.id);
     try {
-      const res = await fetch(`/api/leads/history?id=${encodeURIComponent(id)}`, {
-        method: "GET",
+      const res = await fetch("/api/leads/update-note", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
         credentials: "include",
-        cache: "no-store",
+        body: JSON.stringify({ id: lead.id, note: draftNote }),
       });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json?.ok) throw new Error(json?.error || `HTTP ${res.status}`);
-      setHistLead(json.lead || null);
-      setHistory(json.history || []);
-    } catch (e: any) {
-      setHistErr(e?.message || "Could not load history");
+      const json = await res.json();
+      if (!res.ok) {
+        console.error("Save note failed:", json);
+        alert(json?.error || "Failed to save note");
+        return;
+      }
+      // Optimistic update
+      setLeads((prev) =>
+        prev.map((l) => (l.id === lead.id ? { ...l, note: json.note ?? draftNote } : l))
+      );
+      setEditingId(null);
+      setDraftNote("");
     } finally {
-      setHistLoading(false);
+      setSavingId(null);
     }
   }
 
-  /* ---------- render ---------- */
-
   return (
-    <div className="p-4 md:p-6">
-      <h1 className="text-xl font-semibold mb-4">Lead Inbox</h1>
-
-      {/* Filters */}
-      <div className="flex flex-wrap gap-2 mb-4">
-        <input
-          className="border rounded-md px-3 py-2 text-sm"
-          placeholder="Search (name or phone)"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
-        <select
-          className="border rounded-md px-3 py-2 text-sm"
-          value={status}
-          onChange={(e) => setStatus(e.target.value)}
-        >
-          <option value="">Status: All</option>
-          <option value="new">New</option>
-          <option value="contacted">Contacted</option>
-          <option value="closed">Closed</option>
-        </select>
-        <input
-          type="date"
-          className="border rounded-md px-3 py-2 text-sm"
-          value={from}
-          onChange={(e) => setFrom(e.target.value)}
-          placeholder="From"
-        />
-        <input
-          type="date"
-          className="border rounded-md px-3 py-2 text-sm"
-          value={to}
-          onChange={(e) => setTo(e.target.value)}
-          placeholder="To"
-        />
-        <button onClick={load} className="border rounded-md px-3 py-2 text-sm">
-          Refresh
-        </button>
+    <div className="p-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Leads</h1>
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-gray-600">Filter:</label>
+          <select
+            className="border rounded px-2 py-1"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value as any)}
+          >
+            <option value="all">All</option>
+            <option value="new">New</option>
+            <option value="contacted">Contacted</option>
+            <option value="closed">Closed</option>
+          </select>
+        </div>
       </div>
 
-      {/* Status / errors */}
       {loading ? (
-        <div className="text-sm text-gray-600">Loading…</div>
-      ) : err ? (
-        <div className="text-sm text-red-600">Couldn’t load leads — {err}</div>
-      ) : rows.length === 0 ? (
-        <div className="text-sm text-gray-600">No leads found.</div>
-      ) : null}
-
-      {/* Table */}
-      {rows.length > 0 && (
-        <div className="overflow-auto">
-          <table className="w-full border text-sm">
-            <thead>
-              <tr className="bg-gray-100">
-                <th className="border px-2 py-1 text-left">Name</th>
-                <th className="border px-2 py-1 text-left">Phone</th>
-                <th className="border px-2 py-1 text-left">Status</th>
-                <th className="border px-2 py-1 text-left">Source</th>
-                <th className="border px-2 py-1 text-left">Created</th>
-                <th className="border px-2 py-1 text-left">Note</th>
-                <th className="border px-2 py-1 text-left">Actions</th>
+        <div className="text-gray-500">Loading leads…</div>
+      ) : visible.length === 0 ? (
+        <div className="text-gray-500">No leads yet.</div>
+      ) : (
+        <div className="overflow-x-auto rounded border">
+          <table className="min-w-full text-sm">
+            <thead className="bg-gray-50 text-gray-700">
+              <tr>
+                <th className="text-left p-3">When</th>
+                <th className="text-left p-3">Patient</th>
+                <th className="text-left p-3">Phone</th>
+                <th className="text-left p-3">Status</th>
+                <th className="text-left p-3">Note</th>
+                <th className="text-left p-3">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((lead) => {
-                const telHref = `tel:${normalizePhone(lead.phone)}`;
-                const waHref = waLink(lead.patient_name || "there", lead.phone, lead.source_slug);
-                const draft = noteDrafts[lead.id] ?? (lead.note || "");
+              {visible.map((lead) => {
+                const phone = normalizePhone(lead.phone || "");
+                const when = new Date(lead.created_at).toLocaleString();
+                const isEditing = editingId === lead.id;
+                const isSaving = savingId === lead.id;
 
                 return (
-                  <tr key={lead.id}>
-                    <td className="border px-2 py-1">{lead.patient_name}</td>
-                    <td className="border px-2 py-1">{normalizePhone(lead.phone)}</td>
-                    <td className="border px-2 py-1 capitalize">{lead.status}</td>
-                    <td className="border px-2 py-1">{lead.source}</td>
-                    <td className="border px-2 py-1">
-                      {new Date(lead.created_at).toLocaleString()}
-                    </td>
-
-                    {/* NOTE editor */}
-                    <td className="border px-2 py-1 min-w-[220px]">
-                      <div className="flex items-center gap-2">
-                        <input
-                          className="w-full border rounded px-2 py-1"
-                          value={draft}
-                          onChange={(e) =>
-                            setNoteDrafts((m) => ({ ...m, [lead.id]: e.target.value }))
-                          }
-                          placeholder="Add a note…"
-                        />
-                        <button
-                          className="border rounded px-2 py-1"
-                          disabled={noteBusy === lead.id}
-                          onClick={() => saveNote(lead.id)}
-                          title="Save note"
-                        >
-                          {noteBusy === lead.id ? "…" : "Save"}
-                        </button>
-                      </div>
-                    </td>
-
-                    <td className="border px-2 py-1">
-                      <div className="flex flex-wrap gap-2">
-                        <a href={telHref} className="border rounded-md px-2 py-1" title="Call">
-                          Call
-                        </a>
+                  <tr key={lead.id} className="border-t">
+                    <td className="p-3 align-top whitespace-nowrap">{when}</td>
+                    <td className="p-3 align-top">{lead.patient_name || "—"}</td>
+                    <td className="p-3 align-top">
+                      {phone ? (
                         <a
-                          href={waHref}
+                          className="underline"
+                          href={waLink(lead.patient_name || "", phone)}
                           target="_blank"
-                          rel="noopener noreferrer"
-                          className="border rounded-md px-2 py-1"
-                          title="WhatsApp"
+                          rel="noreferrer"
+                          title="Chat on WhatsApp"
                         >
-                          WhatsApp
+                          {phone}
                         </a>
-                        <button
-                          disabled={busyId === lead.id || lead.status === "contacted"}
-                          onClick={() => updateStatus(lead.id, "contacted")}
-                          className="border rounded-md px-2 py-1 disabled:opacity-50"
-                          title="Mark Contacted"
-                        >
-                          Mark Contacted
-                        </button>
-                        <button
-                          disabled={busyId === lead.id || lead.status === "closed"}
-                          onClick={() => updateStatus(lead.id, "closed")}
-                          className="border rounded-md px-2 py-1 disabled:opacity-50"
-                          title="Close"
-                        >
-                          Close
-                        </button>
-                        <button
-                          className="border rounded-md px-2 py-1"
-                          onClick={() => openHistory(lead.id)}
-                          title="View history"
-                        >
-                          View
-                        </button>
-                      </div>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    <td className="p-3 align-top capitalize">{lead.status || "new"}</td>
+                    <td className="p-3 align-top w-[360px]">
+                      {isEditing ? (
+                        <div className="flex flex-col gap-2">
+                          <textarea
+                            className="w-full min-h-[80px] p-2 border rounded"
+                            value={draftNote}
+                            onChange={(e) => setDraftNote(e.target.value)}
+                            maxLength={5000}
+                            placeholder="Add a note…"
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => onSaveNote(lead)}
+                              disabled={isSaving}
+                              className="px-3 py-1 rounded bg-blue-600 text-white disabled:opacity-50"
+                            >
+                              {isSaving ? "Saving…" : "Save"}
+                            </button>
+                            <button
+                              onClick={onCancelEdit}
+                              disabled={isSaving}
+                              className="px-3 py-1 rounded border"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="whitespace-pre-wrap text-gray-900">
+                          {lead.note ? lead.note : <span className="text-gray-500">—</span>}
+                        </div>
+                      )}
+                    </td>
+                    <td className="p-3 align-top">
+                      {!isEditing ? (
+                        <div className="flex gap-2">
+                          <button
+                            className="px-3 py-1 rounded border"
+                            onClick={() => onEditNote(lead)}
+                          >
+                            Edit note
+                          </button>
+                          <button
+                            className="px-3 py-1 rounded border"
+                            onClick={() => openHistory(lead.id)}
+                          >
+                            View
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-500">Editing…</span>
+                      )}
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-        </div>
-      )}
-
-      {/* History panel */}
-      {histOpenFor && (
-        <div className="mt-6 rounded-lg border p-3">
-          <div className="flex items-center justify-between mb-2">
-            <div className="font-semibold">
-              History — {histLead?.patient_name} ({normalizePhone(histLead?.phone || "")})
-            </div>
-            <button
-              className="border rounded px-2 py-1"
-              onClick={() => {
-                setHistOpenFor(null);
-                setHistLead(null);
-                setHistory([]);
-                setHistErr(null);
-              }}
-            >
-              Close
-            </button>
-          </div>
-          {histLoading ? (
-            <div className="text-sm text-gray-600">Loading…</div>
-          ) : histErr ? (
-            <div className="text-sm text-red-600">Error — {histErr}</div>
-          ) : (
-            <div className="text-sm">
-              {history.length === 0 ? (
-                <div>No timeline yet.</div>
-              ) : (
-                <ul className="list-disc pl-5 space-y-1">
-                  {history.map((h) => (
-                    <li key={h.id}>
-                      <span className="opacity-70 mr-2">
-                        {new Date(h.created_at).toLocaleString()}:
-                      </span>
-                      <span className="font-medium">{h.type}</span>
-                      {h.detail ? <span className="opacity-80"> — {h.detail}</span> : null}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
         </div>
       )}
     </div>
