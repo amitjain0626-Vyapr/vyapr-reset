@@ -40,8 +40,8 @@ export default function LeadsPage() {
     try {
       const res = await fetch(`/api/leads/list${params ? `?${params}` : ""}`, {
         method: "GET",
-        credentials: "include",          // ✅ send auth cookies
-        cache: "no-store",               // ✅ always fresh
+        credentials: "include",   // send auth cookies
+        cache: "no-store",        // always fresh
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok) {
@@ -97,10 +97,7 @@ export default function LeadsPage() {
           onChange={(e) => setTo(e.target.value)}
           placeholder="To"
         />
-        <button
-          onClick={load}
-          className="border rounded-md px-3 py-2 text-sm"
-        >
+        <button onClick={load} className="border rounded-md px-3 py-2 text-sm">
           Refresh
         </button>
       </div>
