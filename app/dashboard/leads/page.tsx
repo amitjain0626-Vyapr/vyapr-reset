@@ -18,8 +18,7 @@ type Lead = {
 function normalizePhone(p: string) {
   const digits = p.replace(/[^\d+]/g, "");
   if (digits.startsWith("+")) return digits;
-  // default to +91 if 10-digit local
-  if (/^\d{10}$/.test(digits)) return `+91${digits}`;
+  if (/^\d{10}$/.test(digits)) return `+91${digits}`; // default India cc
   return digits;
 }
 
@@ -40,6 +39,7 @@ export default function LeadsPage() {
   const [err, setErr] = useState<string | null>(null);
   const [rows, setRows] = useState<Lead[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [noteBusy, setNoteBusy] = useState<Record<string, boolean>>({}); // per-row saving
 
   const params = useMemo(() => {
     const u = new URLSearchParams();
@@ -86,6 +86,31 @@ export default function LeadsPage() {
       alert(e?.message || "Could not update status");
     } finally {
       setBusyId(null);
+    }
+  }
+
+  async function saveNote(id: string, note: string) {
+    setNoteBusy((b) => ({ ...b, [id]: true }));
+    // optimistic UI
+    const prev = rows;
+    setRows((rs) => rs.map((r) => (r.id === id ? { ...r, note } : r)));
+
+    try {
+      const res = await fetch("/api/leads/update-note", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, note }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.ok) throw new Error(json?.error || `HTTP ${res.status}`);
+      // success: nothing else to do
+    } catch (e: any) {
+      // revert on failure
+      setRows(prev);
+      alert(e?.message || "Could not save note");
+    } finally {
+      setNoteBusy((b) => ({ ...b, [id]: false }));
     }
   }
 
@@ -173,14 +198,32 @@ export default function LeadsPage() {
                     <td className="border px-2 py-1">
                       {new Date(lead.created_at).toLocaleString()}
                     </td>
-                    <td className="border px-2 py-1">{lead.note || ""}</td>
+
+                    {/* Editable Note */}
+                    <td className="border px-2 py-1">
+                      <input
+                        type="text"
+                        className="w-full border rounded-md px-2 py-1 text-sm"
+                        value={lead.note || ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setRows((rs) => rs.map((r) => (r.id === lead.id ? { ...r, note: v } : r)));
+                        }}
+                        onBlur={(e) => saveNote(lead.id, e.currentTarget.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.currentTarget.blur(); // triggers onBlur save
+                          }
+                        }}
+                      />
+                      {noteBusy[lead.id] ? (
+                        <div className="mt-1 text-[11px] text-gray-500">Saving…</div>
+                      ) : null}
+                    </td>
+
                     <td className="border px-2 py-1">
                       <div className="flex flex-wrap gap-2">
-                        <a
-                          href={telHref}
-                          className="border rounded-md px-2 py-1"
-                          title="Call"
-                        >
+                        <a href={telHref} className="border rounded-md px-2 py-1" title="Call">
                           Call
                         </a>
                         <a
