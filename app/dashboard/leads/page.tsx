@@ -15,10 +15,20 @@ type Lead = {
   source_slug?: string | null;
 };
 
+type HistoryRow = {
+  id: string;
+  lead_id: string;
+  action: "status_change" | "note_update" | string;
+  old_value: string | null;
+  new_value: string | null;
+  created_at: string;
+  actor: string | null;
+};
+
 function normalizePhone(p: string) {
   const digits = p.replace(/[^\d+]/g, "");
   if (digits.startsWith("+")) return digits;
-  if (/^\d{10}$/.test(digits)) return `+91${digits}`; // default India cc
+  if (/^\d{10}$/.test(digits)) return `+91${digits}`;
   return digits;
 }
 
@@ -39,7 +49,14 @@ export default function LeadsPage() {
   const [err, setErr] = useState<string | null>(null);
   const [rows, setRows] = useState<Lead[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [noteBusy, setNoteBusy] = useState<Record<string, boolean>>({}); // per-row saving
+  const [noteBusy, setNoteBusy] = useState<Record<string, boolean>>({});
+
+  // history modal state
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyFor, setHistoryFor] = useState<Lead | null>(null);
+  const [historyRows, setHistoryRows] = useState<HistoryRow[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyErr, setHistoryErr] = useState<string | null>(null);
 
   const params = useMemo(() => {
     const u = new URLSearchParams();
@@ -91,10 +108,8 @@ export default function LeadsPage() {
 
   async function saveNote(id: string, note: string) {
     setNoteBusy((b) => ({ ...b, [id]: true }));
-    // optimistic UI
     const prev = rows;
     setRows((rs) => rs.map((r) => (r.id === id ? { ...r, note } : r)));
-
     try {
       const res = await fetch("/api/leads/update-note", {
         method: "POST",
@@ -104,13 +119,33 @@ export default function LeadsPage() {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok) throw new Error(json?.error || `HTTP ${res.status}`);
-      // success: nothing else to do
     } catch (e: any) {
-      // revert on failure
       setRows(prev);
       alert(e?.message || "Could not save note");
     } finally {
       setNoteBusy((b) => ({ ...b, [id]: false }));
+    }
+  }
+
+  async function openHistory(lead: Lead) {
+    setHistoryFor(lead);
+    setHistoryRows([]);
+    setHistoryErr(null);
+    setHistoryOpen(true);
+    setHistoryLoading(true);
+    try {
+      const res = await fetch(`/api/leads/history?id=${encodeURIComponent(lead.id)}`, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.ok) throw new Error(json?.error || `HTTP ${res.status}`);
+      setHistoryRows(json.rows || []);
+    } catch (e: any) {
+      setHistoryErr(e?.message || "Couldn’t fetch history");
+    } finally {
+      setHistoryLoading(false);
     }
   }
 
@@ -211,9 +246,7 @@ export default function LeadsPage() {
                         }}
                         onBlur={(e) => saveNote(lead.id, e.currentTarget.value)}
                         onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.currentTarget.blur(); // triggers onBlur save
-                          }
+                          if (e.key === "Enter") e.currentTarget.blur();
                         }}
                       />
                       {noteBusy[lead.id] ? (
@@ -251,6 +284,13 @@ export default function LeadsPage() {
                         >
                           Close
                         </button>
+                        <button
+                          onClick={() => openHistory(lead)}
+                          className="border rounded-md px-2 py-1"
+                          title="View history"
+                        >
+                          View
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -258,6 +298,65 @@ export default function LeadsPage() {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* History Modal */}
+      {historyOpen && (
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+          onClick={() => setHistoryOpen(false)}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl w-full max-w-xl p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold">
+                History — {historyFor?.patient_name} ({normalizePhone(historyFor?.phone || "")})
+              </h2>
+              <button className="text-sm" onClick={() => setHistoryOpen(false)}>
+                Close
+              </button>
+            </div>
+
+            {historyLoading ? (
+              <div className="text-sm text-gray-600">Loading…</div>
+            ) : historyErr ? (
+              <div className="text-sm text-red-600">Error — {historyErr}</div>
+            ) : historyRows.length === 0 ? (
+              <div className="text-sm text-gray-600">No history yet.</div>
+            ) : (
+              <div className="max-h-80 overflow-auto">
+                <table className="w-full border text-sm">
+                  <thead>
+                    <tr className="bg-gray-100">
+                      <th className="border px-2 py-1 text-left">When</th>
+                      <th className="border px-2 py-1 text-left">Action</th>
+                      <th className="border px-2 py-1 text-left">Old</th>
+                      <th className="border px-2 py-1 text-left">New</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {historyRows.map((h) => (
+                      <tr key={h.id}>
+                        <td className="border px-2 py-1">
+                          {new Date(h.created_at).toLocaleString()}
+                        </td>
+                        <td className="border px-2 py-1">{h.action}</td>
+                        <td className="border px-2 py-1 whitespace-pre-wrap">
+                          {h.old_value || ""}
+                        </td>
+                        <td className="border px-2 py-1 whitespace-pre-wrap">
+                          {h.new_value || ""}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
