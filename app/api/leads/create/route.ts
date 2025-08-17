@@ -1,43 +1,73 @@
 // app/api/leads/create/route.ts
 // @ts-nocheck
 import { NextResponse } from "next/server";
-import { createClient } from "@/utils/supabase/server";
+import { supabaseAdmin } from "@/utils/supabase/admin";
 
 export async function POST(req: Request) {
   try {
-    const supabase = createClient();
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
 
-    const { slug, patient_name, phone, note, utm } = body;
+    // Honeypot: if bots fill "website", say success but do nothing
+    if (typeof body.website === "string" && body.website.trim().length > 0) {
+      return new NextResponse(null, { status: 204 });
+    }
 
-    // Find provider by slug
-    const { data: provider, error: providerError } = await supabase
+    const slug = String(body.slug || "").trim().toLowerCase();
+    const patient_name = String(body.patient_name || "").trim();
+    const phone_raw = String(body.phone || "").trim();
+    const note = (body.note ?? "").toString().slice(0, 1000);
+    const utm = body.utm && typeof body.utm === "object" ? body.utm : {};
+
+    if (!slug || !patient_name || !phone_raw) {
+      return NextResponse.json(
+        { ok: false, error: "Missing required fields (slug, patient_name, phone)" },
+        { status: 400 }
+      );
+    }
+
+    // Clean phone (+91 if 10 digits)
+    const digits = phone_raw.replace(/[^\d+]/g, "");
+    const phone =
+      /^\d{10}$/.test(digits) ? `+91${digits}` :
+      /^\+?\d{7,15}$/.test(digits) ? (digits.startsWith("+") ? digits : `+${digits}`) :
+      null;
+
+    if (!phone) {
+      return NextResponse.json(
+        { ok: false, error: "Invalid phone format" },
+        { status: 400 }
+      );
+    }
+
+    // Fetch provider by slug (admin client to avoid RLS)
+    const { data: provider, error: providerError } = await supabaseAdmin
       .from("providers")
-      .select("id, owner_id")
+      .select("id, owner_id, slug")
       .eq("slug", slug)
       .single();
 
     if (providerError || !provider) {
       return NextResponse.json(
         { ok: false, error: "Provider not found", details: providerError?.message },
-        { status: 400 }
+        { status: 404 }
       );
     }
 
-    // Insert lead
     const payload = {
       dentist_id: provider.id,
       owner_id: provider.owner_id,
       source_slug: slug,
+      slug, // keep for compatibility if your table has this column
       patient_name,
-      phone: phone.startsWith("+91") ? phone : `+91${phone}`,
+      phone,
       note,
       utm,
       source: "microsite",
       status: "new",
     };
 
-    const { data: lead, error: insertError } = await supabase
+    // Insert lead with admin client (bypasses RLS)
+    const { data: lead, error: insertError } = await supabaseAdmin
       .from("leads")
       .insert([payload])
       .select()
@@ -53,7 +83,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, lead }, { status: 201 });
   } catch (err: any) {
     return NextResponse.json(
-      { ok: false, error: "Server error", details: err.message },
+      { ok: false, error: "Server error", details: err?.message || String(err) },
       { status: 500 }
     );
   }
