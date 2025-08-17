@@ -17,7 +17,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: false, error: "Missing lead id" }, { status: 400 });
     }
 
-    // Auth check
+    // auth
     const {
       data: { user },
       error: userErr,
@@ -26,9 +26,9 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: false, error: "Not authenticated" }, { status: 401 });
     }
 
-    // Verify ownership: the lead must belong to a provider whose owner_id = user.id
+    // verify ownership (tables are lowercase!)
     const { data: lead, error: leadErr } = await supabase
-      .from("Leads")
+      .from("leads")
       .select("id, owner_id")
       .eq("id", id)
       .single();
@@ -40,8 +40,9 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
     }
 
+    // fetch history (use your actual table name; common: lead_history)
     const { data: rows, error } = await supabase
-      .from("LeadHistory")
+      .from("lead_history")
       .select("*")
       .eq("lead_id", id)
       .order("created_at", { ascending: false });
