@@ -3,12 +3,18 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/utils/supabase/admin";
 
+/**
+ * Creates a lead for a public microsite booking.
+ * - Uses admin client to bypass RLS safely for this endpoint.
+ * - Inserts WITHOUT owner_id first (most schemas don't need it here).
+ * - If FK demands owner_id, retries mapping to provider.id.
+ */
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
 
-    // Honeypot: if bots fill "website", say success but do nothing
-    if (typeof body.website === "string" && body.website.trim().length > 0) {
+    // Honeypot
+    if (typeof body.website === "string" && body.website.trim()) {
       return new NextResponse(null, { status: 204 });
     }
 
@@ -25,7 +31,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // Clean phone (+91 if 10 digits)
+    // Normalize phone (+91 if 10 digits)
     const digits = phone_raw.replace(/[^\d+]/g, "");
     const phone =
       /^\d{10}$/.test(digits) ? `+91${digits}` :
@@ -33,13 +39,10 @@ export async function POST(req: Request) {
       null;
 
     if (!phone) {
-      return NextResponse.json(
-        { ok: false, error: "Invalid phone format" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "Invalid phone format" }, { status: 400 });
     }
 
-    // Fetch provider by slug (admin client to avoid RLS)
+    // Find provider by slug
     const { data: provider, error: providerError } = await supabaseAdmin
       .from("providers")
       .select("id, owner_id, slug")
@@ -53,11 +56,11 @@ export async function POST(req: Request) {
       );
     }
 
-    const payload = {
-      dentist_id: provider.id,
-      owner_id: provider.owner_id,
+    // Base payload (no owner_id)
+    const basePayload = {
+      dentist_id: provider.id,      // provider.id == dentist_id in our mapping
       source_slug: slug,
-      slug, // keep for compatibility if your table has this column
+      slug,                         // keep if your table has this column
       patient_name,
       phone,
       note,
@@ -66,21 +69,39 @@ export async function POST(req: Request) {
       status: "new",
     };
 
-    // Insert lead with admin client (bypasses RLS)
-    const { data: lead, error: insertError } = await supabaseAdmin
+    // 1) Try insert WITHOUT owner_id
+    let insert = await supabaseAdmin
       .from("leads")
-      .insert([payload])
+      .insert([basePayload])
       .select()
       .single();
 
-    if (insertError) {
+    // 2) If FK complains about owner, retry with owner_id = provider.id (fallback schema)
+    if (insert.error && /owner/i.test(insert.error.message)) {
+      const retryPayload = { ...basePayload, owner_id: provider.id };
+      insert = await supabaseAdmin
+        .from("leads")
+        .insert([retryPayload])
+        .select()
+        .single();
+
+      if (insert.error) {
+        return NextResponse.json(
+          { ok: false, error: "Insert failed", details: insert.error.message, attempted_payload: retryPayload },
+          { status: 500 }
+        );
+      }
+      return NextResponse.json({ ok: true, lead: insert.data }, { status: 201 });
+    }
+
+    if (insert.error) {
       return NextResponse.json(
-        { ok: false, error: "Insert failed", details: insertError.message, attempted_payload: payload },
+        { ok: false, error: "Insert failed", details: insert.error.message, attempted_payload: basePayload },
         { status: 500 }
       );
     }
 
-    return NextResponse.json({ ok: true, lead }, { status: 201 });
+    return NextResponse.json({ ok: true, lead: insert.data }, { status: 201 });
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: "Server error", details: err?.message || String(err) },
