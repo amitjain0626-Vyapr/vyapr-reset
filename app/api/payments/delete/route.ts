@@ -1,25 +1,29 @@
 // app/api/payments/delete/route.ts
+// @ts-nocheck
 import { NextResponse } from "next/server";
-import { getServerSupabase } from "../../../../lib/supabase/server";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
-  try {
-    const supabase = getServerSupabase();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ ok: false, error: "UNAUTHENTICATED" }, { status: 401 });
+  const supabase = createSupabaseServerClient();
 
-    const { id } = await req.json();
-    if (!id) return NextResponse.json({ ok: false, error: "ID_REQUIRED" }, { status: 400 });
-
-    const { error } = await supabase
-      .from("Payments")
-      .update({ deleted_at: new Date().toISOString() })
-      .eq("id", id)
-      .eq("user_id", user.id);
-
-    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
-    return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message ?? "UNKNOWN" }, { status: 500 });
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
+
+  const { id } = await req.json();
+  if (!id) {
+    return NextResponse.json({ error: "Missing id" }, { status: 400 });
+  }
+
+  // RLS must ensure only owner can delete their payment rows
+  const { error } = await supabase.from("Payments").delete().eq("id", id);
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+
+  return NextResponse.json({ ok: true });
 }
