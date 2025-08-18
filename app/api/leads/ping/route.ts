@@ -1,5 +1,7 @@
-// @ts-nocheck
+// app/api/leads/ping/route.ts
 import { NextResponse } from "next/server";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 export async function GET() {
-  return NextResponse.json({ ok: true, api: "app/api/leads/ping/route.ts" });
+  return NextResponse.json({ ok: true, t: Date.now() });
 }

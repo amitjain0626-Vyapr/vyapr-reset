@@ -3,14 +3,9 @@
 import { cookies, headers } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
-/**
- * Server-side Supabase client that:
- * - Reads auth cookies (sb-access-token / sb-refresh-token) from Next.js
- * - Allows cookie refresh (set/remove) in Route Handlers / Server Components
- * - Works in Node runtime (avoid Edge for auth-protected DB calls)
- */
 export function createSupabaseServerClient() {
   const cookieStore = cookies();
+  const headerStore = headers();
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -21,26 +16,23 @@ export function createSupabaseServerClient() {
           return cookieStore.get(name)?.value;
         },
         set(name: string, value: string, options: any) {
-          // In Route Handlers, cookies are mutable; in RSC they may be readonly.
           try {
             cookieStore.set({ name, value, ...options });
           } catch {
-            // ignore if not mutable in current context
+            /* noop in edge */
           }
         },
         remove(name: string, options: any) {
           try {
-            cookieStore.set({ name, value: "", ...options, maxAge: 0 });
+            cookieStore.set({ name, value: "", ...options });
           } catch {
-            // ignore if not mutable
+            /* noop in edge */
           }
         },
       },
-      global: {
-        headers: {
-          // helps with tracing + forwards request context to Supabase if useful
-          ...(Object.fromEntries(headers().entries())),
-          "X-Client-Info": "vyapr-server",
+      headers: {
+        get(key: string) {
+          return headerStore.get(key) ?? undefined;
         },
       },
     }
