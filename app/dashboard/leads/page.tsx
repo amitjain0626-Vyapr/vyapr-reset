@@ -51,7 +51,7 @@ export default function LeadsPage() {
   const [modalLead, setModalLead] = useState<Lead | null>(null);
   const closeModal = useCallback(() => setModalLead(null), []);
 
-  // 🔧 One-time SW/caches clear if ?refresh=1
+  // one-time SW/caches clear if ?refresh=1
   useEffect(() => {
     const url = new URL(window.location.href);
     if (url.searchParams.get("refresh") === "1") {
@@ -73,43 +73,33 @@ export default function LeadsPage() {
     }
   }, []);
 
-  // Fetch leads owned by current user (RLS enforced)
+  // Fetch via server API (auth cookies; RLS)
   useEffect(() => {
     let alive = true;
     (async () => {
       setLoading(true);
-      const { data, error } = await supabase
-        .from("Leads")
-        .select("id, patient_name, phone, status, source, created_at, note")
-        .order("created_at", { ascending: false });
-
+      const res = await fetch("/api/leads/list", { credentials: "include" });
+      const json = await res.json();
       if (!alive) return;
-
-      if (error) {
-        console.error("Error loading leads:", error.message);
+      if (!res.ok) {
+        console.error("Failed to load leads:", json);
         setLeads([]);
       } else {
-        setLeads(data || []);
+        setLeads(json.leads || json.rows || []);
       }
       setLoading(false);
     })();
-
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, []);
 
   const visible = useMemo(() => {
     if (filter === "all") return leads;
-    return leads.filter(
-      (l) => (l.status || "new").toLowerCase() === filter
-    );
+    return leads.filter((l) => (l.status || "new").toLowerCase() === filter);
   }, [leads, filter]);
 
-  async function openHistory(id: string) {
-    const res = await fetch(`/api/leads/history?id=${id}`, {
-      credentials: "include",
-    });
+  async function openModalWithHistory(id: string) {
+    // NOTE: No alerts here—errors only go to console.
+    const res = await fetch(`/api/leads/history?id=${id}`, { credentials: "include" });
     const json = await res.json();
     if (!res.ok) {
       console.error("Failed to load history:", json);
@@ -283,9 +273,9 @@ export default function LeadsPage() {
                           </button>
                           <button
                             className="px-3 py-1 rounded border"
-                            onClick={() => openHistory(lead.id)}
+                            onClick={() => openModalWithHistory(lead.id)}
                           >
-                            View
+                            View (Modal)
                           </button>
                         </div>
                       ) : (
@@ -309,7 +299,7 @@ export default function LeadsPage() {
           }}
         >
           <div className="bg-white rounded-xl shadow-lg w-[560px] max-w-[94vw] p-6">
-            <h2 className="text-lg font-semibold mb-4">Lead Details</h2>
+            <h2 className="text-lg font-semibold mb-4">Lead Details (Modal)</h2>
 
             <div className="space-y-1 text-sm">
               <p><b>Patient:</b> {modalLead.patient_name || "—"}</p>
