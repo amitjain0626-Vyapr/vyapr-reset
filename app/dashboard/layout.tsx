@@ -5,7 +5,6 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Keep layout dumb — no server-side auth checks here.
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="border-b bg-white">
