@@ -1,89 +1,111 @@
-"use client";
+'use client';
 
-import React from "react";
+// @ts-nocheck
+import { useMemo, useState } from 'react';
+import clsx from 'clsx';
+import PaymentDialog from './PaymentDialog';
 
-type Payment = {
+// We keep the type loose; we only read common fields
+type AnyPayment = {
   id: string;
-  patient?: string;
-  amount: number;
-  status: "success" | "pending" | "failed" | string;
-  method?: string; // e.g., UPI, Card, Razorpay
-  createdAt?: string | Date;
-  notes?: string;
+  created_at?: string;
+  amount?: number | string | null;
+  currency?: string | null;
+  status?: string | null;
+  method?: string | null;
+  source?: string | null;
+  note?: string | null;
+  payer_name?: string | null;
+  phone?: string | null;
+  [key: string]: any;
 };
 
-type Props = {
-  data?: Payment[];
-  onRefundClick?: (payment: Payment) => void;
-};
+export default function PaymentsTable({ payments }: { payments: AnyPayment[] }) {
+  const [selected, setSelected] = useState<AnyPayment | null>(null);
+  const rows = useMemo(() => payments, [payments]);
 
-function inr(n: number) {
-  try {
-    return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 }).format(n);
-  } catch {
-    return `₹${n.toFixed(2)}`;
-  }
-}
-
-function formatDate(d?: string | Date) {
-  if (!d) return "—";
-  const date = d instanceof Date ? d : new Date(d);
-  if (isNaN(date.getTime())) return "—";
-  return date.toLocaleString();
-}
-
-const badge: Record<string, string> = {
-  success: "bg-green-100 text-green-800",
-  pending: "bg-yellow-100 text-yellow-800",
-  failed: "bg-red-100 text-red-800",
-};
-
-const fallback: Payment[] = [
-  { id: "P-1001", patient: "Kashvi", amount: 1500, status: "success", method: "UPI", createdAt: new Date(), notes: "Cleaning" },
-  { id: "P-1002", patient: "Misha", amount: 500, status: "pending", method: "Card", createdAt: new Date(), notes: "Consultation" },
-];
-
-export default function PaymentsTable({ data, onRefundClick }: Props) {
-  const rows = (data?.length ? data : fallback).slice(0, 50);
   return (
-    <div className="w-full overflow-x-auto border rounded-xl">
-      <table className="min-w-full text-sm">
-        <thead className="bg-gray-50">
-          <tr>
-            <th className="p-3 text-left">Txn ID</th>
-            <th className="p-3 text-left">Patient</th>
-            <th className="p-3 text-left">Amount</th>
-            <th className="p-3 text-left">Status</th>
-            <th className="p-3 text-left">Method</th>
-            <th className="p-3 text-left">Created</th>
-            <th className="p-3 text-left">Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((p) => (
-            <tr key={p.id} className="border-t hover:bg-gray-50">
-              <td className="p-3">{p.id}</td>
-              <td className="p-3">{p.patient ?? "—"}</td>
-              <td className="p-3">{inr(p.amount)}</td>
-              <td className="p-3">
-                <span className={`px-2 py-1 rounded-full text-xs ${badge[p.status] ?? "bg-gray-100 text-gray-800"}`}>
-                  {p.status}
-                </span>
-              </td>
-              <td className="p-3">{p.method ?? "—"}</td>
-              <td className="p-3">{formatDate(p.createdAt)}</td>
-              <td className="p-3">
-                <button
-                  className="px-3 py-1 border rounded-lg hover:bg-gray-100"
-                  onClick={() => onRefundClick?.(p)}
-                >
-                  Refund
-                </button>
-              </td>
+    <>
+      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+        <table className="w-full table-fixed">
+          <thead className="bg-gray-50 text-left text-sm font-semibold text-gray-600">
+            <tr>
+              <th className="px-4 py-3 w-[18%]">Payer</th>
+              <th className="px-4 py-3 w-[18%]">Amount</th>
+              <th className="px-4 py-3 w-[18%]">Method</th>
+              <th className="px-4 py-3 w-[18%]">Status</th>
+              <th className="px-4 py-3 w-[28%]">Created</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody className="divide-y divide-gray-100 text-sm">
+            {rows.map((p) => {
+              const amount =
+                typeof p.amount === 'number'
+                  ? p.amount
+                  : Number(p.amount ?? 0) || undefined;
+
+              const currency = p.currency || 'INR';
+              const displayAmount =
+                typeof amount === 'number' ? `${currency} ${amount.toFixed(2)}` : '—';
+
+              const created = p.created_at
+                ? new Date(p.created_at).toLocaleString()
+                : '—';
+
+              return (
+                <tr
+                  key={p.id}
+                  className={clsx('cursor-pointer hover:bg-gray-50 transition-colors')}
+                  onClick={() => setSelected(p)}
+                >
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-gray-900">
+                      {p.payer_name || '—'}
+                    </div>
+                    <div className="text-xs text-gray-500 line-clamp-1">
+                      {p.phone || p.source || '—'}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">{displayAmount}</td>
+                  <td className="px-4 py-3">{p.method || '—'}</td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={clsx(
+                        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs',
+                        {
+                          'bg-amber-50 text-amber-700 ring-1 ring-amber-200':
+                            (p.status ?? 'new') === 'new' || p.status === 'pending',
+                          'bg-blue-50 text-blue-700 ring-1 ring-blue-200':
+                            p.status === 'paid' || p.status === 'success',
+                          'bg-rose-50 text-rose-700 ring-1 ring-rose-200':
+                            p.status === 'failed' || p.status === 'refunded',
+                          'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200':
+                            p.status === 'settled' || p.status === 'captured',
+                        }
+                      )}
+                    >
+                      • {p.status ?? 'new'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">{created}</td>
+                </tr>
+              );
+            })}
+
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-10 text-center text-gray-500">
+                  No payments yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {selected && (
+        <PaymentDialog payment={selected} onClose={() => setSelected(null)} />
+      )}
+    </>
   );
 }
