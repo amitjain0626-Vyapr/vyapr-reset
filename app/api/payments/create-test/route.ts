@@ -1,6 +1,9 @@
 // @ts-nocheck
+export const runtime = 'nodejs';
+
 import { NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { randomUUID } from 'crypto';
 
 export async function POST() {
   const supabase = await createSupabaseServerClient();
@@ -11,7 +14,6 @@ export async function POST() {
     return NextResponse.json({ ok: false, error: 'Not authenticated' }, { status: 401 });
   }
 
-  // Keep payload to widely-present columns; omit 'method' to avoid schema drift breaks
   const payload = {
     owner_id: user.id,
     amount: 500.0,
@@ -21,6 +23,7 @@ export async function POST() {
     payer_name: 'Test Payer',
     phone: '+919999999999',
     note: 'Test payment via dashboard button',
+    provider_order_id: randomUUID(), // ✅ app-side fallback, always present
   };
 
   const { data, error } = await supabase
