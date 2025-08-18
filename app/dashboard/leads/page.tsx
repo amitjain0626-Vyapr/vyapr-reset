@@ -51,6 +51,21 @@ export default function LeadsPage() {
   const [modalLead, setModalLead] = useState<Lead | null>(null);
   const closeModal = useCallback(() => setModalLead(null), []);
 
+  // 🔒 Neutralize any legacy alert() so no browser popup can appear
+  useEffect(() => {
+    try {
+      const original = window.alert;
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      window.alert = function () {
+        // no-op; log instead for debugging
+        console.warn("[vyapr] window.alert blocked");
+      };
+      return () => {
+        window.alert = original;
+      };
+    } catch {}
+  }, []);
+
   // one-time SW/caches clear if ?refresh=1
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -98,7 +113,7 @@ export default function LeadsPage() {
   }, [leads, filter]);
 
   async function openModalWithHistory(id: string) {
-    // NOTE: No alerts here—errors only go to console.
+    // NOTE: no alerts — errors only go to console
     const res = await fetch(`/api/leads/history?id=${id}`, { credentials: "include" });
     const json = await res.json();
     if (!res.ok) {
@@ -275,7 +290,7 @@ export default function LeadsPage() {
                             className="px-3 py-1 rounded border"
                             onClick={() => openModalWithHistory(lead.id)}
                           >
-                            View (Modal)
+                            OPEN MODAL ✅
                           </button>
                         </div>
                       ) : (
