@@ -1,49 +1,39 @@
-"use client";
+'use client';
 
-import { useState } from "react";
-import { supabase } from "@/utils/supabase/client";
+import { useTransition } from 'react';
+import { toast } from 'sonner';
 
-export default function SettingsForm({ provider }: { provider: any }) {
-  const [clinicName, setClinicName] = useState(provider?.clinic_name || "");
-  const [loading, setLoading] = useState(false);
+export default function SettingsForm() {
+  const [pending, startTransition] = useTransition();
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      const { error } = await supabase
-        .from("providers")
-        .update({ clinic_name: clinicName })
-        .eq("id", provider.id);
-
-      if (error) throw error;
-      alert("Settings saved!");
-    } catch (err: any) {
-      console.error(err);
-      alert("Failed to save settings");
-    } finally {
-      setLoading(false);
-    }
-  };
+  function save(formData: FormData) {
+    startTransition(async () => {
+      try {
+        const res = await fetch('/api/settings/save', {
+          method: 'POST',
+          body: formData,
+        });
+        const data = await res.json();
+        if (data?.ok) {
+          toast.success('Settings saved');
+        } else {
+          toast.error('Failed to save settings');
+        }
+      } catch {
+        toast.error('Failed to save settings');
+      }
+    });
+  }
 
   return (
-    <form onSubmit={handleSave} className="space-y-4">
-      <div>
-        <label className="block font-medium">Clinic Name</label>
-        <input
-          type="text"
-          value={clinicName}
-          onChange={(e) => setClinicName(e.target.value)}
-          className="border px-2 py-1 rounded w-full"
-        />
-      </div>
-
+    <form action={save} className="space-y-4 rounded-2xl border bg-white p-4">
+      {/* your fields */}
       <button
         type="submit"
-        disabled={loading}
-        className="px-4 py-2 bg-blue-600 text-white rounded"
+        disabled={pending}
+        className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60"
       >
-        {loading ? "Saving..." : "Save Settings"}
+        {pending ? 'Saving…' : 'Save'}
       </button>
     </form>
   );

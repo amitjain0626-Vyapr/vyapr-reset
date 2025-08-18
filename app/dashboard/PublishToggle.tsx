@@ -1,37 +1,40 @@
-"use client";
+'use client';
 
-import { useState } from "react";
-import { supabase } from "@/utils/supabase/client";
+import { useState, useTransition } from 'react';
+import { toast } from 'sonner';
 
-export default function PublishToggle({ providerId, published }: { providerId: string; published: boolean }) {
-  const [isPublished, setIsPublished] = useState(published);
-  const [loading, setLoading] = useState(false);
+export default function PublishToggle({ initial }: { initial: boolean }) {
+  const [published, setPublished] = useState(initial);
+  const [pending, startTransition] = useTransition();
 
-  const handleToggle = async () => {
-    setLoading(true);
-    try {
-      const { error } = await supabase
-        .from("providers")
-        .update({ published: !isPublished })
-        .eq("id", providerId);
-
-      if (error) throw error;
-      setIsPublished(!isPublished);
-    } catch (err: any) {
-      console.error(err);
-      alert("Failed to update publish status");
-    } finally {
-      setLoading(false);
-    }
-  };
+  function toggle() {
+    startTransition(async () => {
+      try {
+        const res = await fetch('/api/microsite/publish', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ published: !published }),
+        });
+        const data = await res.json();
+        if (data?.ok) {
+          setPublished(!published);
+          toast.success(!published ? 'Microsite published' : 'Microsite unpublished');
+        } else {
+          toast.error('Failed to update publish status');
+        }
+      } catch {
+        toast.error('Failed to update publish status');
+      }
+    });
+  }
 
   return (
     <button
-      onClick={handleToggle}
-      disabled={loading}
-      className={`px-4 py-2 rounded ${isPublished ? "bg-green-600 text-white" : "bg-gray-300 text-black"}`}
+      onClick={toggle}
+      disabled={pending}
+      className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-60"
     >
-      {loading ? "Saving..." : isPublished ? "Published" : "Unpublished"}
+      {pending ? 'Updating…' : published ? 'Unpublish' : 'Publish'}
     </button>
   );
 }
