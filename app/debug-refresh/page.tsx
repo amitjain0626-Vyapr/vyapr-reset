@@ -1,4 +1,3 @@
-cat > app/debug-refresh/page.tsx <<'TS'
 // app/debug-refresh/page.tsx
 "use client";
 import { useEffect, useState } from "react";
@@ -10,15 +9,18 @@ export default function DebugRefresh() {
   useEffect(() => {
     (async () => {
       try {
+        // Unregister all service workers
         if ("serviceWorker" in navigator) {
           const regs = await navigator.serviceWorker.getRegistrations();
           await Promise.all(regs.map((r) => r.unregister()));
         }
+        // Clear all caches
         if ("caches" in window) {
           const names = await caches.keys();
           await Promise.all(names.map((n) => caches.delete(n)));
         }
         setDone(true);
+        // Redirect to dashboard with a cache-busting query
         setTimeout(() => {
           const v = Date.now();
           window.location.href = `/dashboard/leads?v=${v}`;
@@ -39,4 +41,3 @@ export default function DebugRefresh() {
     </div>
   );
 }
-TS
