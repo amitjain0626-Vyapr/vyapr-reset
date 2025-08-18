@@ -16,30 +16,43 @@ export async function POST(req: Request) {
   let published = true;
   try {
     const body = await req.json();
-    if (typeof body?.published === 'boolean') {
-      published = body.published;
-    }
+    if (typeof body?.published === 'boolean') published = body.published;
   } catch {}
 
-  // Update Dentists.published for this owner
-  const { data, error } = await supabase
+  // 1) Try update existing row
+  const { data: upd, error: updErr } = await supabase
     .from('Dentists')
     .update({ published })
     .eq('owner_id', user.id)
     .select('id')
     .maybeSingle();
 
-  if (error) {
-    // Bubble precise error for quick fixes
-    return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+  if (updErr) {
+    return NextResponse.json({ ok: false, error: updErr.message }, { status: 400 });
   }
 
-  // If no row updated (profile not created yet), be explicit
-  if (!data) {
-    return NextResponse.json(
-      { ok: false, error: 'Dentist profile not found for this user' },
-      { status: 404 }
-    );
+  if (upd) {
+    return NextResponse.json({ ok: true });
+  }
+
+  // 2) If no row exists, create one (upsert behavior)
+  const fallbackDisplayName =
+    user.user_metadata?.name ||
+    (user.email ? user.email.split('@')[0] : 'New User');
+
+  const { data: ins, error: insErr } = await supabase
+    .from('Dentists')
+    .insert({
+      owner_id: user.id,
+      display_name: fallbackDisplayName,
+      slug: null,        // set later in settings
+      published,         // true on publish
+    })
+    .select('id')
+    .single();
+
+  if (insErr) {
+    return NextResponse.json({ ok: false, error: insErr.message }, { status: 400 });
   }
 
   return NextResponse.json({ ok: true });
