@@ -3,11 +3,8 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getBaseUrl } from "@/lib/site";
 
-export async function GET(
-  req: Request,
-  context: { params: { slug: string } }
-) {
-  const { slug } = context.params;
+export async function GET(req, context) {
+  const { slug } = await context.params; // params is a Promise in Next.js 15
 
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase

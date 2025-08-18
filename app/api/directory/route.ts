@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getBaseUrl } from "@/lib/site";
 
-export async function GET(req: Request) {
+export async function GET(req) {
   const supabase = await createSupabaseServerClient();
 
   const url = new URL(req.url);
@@ -24,7 +24,7 @@ export async function GET(req: Request) {
   }
 
   const base = getBaseUrl();
-  const providers = (data ?? []).map((p: any) => ({
+  const providers = (data ?? []).map((p) => ({
     id: p.id,
     name: p.display_name,
     slug: p.slug,
