@@ -36,6 +36,13 @@ export default async function BookSlugPage({ params }: { params: Promise<{ slug:
     areaServed: 'IN',
   };
 
+  const waNumber = (profile.whatsapp || profile.phone || '').replace(/\D/g, '');
+  const waLink = waNumber
+    ? `https://wa.me/${waNumber}?text=Hi%20${encodeURIComponent(
+        profile.display_name ?? 'there'
+      )},%20I%20would%20like%20to%20book%20an%20appointment.`
+    : null;
+
   return (
     <div className="mx-auto max-w-2xl p-6 space-y-6">
       <script
@@ -50,9 +57,9 @@ export default async function BookSlugPage({ params }: { params: Promise<{ slug:
       {profile.bio && <p className="text-gray-600">{profile.bio}</p>}
 
       <div className="flex gap-3 pt-2">
-        {(profile.whatsapp || profile.phone) && (
+        {waLink && (
           <a
-            href={`https://wa.me/${(profile.whatsapp || profile.phone || '').replace(/\D/g, '')}`}
+            href={waLink}
             target="_blank"
             rel="noreferrer"
             className="rounded-lg border px-4 py-2 text-sm hover:bg-gray-50"
@@ -61,7 +68,7 @@ export default async function BookSlugPage({ params }: { params: Promise<{ slug:
           </a>
         )}
         <a
-          href="#book"
+          href={`/book/${encodeURIComponent(profile.slug)}/form`}
           className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow hover:bg-blue-700"
         >
           Book now
