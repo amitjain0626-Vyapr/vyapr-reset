@@ -1,28 +1,51 @@
-'use server';
+// app/dashboard/payments/actions.ts
 // @ts-nocheck
-import { revalidatePath } from 'next/cache';
-import { getServerSupabase } from '../../../lib/supabase/server';
+"use server";
 
+import { revalidatePath } from "next/cache";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+/**
+ * Create a payment from a <form action={createPayment}> server action.
+ * Expected fields (adjust to your schema): amount, note?, status?
+ */
 export async function createPayment(formData: FormData) {
-  const supabase = getServerSupabase();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { ok: false, error: 'UNAUTHENTICATED' };
+  const supabase = createSupabaseServerClient();
 
-  const patient = (formData.get('patient') || '').toString().trim() || undefined;
-  const amountRaw = (formData.get('amount') || '').toString().trim();
-  const status  = (formData.get('status')  || '').toString().trim() || 'pending';
-  const method  = (formData.get('method')  || '').toString().trim() || undefined;
-  const notes   = (formData.get('notes')   || '').toString().trim() || undefined;
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) return { ok: false, error: "Not authenticated" };
 
-  const amount = Number(amountRaw);
-  if (!Number.isFinite(amount) || amount < 0) return { ok: false, error: 'AMOUNT_INVALID' };
+  const payload = {
+    amount: Number(formData.get("amount") || 0),
+    note: formData.get("note")?.toString() || null,
+    status: (formData.get("status")?.toString() || "new").toLowerCase(),
+    owner_id: auth.user.id, // RLS links to user
+  };
 
-  const { error } = await supabase
-    .from('Payments')
-    .insert([{ patient, amount, status, method, notes }]); // user_id via trigger
+  const { data, error } = await supabase
+    .from("Payments")
+    .insert(payload)
+    .select("id")
+    .single();
 
   if (error) return { ok: false, error: error.message };
 
-  revalidatePath('/dashboard/payments');
+  revalidatePath("/dashboard/payments");
+  return { ok: true, id: data.id };
+}
+
+/**
+ * Delete a payment by id (optional helper if your UI uses it)
+ */
+export async function deletePayment(id: string) {
+  const supabase = createSupabaseServerClient();
+
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth?.user) return { ok: false, error: "Not authenticated" };
+
+  const { error } = await supabase.from("Payments").delete().eq("id", id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/dashboard/payments");
   return { ok: true };
 }
