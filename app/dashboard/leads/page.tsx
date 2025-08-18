@@ -9,11 +9,10 @@ type Lead = {
   id: string;
   patient_name: string | null;
   phone: string | null;
-  status: "new" | "contacted" | "closed" | string | null;
+  status: string | null;
   source: string | null;
   created_at: string;
   note: string | null;
-  owner_id?: string | null;
 };
 
 function normalizePhone(p?: string | null) {
@@ -45,7 +44,10 @@ export default function LeadsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftNote, setDraftNote] = useState<string>("");
 
-  // Fetch leads owned by the current user (RLS-enforced)
+  // Modal state
+  const [modalLead, setModalLead] = useState<Lead | null>(null);
+
+  // Fetch leads
   useEffect(() => {
     let isMounted = true;
     (async () => {
@@ -54,18 +56,15 @@ export default function LeadsPage() {
         .from("Leads")
         .select("id, patient_name, phone, status, source, created_at, note")
         .order("created_at", { ascending: false });
-
       if (!isMounted) return;
-
       if (error) {
-        console.error("Error loading leads:", error.message);
+        console.error(error.message);
         setLeads([]);
       } else {
         setLeads(data || []);
       }
       setLoading(false);
     })();
-
     return () => {
       isMounted = false;
     };
@@ -77,56 +76,32 @@ export default function LeadsPage() {
   }, [leads, filter]);
 
   async function openHistory(id: string) {
-    // Uses secured API to read one lead (proves auth + RLS ok)
     const res = await fetch(`/api/leads/history?id=${id}`, { credentials: "include" });
     const json = await res.json();
     if (!res.ok) {
       alert(json?.error || "Failed to load history");
       return;
     }
-    // You can enhance this to show a modal; for now just alert key fields
-    const lead = json.lead as Lead;
-    alert(
-      `Lead: ${lead.patient_name || "N/A"}\nPhone: ${lead.phone || "N/A"}\nStatus: ${
-        lead.status || "N/A"
-      }\nNote: ${lead.note || ""}\nCreated: ${new Date(lead.created_at).toLocaleString()}`
-    );
+    setModalLead(json.lead as Lead);
   }
 
-  function onEditNote(lead: Lead) {
-    setEditingId(lead.id);
-    setDraftNote(lead.note || "");
-  }
-
-  function onCancelEdit() {
-    setEditingId(null);
-    setDraftNote("");
-  }
-
-  async function onSaveNote(lead: Lead) {
+  async function onSaveNote(lead: Lead, note: string) {
     setSavingId(lead.id);
-    try {
-      const res = await fetch("/api/leads/update-note", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ id: lead.id, note: draftNote }),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        console.error("Save note failed:", json);
-        alert(json?.error || "Failed to save note");
-        return;
-      }
-      // Optimistic update
-      setLeads((prev) =>
-        prev.map((l) => (l.id === lead.id ? { ...l, note: json.note ?? draftNote } : l))
-      );
-      setEditingId(null);
-      setDraftNote("");
-    } finally {
-      setSavingId(null);
+    const res = await fetch("/api/leads/update-note", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ id: lead.id, note }),
+    });
+    const json = await res.json();
+    setSavingId(null);
+    if (!res.ok) {
+      alert(json?.error || "Failed to save note");
+      return;
     }
+    // Update dashboard + modal
+    setLeads((prev) => prev.map((l) => (l.id === lead.id ? { ...l, note: json.note } : l)));
+    if (modalLead?.id === lead.id) setModalLead({ ...modalLead, note: json.note });
   }
 
   return (
@@ -149,107 +124,82 @@ export default function LeadsPage() {
       </div>
 
       {loading ? (
-        <div className="text-gray-500">Loading leads…</div>
+        <div>Loading leads…</div>
       ) : visible.length === 0 ? (
-        <div className="text-gray-500">No leads yet.</div>
+        <div>No leads yet.</div>
       ) : (
-        <div className="overflow-x-auto rounded border">
-          <table className="min-w-full text-sm">
-            <thead className="bg-gray-50 text-gray-700">
-              <tr>
-                <th className="text-left p-3">When</th>
-                <th className="text-left p-3">Patient</th>
-                <th className="text-left p-3">Phone</th>
-                <th className="text-left p-3">Status</th>
-                <th className="text-left p-3">Note</th>
-                <th className="text-left p-3">Actions</th>
+        <table className="min-w-full border text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="p-2 text-left">When</th>
+              <th className="p-2 text-left">Patient</th>
+              <th className="p-2 text-left">Phone</th>
+              <th className="p-2 text-left">Status</th>
+              <th className="p-2 text-left">Note</th>
+              <th className="p-2 text-left">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map((lead) => (
+              <tr key={lead.id} className="border-t">
+                <td className="p-2">{new Date(lead.created_at).toLocaleString()}</td>
+                <td className="p-2">{lead.patient_name || "—"}</td>
+                <td className="p-2">
+                  {lead.phone ? (
+                    <a
+                      className="underline"
+                      href={waLink(lead.patient_name || "", lead.phone)}
+                      target="_blank"
+                    >
+                      {normalizePhone(lead.phone)}
+                    </a>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+                <td className="p-2">{lead.status || "new"}</td>
+                <td className="p-2">{lead.note || "—"}</td>
+                <td className="p-2">
+                  <button
+                    className="px-2 py-1 border rounded"
+                    onClick={() => openHistory(lead.id)}
+                  >
+                    View
+                  </button>
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {visible.map((lead) => {
-                const phone = normalizePhone(lead.phone || "");
-                const when = new Date(lead.created_at).toLocaleString();
-                const isEditing = editingId === lead.id;
-                const isSaving = savingId === lead.id;
+            ))}
+          </tbody>
+        </table>
+      )}
 
-                return (
-                  <tr key={lead.id} className="border-t">
-                    <td className="p-3 align-top whitespace-nowrap">{when}</td>
-                    <td className="p-3 align-top">{lead.patient_name || "—"}</td>
-                    <td className="p-3 align-top">
-                      {phone ? (
-                        <a
-                          className="underline"
-                          href={waLink(lead.patient_name || "", phone)}
-                          target="_blank"
-                          rel="noreferrer"
-                          title="Chat on WhatsApp"
-                        >
-                          {phone}
-                        </a>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                    <td className="p-3 align-top capitalize">{lead.status || "new"}</td>
-                    <td className="p-3 align-top w-[360px]">
-                      {isEditing ? (
-                        <div className="flex flex-col gap-2">
-                          <textarea
-                            className="w-full min-h-[80px] p-2 border rounded"
-                            value={draftNote}
-                            onChange={(e) => setDraftNote(e.target.value)}
-                            maxLength={5000}
-                            placeholder="Add a note…"
-                          />
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => onSaveNote(lead)}
-                              disabled={isSaving}
-                              className="px-3 py-1 rounded bg-blue-600 text-white disabled:opacity-50"
-                            >
-                              {isSaving ? "Saving…" : "Save"}
-                            </button>
-                            <button
-                              onClick={onCancelEdit}
-                              disabled={isSaving}
-                              className="px-3 py-1 rounded border"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="whitespace-pre-wrap text-gray-900">
-                          {lead.note ? lead.note : <span className="text-gray-500">—</span>}
-                        </div>
-                      )}
-                    </td>
-                    <td className="p-3 align-top">
-                      {!isEditing ? (
-                        <div className="flex gap-2">
-                          <button
-                            className="px-3 py-1 rounded border"
-                            onClick={() => onEditNote(lead)}
-                          >
-                            Edit note
-                          </button>
-                          <button
-                            className="px-3 py-1 rounded border"
-                            onClick={() => openHistory(lead.id)}
-                          >
-                            View
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-gray-500">Editing…</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      {modalLead && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-lg w-[500px] max-w-full p-6">
+            <h2 className="text-lg font-semibold mb-4">Lead Details</h2>
+            <p><b>Patient:</b> {modalLead.patient_name || "—"}</p>
+            <p><b>Phone:</b> {modalLead.phone || "—"}</p>
+            <p><b>Status:</b> {modalLead.status || "—"}</p>
+            <p><b>Created:</b> {new Date(modalLead.created_at).toLocaleString()}</p>
+            <div className="mt-4">
+              <label className="block text-sm font-medium mb-1">Note</label>
+              <textarea
+                className="w-full border rounded p-2"
+                rows={4}
+                defaultValue={modalLead.note || ""}
+                onBlur={(e) => onSaveNote(modalLead, e.target.value)}
+                disabled={savingId === modalLead.id}
+              />
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                className="px-3 py-1 rounded border"
+                onClick={() => setModalLead(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
