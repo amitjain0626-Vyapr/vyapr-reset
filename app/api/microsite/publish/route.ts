@@ -21,7 +21,7 @@ export async function POST(req: Request) {
 
   // 1) Try update existing row
   const { data: upd, error: updErr } = await supabase
-    .from('Dentists')
+    .from('Providers')
     .update({ published })
     .eq('owner_id', user.id)
     .select('id')
@@ -41,7 +41,7 @@ export async function POST(req: Request) {
     (user.email ? user.email.split('@')[0] : 'New User');
 
   const { data: ins, error: insErr } = await supabase
-    .from('Dentists')
+    .from('Providers')
     .insert({
       owner_id: user.id,
       display_name: fallbackDisplayName,

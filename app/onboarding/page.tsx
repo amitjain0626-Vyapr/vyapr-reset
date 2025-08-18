@@ -14,9 +14,9 @@ export default async function OnboardingPage() {
   if (!user) redirect('/login');
 
   // If already published, skip onboarding
-  // We read published from Dentists; if table/column missing, we fail soft (treat as not published)
+  // We read published from Providers; if table/column missing, we fail soft (treat as not published)
   const { data: profile, error } = await supabase
-    .from('Dentists')
+    .from('Providers')
     .select('published')
     .eq('owner_id', user.id)
     .maybeSingle();
