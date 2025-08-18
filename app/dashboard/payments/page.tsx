@@ -20,7 +20,7 @@ type PaymentRow = {
 
 async function loadPayments() {
   try {
-    const supabase = getServerSupabase();
+    const supabase = createSupabaseServerClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) redirect("/login");
 
