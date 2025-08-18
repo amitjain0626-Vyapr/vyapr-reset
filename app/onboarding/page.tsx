@@ -1,129 +1,48 @@
 // @ts-nocheck
-"use client";
+import { redirect } from 'next/navigation';
+import { createSupabaseServerClient } from '@/lib/supabase/server';
+import PublishMicrositeButton from '@/components/onboarding/PublishMicrositeButton';
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
+export const dynamic = 'force-dynamic';
 
-// Helper: stringify any non-primitive safely for UI
-function toText(v: any): string {
-  if (v == null) return "";
-  if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return String(v);
-  try { return JSON.stringify(v); } catch { return String(v); }
-}
+export default async function OnboardingPage() {
+  const supabase = await createSupabaseServerClient();
 
-export default function OnboardingPage() {
-  const router = useRouter();
-  const supa = createClientComponentClient();
+  // Auth check
+  const { data: userRes } = await supabase.auth.getUser();
+  const user = userRes?.user;
+  if (!user) redirect('/login');
 
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [city, setCity] = useState("");
-  const [category, setCategory] = useState("");
-  const [slug, setSlug] = useState("");
-  const [publish, setPublish] = useState(true);
+  // If already published, skip onboarding
+  // We read published from Dentists; if table/column missing, we fail soft (treat as not published)
+  const { data: profile, error } = await supabase
+    .from('Dentists')
+    .select('published')
+    .eq('owner_id', user.id)
+    .maybeSingle();
 
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<null | { code?: any; message?: any; details?: any }>(null);
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setSubmitting(true);
-
-    try {
-      // ✅ get the current access token INSIDE the handler
-      const { data: sess } = await supa.auth.getSession();
-      const accessToken = sess?.session?.access_token;
-      if (!accessToken) {
-        setError({ code: "not_logged_in", message: "Please sign in again." });
-        setSubmitting(false);
-        return;
-      }
-
-      const res = await fetch("/api/dentists/publish", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          // ✅ send token so API can authenticate you
-          Authorization: `Bearer ${accessToken}`,
-        },
-        credentials: "include",
-        body: JSON.stringify({ name, phone, city, category, slug, publish }),
-      });
-
-      let json: any = null;
-      try { json = await res.json(); } catch { json = null; }
-
-      if (!res.ok || !json?.ok) {
-        const err = json?.error || { code: "unknown", message: "Unexpected error" };
-        setError({ code: toText(err.code), message: toText(err.message), details: err.details });
-        setSubmitting(false);
-        return;
-      }
-
-      const dest = json.redirectTo || `/dashboard?slug=${json.slug}`;
-      router.push(dest);
-    } catch (e: any) {
-      setError({ code: "network_error", message: toText(e?.message || e) });
-      setSubmitting(false);
-    }
+  if (!error && profile?.published) {
+    redirect('/dashboard');
   }
 
   return (
-    <div className="mx-auto max-w-md p-6">
-      <h1 className="text-2xl font-semibold mb-2">Create your Vyapr microsite</h1>
-      <p className="text-sm text-gray-600 mb-6">VYAPR-ONBOARDING-V4</p>
+    <div className="mx-auto max-w-2xl p-6 space-y-6">
+      <h1 className="text-2xl font-semibold">Create your Vyapr microsite</h1>
+      <ol className="list-decimal space-y-2 pl-6 text-sm text-gray-700">
+        <li>Review your details.</li>
+        <li>Choose a URL slug (in Settings later).</li>
+        <li>Publish your microsite to go live.</li>
+      </ol>
 
-      {error ? (
-        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm">
-          <div className="font-medium text-red-700">
-            {toText(error.code)}: {toText(error.message)}
-          </div>
-          {error.details ? (
-            <pre className="mt-2 whitespace-pre-wrap text-red-700/80 text-xs">
-              {toText(error.details)}
-            </pre>
-          ) : null}
+      <div className="rounded-2xl border bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-medium">Publish</h2>
+        <p className="mt-1 text-sm text-gray-600">
+          One click. You can unpublish anytime from the dashboard.
+        </p>
+        <div className="mt-4">
+          <PublishMicrositeButton />
         </div>
-      ) : null}
-
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="block text-sm mb-1">Name</label>
-          <input className="w-full rounded-md border px-3 py-2" value={name} onChange={(e) => setName(e.target.value)} placeholder="Chic" required />
-        </div>
-
-        <div>
-          <label className="block text-sm mb-1">Phone</label>
-          <input className="w-full rounded-md border px-3 py-2" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91XXXXXXXXXX" required />
-        </div>
-
-        <div>
-          <label className="block text-sm mb-1">City (optional)</label>
-          <input className="w-full rounded-md border px-3 py-2" value={city} onChange={(e) => setCity(e.target.value)} placeholder="Indore" />
-        </div>
-
-        <div>
-          <label className="block text-sm mb-1">Category</label>
-          <input className="w-full rounded-md border px-3 py-2" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="Yoga" required />
-        </div>
-
-        <div>
-          <label className="block text-sm mb-1">Slug (optional)</label>
-          <input className="w-full rounded-md border px-3 py-2" value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="your-handle" />
-          <p className="mt-1 text-xs text-gray-500">Final link will be /d/&lt;slug&gt;</p>
-        </div>
-
-        <label className="inline-flex items-center space-x-2">
-          <input type="checkbox" checked={publish} onChange={(e) => setPublish(e.target.checked)} />
-          <span className="text-sm">Publish</span>
-        </label>
-
-        <button type="submit" disabled={submitting} className="w-full rounded-md bg-black px-4 py-2 text-white disabled:opacity-60">
-          {submitting ? "Publishing…" : "Publish"}
-        </button>
-      </form>
+      </div>
     </div>
   );
 }
