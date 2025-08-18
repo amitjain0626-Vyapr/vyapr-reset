@@ -51,6 +51,28 @@ export default function LeadsPage() {
   const [modalLead, setModalLead] = useState<Lead | null>(null);
   const closeModal = useCallback(() => setModalLead(null), []);
 
+  // 🔧 One-time SW/caches clear if ?refresh=1
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("refresh") === "1") {
+      (async () => {
+        try {
+          if ("serviceWorker" in navigator) {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map((r) => r.unregister()));
+          }
+          if ("caches" in window) {
+            const names = await caches.keys();
+            await Promise.all(names.map((n) => caches.delete(n)));
+          }
+        } finally {
+          url.searchParams.delete("refresh");
+          window.location.replace(url.toString());
+        }
+      })();
+    }
+  }, []);
+
   // Fetch leads owned by current user (RLS enforced)
   useEffect(() => {
     let alive = true;
