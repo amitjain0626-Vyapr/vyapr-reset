@@ -1,7 +1,6 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { cookies } from 'next/headers';
 import { createSupabaseServerClient } from '@/lib/supabase/server'; // already working per Step 7
 
 type UpdateLeadInput = {
@@ -11,7 +10,9 @@ type UpdateLeadInput = {
 };
 
 export async function updateLead(input: UpdateLeadInput) {
-  const supabase = await createSupabaseServerClient(cookies());
+  // ❌ remove cookies() arg — not needed
+  const supabase = await createSupabaseServerClient();
+
   const { id, note, status } = input;
 
   const updates: Record<string, unknown> = {};
