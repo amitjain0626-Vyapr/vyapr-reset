@@ -17,15 +17,21 @@ function slugify(input: string) {
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const base = process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
   const supabase = await createSupabaseServerClient();
-
   const urls: MetadataRoute.Sitemap = [];
 
-  // 1) Microsite pages
+  // Root
+  urls.push({
+    url: `${base}/`,
+    lastModified: new Date(),
+    changeFrequency: "weekly",
+    priority: 1,
+  });
+
+  // Microsite pages
   const { data: providers } = await supabase
     .from("Providers")
     .select("slug, updated_at, published")
-    .eq("published", true)
-    .limit(5000);
+    .eq("published", true);
 
   (providers || []).forEach((p) => {
     if (!p.slug) return;
@@ -37,7 +43,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     });
   });
 
-  // 2) Directory pages — distinct (category, location)
+  // Directory pages
   const { data: pairs } = await supabase
     .from("Providers")
     .select("category, location")
@@ -57,14 +63,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: "daily",
       priority: 0.6,
     });
-  });
-
-  // 3) Root
-  urls.push({
-    url: `${base}/`,
-    lastModified: new Date(),
-    changeFrequency: "weekly",
-    priority: 0.5,
   });
 
   return urls;
