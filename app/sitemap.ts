@@ -1,80 +1,78 @@
+// app/sitemap.ts
 // @ts-nocheck
-import { MetadataRoute } from "next";
-import { createClient } from "@supabase/supabase-js";
-
-export const dynamic = "force-dynamic";   // disable static/ISR caching
-export const revalidate = 0;               // always fresh
+import type { MetadataRoute } from "next";
 
 function slugify(input: string) {
-  return (input || "")
-    .toString()
-    .trim()
+  return input
     .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "") // strip accents
     .replace(/&/g, " and ")
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+    .replace(/(^-|-$)+/g, "");
 }
 
+function comboPath(category: string, city: string) {
+  return `/directory/${slugify(category)}-${slugify(city)}`;
+}
+
+export const revalidate = 600; // refresh sitemap every 10 minutes
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const base = process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
+  const base = process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "") || "https://vyapr.com";
 
-  // anon supabase (public read of published providers)
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { auth: { persistSession: false } }
-  );
-
+  // Home & Directory index are always present
   const urls: MetadataRoute.Sitemap = [
-    {
-      url: `${base}/`,
-      lastModified: new Date(),
-      changeFrequency: "weekly",
-      priority: 0.5,
-    },
+    { url: `${base}/`, changefreq: "daily", priority: 1.0 },
+    { url: `${base}/directory`, changefreq: "daily", priority: 0.9 },
   ];
 
-  // 1) Microsite pages
-  const { data: micro, error: em } = await supabase
-    .from("Providers")
-    .select("slug, published")
-    .eq("published", true);
+  // Pull live providers to build:
+  // 1) /book/<slug> pages
+  // 2) unique category×city combos under /directory/<category>-<city>
+  try {
+    const { createSupabaseServerClient } = await import("@/lib/supabase/server");
+    const supabase = await createSupabaseServerClient();
 
-  if (!em && micro?.length) {
-    for (const row of micro) {
-      const slug = (row?.slug || "").trim();
-      if (!slug) continue;
-      urls.push({
-        url: `${base}/book/${slug}`,
-        lastModified: new Date(),
-        changeFrequency: "weekly",
-        priority: 0.7,
-      });
+    // Only published providers are publicly indexed
+    const { data, error } = await supabase
+      .from("Providers")
+      .select("slug, category, location, updated_at, created_at, published")
+      .eq("published", true);
+
+    if (!error && Array.isArray(data)) {
+      const comboSet = new Set<string>();
+
+      for (const row of data) {
+        const slug = (row.slug || "").toString().trim();
+        if (slug) {
+          urls.push({
+            url: `${base}/book/${slug}`,
+            lastModified: row.updated_at || row.created_at || new Date().toISOString(),
+            changefreq: "weekly",
+            priority: 0.8,
+          });
+        }
+
+        const category = (row.category || "").toString().trim();
+        const city = (row.location || "").toString().trim();
+        if (category && city) {
+          comboSet.add(`${category}|||${city}`);
+        }
+      }
+
+      // Add the unique directory combos
+      for (const key of comboSet) {
+        const [category, city] = key.split("|||");
+        urls.push({
+          url: `${base}${comboPath(category, city)}`,
+          changefreq: "daily",
+          priority: 0.85,
+        });
+      }
     }
-  }
-
-  // 2) Directory pages (distinct category/location)
-  const { data: pairs, error: ep } = await supabase
-    .from("Providers")
-    .select("category, location")
-    .eq("published", true);
-
-  if (!ep && pairs?.length) {
-    const seen = new Set<string>();
-    for (const row of pairs) {
-      const cat = (row?.category || "").trim();
-      const city = (row?.location || "").trim();
-      if (!cat || !city) continue;
-      const combo = `${slugify(cat)}-${slugify(city)}`;
-      if (seen.has(combo)) continue;
-      seen.add(combo);
-      urls.push({
-        url: `${base}/directory/${combo}`,
-        lastModified: new Date(),
-        changeFrequency: "daily",
-        priority: 0.6,
-      });
-    }
+  } catch (_e) {
+    // Fail-open: return at least the core URLs
   }
 
   return urls;
