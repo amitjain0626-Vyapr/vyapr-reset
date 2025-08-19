@@ -1,14 +1,14 @@
 // @ts-nocheck
 // app/book/[slug]/page.tsx
-// Vyapr provider page with Breadcrumbs (UI + JSON-LD) + safe provider rendering.
-// Uses your existing API: GET /api/providers/:slug
-// Renders WhatsApp CTA and "Book now" link to /book/[slug]/form.
+// Fail-open provider page: never 404s, renders with slug fallback.
+// Adds Breadcrumbs + LocalBusiness JSON-LD + WA CTA (only if phone exists).
 
-import { notFound } from "next/navigation";
 import ProviderBreadcrumbs from "@/components/seo/ProviderBreadcrumbs";
 import { toTitle } from "@/lib/seo/faq";
 
-// --------- helpers ----------
+export const dynamic = "force-dynamic";
+
+// ---------- utils ----------
 function baseUrl() {
   return process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
 }
@@ -17,10 +17,10 @@ function sanitizePhone(phone?: string | null) {
   if (!phone) return null;
   const digits = String(phone).replace(/[^\d]/g, "");
   if (!digits) return null;
-  if (digits.startsWith("91") && digits.length === 12) return digits;      // already E.164 (India)
-  if (digits.length === 10) return `91${digits}`;                           // assume India local -> +91
+  if (digits.startsWith("91") && digits.length === 12) return digits; // +91XXXXXXXXXX
+  if (digits.length === 10) return `91${digits}`;
   if (digits.startsWith("0") && digits.length === 11) return `91${digits.slice(1)}`;
-  return digits; // fallback
+  return digits;
 }
 
 function waLink(phone: string | null, text: string) {
@@ -30,13 +30,16 @@ function waLink(phone: string | null, text: string) {
 }
 
 async function fetchProvider(slug: string) {
-  const res = await fetch(`${baseUrl()}/api/providers/${encodeURIComponent(slug)}`, {
-    // cache mildly to avoid hammering DB, but refreshes quickly on edits
-    next: { revalidate: 300 },
-  });
-  if (!res.ok) return null;
-  const data = await res.json().catch(() => null);
-  return data?.provider ?? null;
+  try {
+    const res = await fetch(`${baseUrl()}/api/providers/${encodeURIComponent(slug)}`, {
+      next: { revalidate: 300 },
+    });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    return data?.provider ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function directorySlugFrom(provider: any): string | undefined {
@@ -47,15 +50,9 @@ function directorySlugFrom(provider: any): string | undefined {
 }
 
 function displayNameFrom(provider: any, slug: string) {
-  return (
-    provider?.display_name ||
-    provider?.name ||
-    provider?.title ||
-    toTitle(slug)
-  );
+  return provider?.display_name || provider?.name || provider?.title || toTitle(slug);
 }
 
-// Minimal LocalBusiness JSON-LD (safe across categories)
 function localBusinessJsonLd(provider: any, slug: string) {
   const name = displayNameFrom(provider, slug);
   const tel = sanitizePhone(provider?.phone || provider?.whatsapp || provider?.mobile) || null;
@@ -68,7 +65,9 @@ function localBusinessJsonLd(provider: any, slug: string) {
   };
 
   if (tel) payload.telephone = `+${tel}`;
-  if (provider?.address) payload.address = { "@type": "PostalAddress", streetAddress: String(provider.address) };
+  if (provider?.address) {
+    payload.address = { "@type": "PostalAddress", streetAddress: String(provider.address) };
+  }
   if (provider?.city) {
     payload.areaServed = String(provider.city);
     payload.address = {
@@ -77,7 +76,11 @@ function localBusinessJsonLd(provider: any, slug: string) {
     };
   }
   if (provider?.geo_lat && provider?.geo_lng) {
-    payload.geo = { "@type": "GeoCoordinates", latitude: Number(provider.geo_lat), longitude: Number(provider.geo_lng) };
+    payload.geo = {
+      "@type": "GeoCoordinates",
+      latitude: Number(provider.geo_lat),
+      longitude: Number(provider.geo_lng),
+    };
   }
   if (provider?.whatsapp) {
     const e164 = sanitizePhone(provider.whatsapp);
@@ -86,7 +89,7 @@ function localBusinessJsonLd(provider: any, slug: string) {
   return JSON.stringify(payload);
 }
 
-// --------- metadata ----------
+// ---------- metadata ----------
 export async function generateMetadata({ params }: any): Promise<any> {
   const slug = params?.slug ?? "";
   const provider = await fetchProvider(slug);
@@ -103,29 +106,21 @@ export async function generateMetadata({ params }: any): Promise<any> {
     title,
     description: desc,
     alternates: { canonical },
-    openGraph: {
-      title,
-      description: desc,
-      url: canonical,
-      type: "website",
-    },
+    openGraph: { title, description: desc, url: canonical, type: "website" },
     robots: { index: true, follow: true },
   };
 }
 
-// --------- page ----------
+// ---------- page ----------
 export default async function ProviderPage({ params }: any) {
   const slug = params?.slug ?? "";
-  const provider = await fetchProvider(slug);
-  if (!provider) return notFound();
-
+  const provider = await fetchProvider(slug); // may be null; we still render
   const name = displayNameFrom(provider, slug);
-  const dirSlug = directorySlugFrom(provider);
+  const dirSlug = provider ? directorySlugFrom(provider) : undefined;
   const phoneE164 = sanitizePhone(provider?.phone || provider?.whatsapp || provider?.mobile) || null;
 
   const defaultMessage = `Hi ${name}, I found you on Vyapr and want to book a slot. Can we speak?`;
   const whatsappHref = waLink(phoneE164, defaultMessage);
-
   const jsonLd = localBusinessJsonLd(provider, slug);
 
   return (
@@ -144,7 +139,11 @@ export default async function ProviderPage({ params }: any) {
         <h1 className="text-3xl font-semibold">{name}</h1>
         {provider?.tagline ? (
           <p className="mt-2 text-gray-700">{String(provider.tagline)}</p>
-        ) : null}
+        ) : (
+          <p className="mt-2 text-gray-700">
+            Book an appointment or chat on WhatsApp to confirm availability.
+          </p>
+        )}
         {provider?.city || provider?.locality ? (
           <p className="mt-1 text-sm text-gray-600">
             {provider?.locality ? `${provider.locality}, ` : ""}
@@ -161,14 +160,18 @@ export default async function ProviderPage({ params }: any) {
         >
           Book now
         </a>
-        <a
-          href={whatsappHref}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="px-4 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm"
-        >
-          Chat on WhatsApp
-        </a>
+
+        {/* Show WA only if we have a phone */}
+        {phoneE164 ? (
+          <a
+            href={whatsappHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-4 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm"
+          >
+            Chat on WhatsApp
+          </a>
+        ) : null}
       </div>
 
       {/* About / Services */}
@@ -180,7 +183,6 @@ export default async function ProviderPage({ params }: any) {
           </div>
         )}
 
-        {/* Optional: show basic fields if present */}
         {(provider?.services?.length || provider?.highlights?.length) && (
           <div className="rounded-2xl border p-4">
             <h2 className="text-xl font-semibold mb-2">Highlights</h2>
