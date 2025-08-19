@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { MetadataRoute } from "next";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createClient } from "@supabase/supabase-js";
 
 export const revalidate = 600;
 
@@ -16,8 +16,11 @@ function slugify(input: string) {
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const base = process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
-  const supabase = await createSupabaseServerClient();
-  const urls: MetadataRoute.Sitemap = [];
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  const supabase = createClient(supabaseUrl, supabaseAnon, { auth: { persistSession: false } });
+
+  const urls: MetadataRoute.Sitemap> = [];
 
   // Root
   urls.push({
@@ -27,14 +30,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 1,
   });
 
-  // Microsite pages
+  // Microsite pages (published providers with non-null slug)
   const { data: providers } = await supabase
     .from("Providers")
-    .select("slug, updated_at, published")
-    .eq("published", true);
+    .select("slug, updated_at")
+    .eq("published", true)
+    .not("slug", "is", null);
 
   (providers || []).forEach((p) => {
-    if (!p.slug) return;
     urls.push({
       url: `${base}/book/${p.slug}`,
       lastModified: p.updated_at ? new Date(p.updated_at) : new Date(),
@@ -43,7 +46,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     });
   });
 
-  // Directory pages
+  // Directory pages — distinct (category, location)
   const { data: pairs } = await supabase
     .from("Providers")
     .select("category, location")
