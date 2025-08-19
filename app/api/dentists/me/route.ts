@@ -11,7 +11,7 @@ export async function GET() {
   }
 
   const { data: profile, error } = await supabase
-    .from('Dentists')
+    .from('Providers')
     .select('*')
     .eq('user_id', user.id)
     .single()

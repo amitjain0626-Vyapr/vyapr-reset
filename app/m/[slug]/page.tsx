@@ -32,7 +32,7 @@ export async function generateMetadata({
   const { slug } = await params;
   const supabase = supabaseAnon();
   const { data } = await supabase
-    .from("Dentists")
+    .from("Providers")
     .select("name, city, is_published")
     .eq("slug", slug)
     .eq("is_published", true)
@@ -55,7 +55,7 @@ export default async function MicrositePage({
 
   const supabase = supabaseAnon();
   const { data, error } = await supabase
-    .from("Dentists")
+    .from("Providers")
     .select("name, slug, city, phone, is_published")
     .eq("slug", slug)
     .eq("is_published", true)

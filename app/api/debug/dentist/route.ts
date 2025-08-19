@@ -25,7 +25,7 @@ export async function GET(req: Request) {
   const supabase = supabaseServer();
 
   const { data, error } = await supabase
-    .from("Dentists")
+    .from("Providers")
     .select("id,slug,is_published,name,city,updated_at")
     .eq("slug", slug)
     .maybeSingle();

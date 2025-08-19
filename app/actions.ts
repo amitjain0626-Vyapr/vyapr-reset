@@ -19,14 +19,14 @@ export async function createDentist(formData: FormData) {
   if (!user) redirect('/login')
 
   const { data: taken } = await supabase
-    .from('Dentists')
+    .from('Providers')
     .select('id')
     .eq('slug', slug)
     .maybeSingle()
 
   if (taken) redirect('/onboarding')
 
-  await supabase.from('Dentists').insert([
+  await supabase.from('Providers').insert([
     { user_id: user.id, name, slug, phone, city },
   ])
 
@@ -42,7 +42,7 @@ export async function createLead(formData: FormData) {
 
   const supabase = await createClient()
   const { data: dentist } = await supabase
-    .from('Dentists')
+    .from('Providers')
     .select('id, slug')
     .eq('slug', dentist_slug)
     .maybeSingle()
@@ -87,7 +87,7 @@ export async function updateDentistProfile(formData: FormData) {
 
   // Enforce slug uniqueness (exclude current record)
   const { data: existing } = await supabase
-    .from('Dentists')
+    .from('Providers')
     .select('id')
     .eq('slug', slug)
     .neq('id', id)
@@ -96,7 +96,7 @@ export async function updateDentistProfile(formData: FormData) {
   if (existing) redirect('/settings')
 
   await supabase
-    .from('Dentists')
+    .from('Providers')
     .update({ name, slug, phone, city })
     .eq('id', id)
     .eq('user_id', user.id)
@@ -117,7 +117,7 @@ export async function deleteAccount(formData: FormData) {
 
   // Remove dependent leads then profile
   await supabase.from('Leads').delete().eq('dentist_id', id)
-  await supabase.from('Dentists').delete().eq('id', id).eq('user_id', user.id)
+  await supabase.from('Providers').delete().eq('id', id).eq('user_id', user.id)
 
   await supabase.auth.signOut()
   redirect('/login')

@@ -15,7 +15,7 @@ export async function POST(req: Request) {
   const slug = slugify(name)
 
   const { data: existing } = await supabase
-    .from('Dentists')
+    .from('Providers')
     .select('id')
     .eq('slug', slug)
     .maybeSingle()

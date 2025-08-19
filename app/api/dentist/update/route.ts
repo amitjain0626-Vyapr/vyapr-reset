@@ -99,7 +99,7 @@ export async function POST(req: Request) {
 
     // ---- Fetch existing dentist row for this user
     const { data: existing, error: fetchErr } = await supabase
-      .from("Dentists")
+      .from("Providers")
       .select("*")
       .eq("user_id", user.id)
       .maybeSingle();
@@ -123,7 +123,7 @@ export async function POST(req: Request) {
       const effectiveSlug = payload.slug || existing?.slug;
       // Check if some other row already uses this slug
       const { data: slugHit, error: slugErr } = await supabase
-        .from("Dentists")
+        .from("Providers")
         .select("id, user_id, slug")
         .eq("slug", effectiveSlug)
         .maybeSingle();
@@ -158,7 +158,7 @@ export async function POST(req: Request) {
     if (existing?.id) {
       // UPDATE existing row
       const { data, error } = await supabase
-        .from("Dentists")
+        .from("Providers")
         .update(updateObj)
         .eq("id", existing.id)
         .select("*")
@@ -179,7 +179,7 @@ export async function POST(req: Request) {
         created_at: now,
       };
       const { data, error } = await supabase
-        .from("Dentists")
+        .from("Providers")
         .insert(insertObj)
         .select("*")
         .maybeSingle();

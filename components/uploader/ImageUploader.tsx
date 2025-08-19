@@ -52,7 +52,7 @@ export default function ImageUploader({ label, fieldKey, value, onUploaded }: Pr
 
       setPreview(publicUrl);
 
-      // Persist to Dentists table
+      // Persist to Providers table
       const res = await fetch('/api/dentist/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -6,7 +6,7 @@ export default async function SettingsPage() {
   const { data: { user } } = await supabase.auth.getUser()
 
   const { data: dentist } = await supabase
-    .from('Dentists')
+    .from('Providers')
     .select('*')
     .eq('user_id', user?.id)
     .single()
