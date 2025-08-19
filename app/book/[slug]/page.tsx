@@ -1,209 +1,185 @@
-// @ts-nocheck
 // app/book/[slug]/page.tsx
-// Fail-open provider page: never 404s, renders with slug fallback.
-// Adds Breadcrumbs + LocalBusiness JSON-LD + WA CTA (only if phone exists).
+// @ts-nocheck
+import Link from "next/link";
 
-import ProviderBreadcrumbs from "@/components/seo/ProviderBreadcrumbs";
-import { toTitle } from "@/lib/seo/faq";
+type Provider = {
+  id: string;
+  slug: string;
+  display_name: string | null;
+  category: string | null;
+  location: string | null;
+  whatsapp: string | null;
+  phone: string | null;
+  bio: string | null;
+  published: boolean | null;
+};
 
-export const dynamic = "force-dynamic";
+export const revalidate = 600;
 
-// ---------- utils ----------
-function baseUrl() {
-  return process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
+// helpers
+function slugify(input: string) {
+  return (input || "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)+/g, "");
 }
-
-function sanitizePhone(phone?: string | null) {
-  if (!phone) return null;
-  const digits = String(phone).replace(/[^\d]/g, "");
+function comboPath(category?: string | null, city?: string | null) {
+  if (!category || !city) return "/directory";
+  return `/directory/${slugify(category)}-${slugify(city)}`;
+}
+function toTitle(s?: string | null) {
+  return (s || "")
+    .replace(/-/g, " ")
+    .replace(/\b\w/g, (m) => m.toUpperCase());
+}
+function waLink(raw?: string | null, msg?: string) {
+  if (!raw) return null;
+  const digits = raw.replace(/[^\d]/g, "");
   if (!digits) return null;
-  if (digits.startsWith("91") && digits.length === 12) return digits; // +91XXXXXXXXXX
-  if (digits.length === 10) return `91${digits}`;
-  if (digits.startsWith("0") && digits.length === 11) return `91${digits.slice(1)}`;
-  return digits;
+  const base = `https://wa.me/${digits}`;
+  return msg ? `${base}?text=${encodeURIComponent(msg)}` : base;
 }
 
-function waLink(phone: string | null, text: string) {
-  const msg = encodeURIComponent(text);
-  if (!phone) return `https://wa.me/?text=${msg}`;
-  return `https://wa.me/${phone}?text=${msg}`;
-}
+export const metadata = {
+  title: "Provider | Vyapr",
+  description:
+    "View provider details, message on WhatsApp, and book quickly.",
+};
 
-async function fetchProvider(slug: string) {
-  try {
-    const res = await fetch(`${baseUrl()}/api/providers/${encodeURIComponent(slug)}`, {
-      next: { revalidate: 300 },
-    });
-    if (!res.ok) return null;
-    const data = await res.json().catch(() => null);
-    return data?.provider ?? null;
-  } catch {
-    return null;
-  }
-}
+export default async function ProviderPage({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
+  const { slug } = await params;
 
-function directorySlugFrom(provider: any): string | undefined {
-  const category = String(provider?.category || "").toLowerCase().trim();
-  const city = String(provider?.city || "").toLowerCase().trim();
-  if (!category || !city) return undefined;
-  return `/directory/${category}-${city}`;
-}
+  const { createSupabaseServerClient } = await import("@/lib/supabase/server");
+  const supabase = await createSupabaseServerClient();
 
-function displayNameFrom(provider: any, slug: string) {
-  return provider?.display_name || provider?.name || provider?.title || toTitle(slug);
-}
+  // Public read guarded by RLS: published=true only
+  const { data, error } = await supabase
+    .from("Providers")
+    .select(
+      "id, slug, display_name, category, location, whatsapp, phone, bio, published"
+    )
+    .eq("slug", slug)
+    .limit(1)
+    .maybeSingle();
 
-function localBusinessJsonLd(provider: any, slug: string) {
-  const name = displayNameFrom(provider, slug);
-  const tel = sanitizePhone(provider?.phone || provider?.whatsapp || provider?.mobile) || null;
+  const p: Provider | null = !error && data ? data : null;
 
-  const payload: any = {
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "") || "";
+  const name = p?.display_name || toTitle(p?.slug) || "Provider";
+  const category = p?.category || undefined;
+  const city = p?.location || undefined;
+  const comboUrl = comboPath(category, city);
+  const whats = waLink(p?.whatsapp || p?.phone, `Hi ${name}, I found you on Vyapr and want to book.`);
+  const isLive = !!p?.published;
+
+  // JSON-LD — LocalBusiness + Breadcrumbs
+  const breadcrumbs = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Home", item: `${baseUrl}/` },
+      { "@type": "ListItem", position: 2, name: "Directory", item: `${baseUrl}/directory` },
+      ...(category && city
+        ? [
+            {
+              "@type": "ListItem",
+              position: 3,
+              name: `${toTitle(category)} in ${toTitle(city)}`,
+              item: `${baseUrl}${comboUrl}`,
+            },
+          ]
+        : []),
+      { "@type": "ListItem", position: 4, name, item: `${baseUrl}/book/${slug}` },
+    ],
+  };
+
+  const localBusiness = {
     "@context": "https://schema.org",
     "@type": "LocalBusiness",
     name,
-    url: `${baseUrl()}/book/${slug}`,
+    url: `${baseUrl}/book/${slug}`,
+    description: p?.bio || undefined,
+    telephone: p?.phone || undefined,
+    areaServed: city ? [{ "@type": "City", name: city }] : undefined,
+    address: city ? { "@type": "PostalAddress", addressLocality: city } : undefined,
+    sameAs: whats ? [whats] : undefined,
   };
-
-  if (tel) payload.telephone = `+${tel}`;
-  if (provider?.address) {
-    payload.address = { "@type": "PostalAddress", streetAddress: String(provider.address) };
-  }
-  if (provider?.city) {
-    payload.areaServed = String(provider.city);
-    payload.address = {
-      ...(payload.address || { "@type": "PostalAddress" }),
-      addressLocality: String(provider.city),
-    };
-  }
-  if (provider?.geo_lat && provider?.geo_lng) {
-    payload.geo = {
-      "@type": "GeoCoordinates",
-      latitude: Number(provider.geo_lat),
-      longitude: Number(provider.geo_lng),
-    };
-  }
-  if (provider?.whatsapp) {
-    const e164 = sanitizePhone(provider.whatsapp);
-    payload.sameAs = [waLink(e164, `Hi ${name}, I found you on Vyapr and want to book.`)];
-  }
-  return JSON.stringify(payload);
-}
-
-// ---------- metadata ----------
-export async function generateMetadata({ params }: any): Promise<any> {
-  const slug = params?.slug ?? "";
-  const provider = await fetchProvider(slug);
-  const name = displayNameFrom(provider, slug);
-
-  const title = `${name} | Book Appointment`;
-  const desc =
-    provider?.bio ||
-    provider?.about ||
-    `Book ${name} online. Compare services, chat on WhatsApp, and confirm your appointment via Vyapr.`;
-  const canonical = `/book/${slug}`;
-
-  return {
-    title,
-    description: desc,
-    alternates: { canonical },
-    openGraph: { title, description: desc, url: canonical, type: "website" },
-    robots: { index: true, follow: true },
-  };
-}
-
-// ---------- page ----------
-export default async function ProviderPage({ params }: any) {
-  const slug = params?.slug ?? "";
-  const provider = await fetchProvider(slug); // may be null; we still render
-  const name = displayNameFrom(provider, slug);
-  const dirSlug = provider ? directorySlugFrom(provider) : undefined;
-  const phoneE164 = sanitizePhone(provider?.phone || provider?.whatsapp || provider?.mobile) || null;
-
-  const defaultMessage = `Hi ${name}, I found you on Vyapr and want to book a slot. Can we speak?`;
-  const whatsappHref = waLink(phoneE164, defaultMessage);
-  const jsonLd = localBusinessJsonLd(provider, slug);
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-8">
-      {/* JSON-LD: LocalBusiness */}
-      <script
-        type="application/ld+json"
-        suppressHydrationWarning
-        dangerouslySetInnerHTML={{ __html: jsonLd }}
-      />
-
-      {/* Breadcrumbs (UI + JSON-LD) */}
-      <ProviderBreadcrumbs providerName={name} directorySlug={dirSlug} />
-
-      <header className="mb-6">
-        <h1 className="text-3xl font-semibold">{name}</h1>
-        {provider?.tagline ? (
-          <p className="mt-2 text-gray-700">{String(provider.tagline)}</p>
-        ) : (
-          <p className="mt-2 text-gray-700">
-            Book an appointment or chat on WhatsApp to confirm availability.
-          </p>
+    <main className="mx-auto max-w-3xl px-4 py-10">
+      {/* NEW: Back-links to strengthen internal mesh */}
+      <nav className="mb-4 text-sm">
+        <Link href="/directory" className="text-gray-600 hover:underline">
+          ← Back to Directory
+        </Link>
+        {category && city && (
+          <>
+            <span className="mx-2 text-gray-400">•</span>
+            <Link href={comboUrl} className="text-gray-600 hover:underline">
+              {toTitle(category)} in {toTitle(city)}
+            </Link>
+          </>
         )}
-        {provider?.city || provider?.locality ? (
-          <p className="mt-1 text-sm text-gray-600">
-            {provider?.locality ? `${provider.locality}, ` : ""}
-            {provider?.city ? String(provider.city) : ""}
-          </p>
-        ) : null}
-      </header>
+      </nav>
 
-      {/* Quick actions */}
-      <div className="flex flex-wrap items-center gap-3">
-        <a
-          href={`/book/${encodeURIComponent(slug)}/form`}
-          className="px-4 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm"
-        >
-          Book now
-        </a>
+      <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">{name}</h1>
+      <p className="mt-2 text-gray-600">
+        {category ? toTitle(category) : "Service"}{city ? ` • ${toTitle(city)}` : ""}
+      </p>
 
-        {/* Show WA only if we have a phone */}
-        {phoneE164 ? (
+      {/* Primary CTA block */}
+      <div className="mt-6 rounded-2xl border p-5">
+        {whats ? (
           <a
-            href={whatsappHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="px-4 py-2 rounded-xl border bg-white hover:bg-gray-50 text-sm"
+            href={whats}
+            className="inline-flex items-center gap-2 rounded-xl border px-5 py-2.5 font-medium hover:shadow-sm transition"
           >
             Chat on WhatsApp
           </a>
-        ) : null}
+        ) : (
+          <div className="text-sm text-gray-600">
+            WhatsApp not available. Use the booking link on the directory page.
+          </div>
+        )}
+        {!isLive && (
+          <div className="mt-3 text-xs text-amber-700">
+            This profile is in preview. Details may change.
+          </div>
+        )}
       </div>
 
-      {/* About / Services */}
-      <section className="mt-8 space-y-4">
-        {provider?.about && (
-          <div className="rounded-2xl border p-4">
-            <h2 className="text-xl font-semibold mb-2">About</h2>
-            <p className="text-sm leading-relaxed text-gray-800">{String(provider.about)}</p>
-          </div>
-        )}
+      {/* About */}
+      {p?.bio && (
+        <section className="mt-8">
+          <h2 className="text-lg font-semibold">About</h2>
+          <p className="mt-2 text-gray-700 whitespace-pre-line">{p.bio}</p>
+        </section>
+      )}
 
-        {(provider?.services?.length || provider?.highlights?.length) && (
-          <div className="rounded-2xl border p-4">
-            <h2 className="text-xl font-semibold mb-2">Highlights</h2>
-            <ul className="list-disc pl-5 text-sm text-gray-800">
-              {(provider?.highlights || []).map((h: any, i: number) => (
-                <li key={i}>{String(h)}</li>
-              ))}
-              {(provider?.services || []).map((s: any, i: number) => (
-                <li key={`svc-${i}`}>{String(s?.name || s)}</li>
-              ))}
-            </ul>
+      {/* Safety fallback if provider missing (fail-open UX, still SEO-safe) */}
+      {!p && (
+        <div className="mt-8 rounded-2xl border p-6">
+          <p className="text-gray-700">
+            We couldn’t load this profile right now. Try exploring related providers:
+          </p>
+          <div className="mt-3 flex gap-3">
+            <Link href="/directory" className="text-sm underline">
+              Browse Directory
+            </Link>
           </div>
-        )}
-      </section>
+        </div>
+      )}
 
-      {/* Fallback note */}
-      {!provider?.about && !provider?.services?.length && !provider?.highlights?.length ? (
-        <p className="mt-6 text-sm text-gray-600">
-          Tip: Add a short bio, key services, and locality in your profile to improve conversions.
-        </p>
-      ) : null}
+      {/* JSON-LD */}
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbs) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusiness) }} />
     </main>
   );
 }
