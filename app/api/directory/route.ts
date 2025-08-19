@@ -1,46 +1,47 @@
 // @ts-nocheck
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { getBaseUrl } from "@/lib/site";
 
-export async function GET(req) {
-  const supabase = await createSupabaseServerClient();
+export const dynamic = "force-dynamic";
 
-  const url = new URL(req.url);
-  const page = Math.max(1, Number(url.searchParams.get("page") || "1"));
-  const limit = Math.min(50, Math.max(1, Number(url.searchParams.get("limit") || "20")));
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const page = Number(searchParams.get("page") || 1);
+  const limit = Math.min(Number(searchParams.get("limit") || 20), 100);
+  const category = (searchParams.get("category") || "").trim();
+  const city = (searchParams.get("city") || "").trim();
+
   const from = (page - 1) * limit;
   const to = from + limit - 1;
 
-  const { data, error, count } = await supabase
+  const supabase = await createSupabaseServerClient();
+
+  let q = supabase
     .from("Providers")
-    .select("id, display_name, slug, category, bio, phone, whatsapp, created_at", { count: "exact" })
-    .eq("published", true)
-    .order("created_at", { ascending: false })
-    .range(from, to);
+    .select(
+      "id, display_name, slug, category, location, bio, phone, whatsapp, published",
+      { count: "exact" }
+    )
+    .eq("published", true);
+
+  if (category) q = q.ilike("category", `%${category}%`);
+  if (city) q = q.ilike("location", `%${city}%`);
+
+  const { data, error, count } = await q.range(from, to).order("display_name", { ascending: true });
 
   if (error) {
-    return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "Query failed", details: error.message },
+      { status: 500 }
+    );
   }
 
-  const base = getBaseUrl();
-  const providers = (data ?? []).map((p) => ({
-    id: p.id,
-    name: p.display_name,
-    slug: p.slug,
-    category: p.category,
-    url: `${base}/book/${encodeURIComponent(p.slug)}`,
-    bio: p.bio,
-    phone: p.phone,
-    whatsapp: p.whatsapp,
-    created_at: p.created_at,
-  }));
-
+  // No legacy "name" or "url" fields; keep schema clean
   return NextResponse.json({
     ok: true,
     page,
     limit,
-    total: count ?? providers.length,
-    providers,
+    total: count || 0,
+    providers: data || [],
   });
 }
