@@ -3,9 +3,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-type Params = { combo: string };
+export const dynamic = "force-dynamic";
+export const revalidate = 300;
 
-function toTitle(input: string): string {
+function toTitle(input) {
   return (input || "")
     .toString()
     .trim()
@@ -13,12 +14,8 @@ function toTitle(input: string): string {
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(" ");
 }
-
-function deslugify(s: string) {
-  return (s || "").replace(/-/g, " ").trim();
-}
-
-function parseCombo(combo: string): { category: string; city: string } {
+function deslugify(s) { return (s || "").replace(/-/g, " ").trim(); }
+function parseCombo(combo) {
   const parts = (combo || "").split("-");
   if (parts.length < 2) return { category: "", city: "" };
   const city = parts[parts.length - 1];
@@ -26,19 +23,13 @@ function parseCombo(combo: string): { category: string; city: string } {
   return { category: deslugify(categorySlug), city: deslugify(city) };
 }
 
-export const dynamic = "force-dynamic";
-export const revalidate = 300;
-
-export async function generateMetadata({ params }: { params: Params }) {
+export async function generateMetadata({ params }) {
   const { combo } = params;
   const { category, city } = parseCombo(combo);
-  const catT = toTitle(category);
-  const cityT = toTitle(city);
   const base = process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
   const url = `${base}/directory/${combo}`;
-  const title = `${catT} in ${cityT} — Vyapr Directory`;
+  const title = `${toTitle(category)} in ${toTitle(city)} — Vyapr Directory`;
   const description = `Discover verified ${category} in ${city}. Browse profiles, view bios, and book on WhatsApp.`;
-
   return {
     title,
     description,
@@ -48,7 +39,7 @@ export async function generateMetadata({ params }: { params: Params }) {
   };
 }
 
-export default async function DirectoryPage({ params }: { params: Params }) {
+export default async function DirectoryPage({ params }) {
   const { combo } = params;
   const { category, city } = parseCombo(combo);
   if (!category || !city) notFound();
@@ -63,7 +54,6 @@ export default async function DirectoryPage({ params }: { params: Params }) {
     .order("display_name", { ascending: true });
 
   if (error) throw new Error(error.message);
-
   const providers = data || [];
   const base = process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
   const pageUrl = `${base}/directory/${combo}`;
@@ -80,26 +70,16 @@ export default async function DirectoryPage({ params }: { params: Params }) {
       name: p.display_name || p.slug,
     })),
   };
-
   const faq = {
     "@context": "https://schema.org",
     "@type": "FAQPage",
     mainEntity: [
-      {
-        "@type": "Question",
-        name: `How do I book a ${category} in ${city}?`,
-        acceptedAnswer: { "@type": "Answer", text: `Open any profile and tap “Chat on WhatsApp” or “View profile”.` },
-      },
-      {
-        "@type": "Question",
-        name: `What do ${toTitle(category)} typically charge in ${toTitle(city)}?`,
-        acceptedAnswer: { "@type": "Answer", text: "Prices vary by experience and service type. Message on WhatsApp for an exact quote." },
-      },
-      {
-        "@type": "Question",
-        name: "Are these providers verified?",
-        acceptedAnswer: { "@type": "Answer", text: "Profiles show here only when a provider publishes their microsite on Vyapr." },
-      },
+      { "@type": "Question", name: `How do I book a ${category} in ${city}?`,
+        acceptedAnswer: { "@type": "Answer", text: `Open any profile and tap “Chat on WhatsApp” or “View profile”.` } },
+      { "@type": "Question", name: `What do ${toTitle(category)} typically charge in ${toTitle(city)}?`,
+        acceptedAnswer: { "@type": "Answer", text: "Prices vary by experience and service type. Message on WhatsApp for an exact quote." } },
+      { "@type": "Question", name: "Are these providers verified?",
+        acceptedAnswer: { "@type": "Answer", text: "Profiles show here only when a provider publishes their microsite on Vyapr." } },
     ],
   };
 
@@ -115,16 +95,10 @@ export default async function DirectoryPage({ params }: { params: Params }) {
       {providers.length === 0 ? (
         <>
           <p className="text-sm">No published providers yet. Check back soon.</p>
-          <script
-            type="application/ld+json"
-            suppressHydrationWarning
-            dangerouslySetInnerHTML={{ __html: JSON.stringify(itemList) }}
-          />
-          <script
-            type="application/ld+json"
-            suppressHydrationWarning
-            dangerouslySetInnerHTML={{ __html: JSON.stringify(faq) }}
-          />
+          <script type="application/ld+json" suppressHydrationWarning
+            dangerouslySetInnerHTML={{ __html: JSON.stringify(itemList) }} />
+          <script type="application/ld+json" suppressHydrationWarning
+            dangerouslySetInnerHTML={{ __html: JSON.stringify(faq) }} />
         </>
       ) : (
         <>
@@ -133,9 +107,7 @@ export default async function DirectoryPage({ params }: { params: Params }) {
               const name = p.display_name || p.slug;
               const wa = p.whatsapp || p.phone;
               const prefill = encodeURIComponent(
-                `Hi ${name}, found you on Vyapr. I’m looking for ${toTitle(p.category)} in ${toTitle(
-                  p.location || city
-                )}. Can we chat?`
+                `Hi ${name}, found you on Vyapr. I’m looking for ${toTitle(p.category)} in ${toTitle(p.location || city)}. Can we chat?`
               );
               const waHref = wa ? `https://wa.me/${wa.replace(/\D/g, "")}?text=${prefill}` : undefined;
 
@@ -151,12 +123,7 @@ export default async function DirectoryPage({ params }: { params: Params }) {
                       View profile
                     </Link>
                     {waHref && (
-                      <a
-                        href={waHref}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-block rounded-xl border text-sm px-3 py-2"
-                      >
+                      <a href={waHref} target="_blank" rel="noopener noreferrer" className="inline-block rounded-xl border text-sm px-3 py-2">
                         Chat on WhatsApp
                       </a>
                     )}
@@ -166,40 +133,25 @@ export default async function DirectoryPage({ params }: { params: Params }) {
             })}
           </ul>
 
-          {/* JSON-LD blocks */}
-          <script
-            type="application/ld+json"
-            suppressHydrationWarning
-            dangerouslySetInnerHTML={{ __html: JSON.stringify(itemList) }}
-          />
+          <script type="application/ld+json" suppressHydrationWarning
+            dangerouslySetInnerHTML={{ __html: JSON.stringify(itemList) }} />
           {providers.map((p, i) => (
-            <script
-              key={i}
-              type="application/ld+json"
-              suppressHydrationWarning
-              dangerouslySetInnerHTML={{
-                __html: JSON.stringify({
-                  "@context": "https://schema.org",
-                  "@type": "LocalBusiness",
-                  name: p.display_name || p.slug,
-                  url: `${base}/book/${p.slug}`,
-                  description: p.bio || undefined,
-                  telephone: p.whatsapp || p.phone || undefined,
-                  address: {
-                    "@type": "PostalAddress",
-                    addressLocality: p.location || toTitle(city),
-                    addressCountry: "IN",
-                  },
-                  areaServed: toTitle(city),
-                }),
-              }}
-            />
+            <script key={i} type="application/ld+json" suppressHydrationWarning
+              dangerouslySetInnerHTML={{ __html: JSON.stringify({
+                "@context": "https://schema.org",
+                "@type": "LocalBusiness",
+                name: p.display_name || p.slug,
+                url: `${base}/book/${p.slug}`,
+                description: p.bio || undefined,
+                telephone: p.whatsapp || p.phone || undefined,
+                address: { "@type": "PostalAddress",
+                  addressLocality: p.location || toTitle(city),
+                  addressCountry: "IN" },
+                areaServed: toTitle(city),
+              }) }} />
           ))}
-          <script
-            type="application/ld+json"
-            suppressHydrationWarning
-            dangerouslySetInnerHTML={{ __html: JSON.stringify(faq) }}
-          />
+          <script type="application/ld+json" suppressHydrationWarning
+            dangerouslySetInnerHTML={{ __html: JSON.stringify(faq) }} />
         </>
       )}
     </main>
