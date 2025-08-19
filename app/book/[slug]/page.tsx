@@ -1,6 +1,7 @@
 // @ts-nocheck
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 import { headers } from "next/headers";
 import type { Metadata } from "next";
@@ -10,7 +11,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 type Provider = {
   id: string;
   display_name?: string | null;
-  name?: string | null; // API sometimes sends `name`
+  name?: string | null;       // API may use this field
   slug: string;
   category?: string | null;
   location?: string | null;
@@ -20,7 +21,16 @@ type Provider = {
   bio?: string | null;
 };
 
+// ---- helpers ----
 function getBaseUrl() {
+  const envUrl =
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.VERCEL_PROJECT_PRODUCTION_URL ||
+    process.env.VERCEL_URL;
+  if (envUrl) {
+    const hasProto = /^https?:\/\//i.test(envUrl);
+    return hasProto ? envUrl : `https://${envUrl}`;
+  }
   const h = headers();
   const host = h.get("x-forwarded-host") ?? h.get("host");
   const proto = h.get("x-forwarded-proto") ?? "https";
@@ -43,13 +53,8 @@ function titleFromSlug(slug?: string) {
     .join(" ");
 }
 
-function coalesceName(p: Partial<Provider>) {
-  return p.display_name?.trim() || p.name?.trim() || titleFromSlug(p.slug);
-}
-
 function normalizeProvider(raw: any): Provider | null {
   if (!raw) return null;
-  // Accept both DB and API shapes; ensure fields exist
   return {
     id: raw.id,
     display_name: raw.display_name ?? raw.name ?? null,
@@ -57,15 +62,16 @@ function normalizeProvider(raw: any): Provider | null {
     slug: raw.slug,
     category: raw.category ?? null,
     location: raw.location ?? null,
-    published: typeof raw.published === "boolean" ? raw.published : true, // API may omit; assume true for public route
+    // If API omits `published`, assume it's public because this page is public by design
+    published: typeof raw.published === "boolean" ? raw.published : true,
     phone: raw.phone ?? null,
     whatsapp: raw.whatsapp ?? null,
     bio: raw.bio ?? null,
   };
 }
 
-async function getProvider(slug: string): Promise<Provider | null> {
-  // Primary: Supabase public read (published=true)
+async function getProviderBySlug(slug: string): Promise<Provider | null> {
+  // 1) Try Supabase (public SELECT where published=true)
   try {
     const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase
@@ -76,13 +82,12 @@ async function getProvider(slug: string): Promise<Provider | null> {
       .single();
 
     if (!error && data) return normalizeProvider(data);
-  } catch (_) {
-    // fall through
-  }
+  } catch (_) {}
 
-  // Fallback: internal API (may return `name` instead of `display_name`)
+  // 2) Fallback to internal API (absolute URL to avoid relative-fetch issues)
   try {
-    const res = await fetch(`${getBaseUrl()}/api/providers/${slug}`, { cache: "no-store" });
+    const base = getBaseUrl();
+    const res = await fetch(`${base}/api/providers/${slug}`, { cache: "no-store" });
     if (res.ok) {
       const json = await res.json();
       const provider = json?.provider ?? json?.data ?? null;
@@ -94,20 +99,27 @@ async function getProvider(slug: string): Promise<Provider | null> {
   return null;
 }
 
+// ---- metadata ----
 export async function generateMetadata(
   { params }: { params: Promise<{ slug: string }> }
 ): Promise<Metadata> {
   const { slug } = await params;
-  const provider = await getProvider(slug);
+  const provider = await getProviderBySlug(slug);
+
+  // Coalesce name from provider OR slug param (hard fallback)
+  const name =
+    (provider?.display_name?.trim() ||
+      provider?.name?.trim() ||
+      titleFromSlug(slug));
+
   if (!provider) {
     return {
-      title: "Profile not available • Vyapr",
+      title: `${name} • Vyapr`,
       description: "This profile is not published or does not exist.",
       robots: { index: false, follow: false },
     };
   }
 
-  const name = coalesceName(provider);
   const title = `${name} • ${provider.category ?? "Services"} | Vyapr`;
   const description =
     (provider.bio && provider.bio.slice(0, 160)) ||
@@ -123,16 +135,23 @@ export async function generateMetadata(
   };
 }
 
+// ---- page ----
 export default async function BookPage(
   { params }: { params: Promise<{ slug: string }> }
 ) {
   const { slug } = await params;
-  const provider = await getProvider(slug);
+  const provider = await getProviderBySlug(slug);
+
+  // Compute name with a hard fallback to slug TitleCase to avoid "Provider"
+  const name =
+    (provider?.display_name?.trim() ||
+      provider?.name?.trim() ||
+      titleFromSlug(slug));
 
   if (!provider) {
     return (
       <main className="mx-auto max-w-xl p-6">
-        <h1 className="text-2xl font-semibold">This page isn’t available</h1>
+        <h1 className="text-2xl font-semibold">{name}</h1>
         <p className="mt-2 text-muted-foreground">
           The profile you’re looking for doesn’t exist or isn’t published yet.
         </p>
@@ -143,7 +162,6 @@ export default async function BookPage(
     );
   }
 
-  const name = coalesceName(provider);
   const baseUrl = getBaseUrl();
   const pageUrl = `${baseUrl}/book/${provider.slug}`;
   const waNumber = normalizePhoneForWA(provider.whatsapp ?? provider.phone ?? "");
