@@ -1,20 +1,71 @@
-// app/sitemap.ts
-// Minimal, App Router–safe sitemap generator.
-// No dependency on pages-manifest.json or any build internals.
+// @ts-nocheck
+import { MetadataRoute } from "next";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-export default function sitemap() {
-  const site =
-    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "") ||
-    "https://vyapr-reset-5rly.vercel.app";
+export const revalidate = 600;
 
-  const now = new Date().toISOString();
+function slugify(input: string) {
+  return (input || "")
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
 
-  // Add any static routes you want indexed here
-  const entries = [
-    { url: `${site}/`, lastModified: now, changeFrequency: "weekly", priority: 1.0 },
-    { url: `${site}/onboarding`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },
-    { url: `${site}/dashboard`, lastModified: now, changeFrequency: "weekly", priority: 0.7 },
-  ];
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  const base = process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
+  const supabase = await createSupabaseServerClient();
 
-  return entries;
+  const urls: MetadataRoute.Sitemap = [];
+
+  // 1) Microsite pages
+  const { data: providers } = await supabase
+    .from("Providers")
+    .select("slug, updated_at, published")
+    .eq("published", true)
+    .limit(5000);
+
+  (providers || []).forEach((p) => {
+    if (!p.slug) return;
+    urls.push({
+      url: `${base}/book/${p.slug}`,
+      lastModified: p.updated_at ? new Date(p.updated_at) : new Date(),
+      changeFrequency: "weekly",
+      priority: 0.7,
+    });
+  });
+
+  // 2) Directory pages — distinct (category, location)
+  const { data: pairs } = await supabase
+    .from("Providers")
+    .select("category, location")
+    .eq("published", true);
+
+  const seen = new Set<string>();
+  (pairs || []).forEach((row) => {
+    const cat = (row?.category || "").trim();
+    const city = (row?.location || "").trim();
+    if (!cat || !city) return;
+    const combo = `${slugify(cat)}-${slugify(city)}`;
+    if (seen.has(combo)) return;
+    seen.add(combo);
+    urls.push({
+      url: `${base}/directory/${combo}`,
+      lastModified: new Date(),
+      changeFrequency: "daily",
+      priority: 0.6,
+    });
+  });
+
+  // 3) Root
+  urls.push({
+    url: `${base}/`,
+    lastModified: new Date(),
+    changeFrequency: "weekly",
+    priority: 0.5,
+  });
+
+  return urls;
 }
