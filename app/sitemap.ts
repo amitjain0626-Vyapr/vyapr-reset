@@ -20,31 +20,32 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
   const supabase = createClient(supabaseUrl, supabaseAnon, { auth: { persistSession: false } });
 
-  const urls: MetadataRoute.Sitemap> = [];
+  const urls: MetadataRoute.Sitemap = [];
 
   // Root
   urls.push({
     url: `${base}/`,
     lastModified: new Date(),
     changeFrequency: "weekly",
-    priority: 1,
+    priority: 0.5,
   });
 
-  // Microsite pages (published providers with non-null slug)
-  const { data: providers } = await supabase
+  // Microsite pages (simple, robust)
+  const { data: micro } = await supabase
     .from("Providers")
-    .select("slug, updated_at")
-    .eq("published", true)
-    .not("slug", "is", null);
+    .select("slug, published")
+    .eq("published", true);
 
-  (providers || []).forEach((p) => {
-    urls.push({
-      url: `${base}/book/${p.slug}`,
-      lastModified: p.updated_at ? new Date(p.updated_at) : new Date(),
-      changeFrequency: "weekly",
-      priority: 0.7,
+  (micro || [])
+    .filter((p) => p.slug && typeof p.slug === "string" && p.slug.trim() !== "")
+    .forEach((p) => {
+      urls.push({
+        url: `${base}/book/${p.slug}`,
+        lastModified: new Date(),
+        changeFrequency: "weekly",
+        priority: 0.7,
+      });
     });
-  });
 
   // Directory pages — distinct (category, location)
   const { data: pairs } = await supabase
