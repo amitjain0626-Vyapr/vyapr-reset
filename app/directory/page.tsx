@@ -1,6 +1,7 @@
 // app/directory/page.tsx
 // @ts-nocheck
 import Link from "next/link";
+import SeoBreadcrumbs from "@/components/SeoBreadcrumbs";
 
 export const revalidate = 600; // refresh every 10 min
 
@@ -61,32 +62,25 @@ async function getLiveCombos(): Promise<Combo[]> {
 
   // Sort by provider count desc, then category asc
   return Array.from(map.values())
-    .sort((a, b) => (b.count - a.count) || a.category.localeCompare(b.category))
+    .sort((a, b) => b.count - a.count || a.category.localeCompare(b.category))
     .slice(0, 100); // safety cap
 }
 
+/** JSON-LD builders kept local to preserve behavior */
 function BreadcrumbsJSONLD(baseUrl: string) {
+  const base = (baseUrl || "https://vyapr-reset-5rly.vercel.app").replace(/\/+$/, "");
   return {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
     itemListElement: [
-      {
-        "@type": "ListItem",
-        position: 1,
-        name: "Home",
-        item: `${baseUrl}/`,
-      },
-      {
-        "@type": "ListItem",
-        position: 2,
-        name: "Directory",
-        item: `${baseUrl}/directory`,
-      },
+      { "@type": "ListItem", position: 1, name: "Home", item: `${base}/` },
+      { "@type": "ListItem", position: 2, name: "Directory", item: `${base}/directory` },
     ],
   };
 }
 
 function ItemListJSONLD(baseUrl: string, combos: Combo[]) {
+  const base = (baseUrl || "https://vyapr-reset-5rly.vercel.app").replace(/\/+$/, "");
   return {
     "@context": "https://schema.org",
     "@type": "ItemList",
@@ -94,7 +88,7 @@ function ItemListJSONLD(baseUrl: string, combos: Combo[]) {
       "@type": "ListItem",
       position: i + 1,
       name: `${c.category} in ${c.city}`,
-      url: `${baseUrl}${c.url}`,
+      url: `${base}${c.url}`,
     })),
   };
 }
@@ -107,14 +101,23 @@ export const metadata = {
 
 export default async function DirectoryIndexPage() {
   const combos = await getLiveCombos();
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "";
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-10">
-      <SeoBreadcrumbs baseUrl={process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app"} trail={[{ name: "Home", url: "/" }, { name: "Directory" }]} className="mb-4" />
+      {/* Hidden QA marker */}
+      <div className="sr-only" data-marker="VYAPR-DIR-9.6">VYAPR-DIR-9.6</div>
 
+      {/* Shared breadcrumb component (visual + BreadcrumbList JSON-LD) */}
+      <SeoBreadcrumbs
+        baseUrl={baseUrl}
+        trail={[{ name: "Home", url: "/" }, { name: "Directory" }]}
+        className="mb-4"
+      />
+
+      {/* Legacy visual crumbs (kept to avoid behavior change) */}
       <section className="mb-6 text-sm text-gray-500">
-        <nav className="flex items-center gap-2">
+        <nav className="flex items-center gap-2" aria-label="Breadcrumb">
           <Link href="/" className="hover:underline">Home</Link>
           <span aria-hidden>›</span>
           <span className="text-gray-700 font-medium">Directory</span>
@@ -160,25 +163,17 @@ export default async function DirectoryIndexPage() {
         </>
       )}
 
-      {/* JSON-LD: Breadcrumbs + ItemList (AI/SEO) */}
+      {/* JSON-LD scripts (BreadcrumbList + ItemList) */}
       <script
+        id="ld-dir-breadcrumbs"
         type="application/ld+json"
-        // biome-ignore lint/security/noDangerouslySetInnerHtml: required for JSON-LD
-        dangerouslySetInnerHTML={{
-          __html: JSON.stringify(BreadcrumbsJSONLD(baseUrl || "")),
-        }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(BreadcrumbsJSONLD(baseUrl)) }}
       />
-      {combos.length > 0 && (
-        <script
-          type="application/ld+json"
-          // biome-ignore lint/security/noDangerouslySetInnerHtml: required for JSON-LD
-          dangerouslySetInnerHTML={{
-            __html: JSON.stringify(ItemListJSONLD(baseUrl || "", combos)),
-          }}
-        />
-      )}
-    
-      <DirectorySitemapSeo baseUrl={process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app"} />
-</main>
+      <script
+        id="ld-dir-itemlist"
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(ItemListJSONLD(baseUrl, combos)) }}
+      />
+    </main>
   );
 }
