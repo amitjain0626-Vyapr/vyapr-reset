@@ -5,6 +5,9 @@ import FAQ from "@/components/FAQ";
 import { buildBreadcrumbs, buildFaqPage, buildLocalBusiness } from "@/lib/schema";
 import { normalizeHours } from "@/lib/hours";
 
+// Force dynamic so no stale SSG/ISR HTML is served
+export const dynamic = "force-dynamic";
+
 type PageProps = { params: { slug: string } };
 
 async function getProviderFromApi(baseUrl: string, slug: string) {
@@ -111,14 +114,17 @@ export default async function ProviderPage({ params }: PageProps) {
 
       {/* JSON-LD scripts — exactly 3 */}
       <script
+        id="ld-breadcrumbs"
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbs) }}
       />
       <script
+        id="ld-localbusiness"
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusiness) }}
       />
       <script
+        id="ld-third"
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(thirdSchema) }}
       />
