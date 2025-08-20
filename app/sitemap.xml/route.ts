@@ -27,13 +27,18 @@ export async function GET(req: Request) {
     (process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "") as string) ||
     url.origin;
 
-  // Use server-side envs; fall back to NEXT_PUBLIC_* if needed
   const supabaseUrl =
     process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
-  // Minimal 2-URL sitemap builder
-  const minimalXml = () => {
+  // If env missing: show why (in debug) or serve minimal XML
+  if (!supabaseUrl || !serviceKey) {
+    if (debug) {
+      return NextResponse.json({
+        mode: "env-missing",
+        env: { hasSupabaseUrl: !!supabaseUrl, hasServiceRole: !!serviceKey },
+      });
+    }
     const minimal = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url><loc>${base}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>
@@ -46,24 +51,10 @@ export async function GET(req: Request) {
         "cache-control": "no-store, no-cache, must-revalidate",
       },
     });
-  };
-
-  // If env is missing, exit early
-  if (!supabaseUrl || !serviceKey) {
-    if (debug) {
-      return NextResponse.json({
-        mode: "env-missing",
-        env: {
-          hasSupabaseUrl: !!supabaseUrl,
-          hasServiceRole: !!serviceKey,
-        },
-      });
-    }
-    return minimalXml();
   }
 
-  // Query with Service Role (bypass RLS, still filter published=true)
-  let data: any[] = [];
+  // Query with Service Role (RLS bypass), still filter published=true
+  let rows: any[] = [];
   let qError: any = null;
   try {
     const supabase = createClient(supabaseUrl, serviceKey, {
@@ -77,41 +68,36 @@ export async function GET(req: Request) {
       .eq("published", true);
 
     if (res.error) qError = { message: res.error.message, code: res.error.code };
-    data = Array.isArray(res.data) ? res.data : [];
+    rows = Array.isArray(res.data) ? res.data : [];
   } catch (e: any) {
     qError = { message: String(e?.message || e) };
   }
 
-  // Debug JSON path (so we can see what the route sees)
+  // Debug JSON (so we can see exactly what the route sees)
   if (debug) {
     return NextResponse.json({
       mode: "debug",
-      env: {
-        hasSupabaseUrl: !!supabaseUrl,
-        hasServiceRole: !!serviceKey,
-      },
+      env: { hasSupabaseUrl: !!supabaseUrl, hasServiceRole: !!serviceKey },
       query: {
-        count: data.length,
-        sample: data.slice(0, 5).map((r) => ({
-          slug: r.slug ?? null,
-          category: r.category ?? null,
-          location: r.location ?? null,
+        count: rows.length,
+        sample: rows.slice(0, 5).map(r => ({
+          slug: r.slug ?? null, category: r.category ?? null, location: r.location ?? null,
         })),
         error: qError,
       },
     });
   }
 
-  // Build XML
+  // Build final XML
   const urls: { loc: string; lastmod?: string; freq?: string; prio?: string }[] = [
     { loc: `${base}/`, freq: "daily", prio: "1.0" },
     { loc: `${base}/directory`, freq: "daily", prio: "0.9" },
   ];
 
-  if (!qError && data.length > 0) {
+  if (!qError && rows.length > 0) {
     const comboSet = new Set<string>();
 
-    for (const row of data) {
+    for (const row of rows) {
       const slug = (row.slug || "").toString().trim();
       if (slug) {
         urls.push({
@@ -121,7 +107,6 @@ export async function GET(req: Request) {
           prio: "0.8",
         });
       }
-
       const category = (row.category || "").toString().trim();
       const city = (row.location || "").toString().trim();
       if (category && city) comboSet.add(`${category}|||${city}`);
@@ -139,15 +124,9 @@ export async function GET(req: Request) {
 
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${urls
-  .map(
-    (u) => `  <url>
-    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>${u.lastmod}</lastmod>` : ""}${
-      u.freq ? `\n    <changefreq>${u.freq}</changefreq>` : ""
-    }${u.prio ? `\n    <priority>${u.prio}</priority>` : ""}
-  </url>`
-  )
-  .join("\n")}
+${urls.map(u => `  <url>
+    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>${u.lastmod}</lastmod>` : ""}${u.freq ? `\n    <changefreq>${u.freq}</changefreq>` : ""}${u.prio ? `\n    <priority>${u.prio}</priority>` : ""}
+  </url>`).join("\n")}
 </urlset>`.trim();
 
   return new NextResponse(xml, {
