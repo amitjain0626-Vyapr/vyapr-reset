@@ -111,6 +111,8 @@ export default async function DirectoryIndexPage() {
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-10">
+      <SeoBreadcrumbs baseUrl={process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app"} trail={[{ name: "Home", url: "/" }, { name: "Directory" }]} className="mb-4" />
+
       <section className="mb-6 text-sm text-gray-500">
         <nav className="flex items-center gap-2">
           <Link href="/" className="hover:underline">Home</Link>
