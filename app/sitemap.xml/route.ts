@@ -31,7 +31,22 @@ export async function GET(req: Request) {
     process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
-  // If env missing: show why (in debug) or serve minimal XML
+  // Minimal 2-URL sitemap (used if env missing)
+  const minimalXml = () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>${base}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>
+  <url><loc>${base}/directory</loc><changefreq>daily</changefreq><priority>0.9</priority></url>
+</urlset>`;
+    return new NextResponse(xml, {
+      status: 200,
+      headers: {
+        "content-type": "application/xml; charset=utf-8",
+        "cache-control": "no-store, no-cache, must-revalidate",
+      },
+    });
+  };
+
   if (!supabaseUrl || !serviceKey) {
     if (debug) {
       return NextResponse.json({
@@ -39,21 +54,10 @@ export async function GET(req: Request) {
         env: { hasSupabaseUrl: !!supabaseUrl, hasServiceRole: !!serviceKey },
       });
     }
-    const minimal = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>${base}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>
-  <url><loc>${base}/directory</loc><changefreq>daily</changefreq><priority>0.9</priority></url>
-</urlset>`;
-    return new NextResponse(minimal, {
-      status: 200,
-      headers: {
-        "content-type": "application/xml; charset=utf-8",
-        "cache-control": "no-store, no-cache, must-revalidate",
-      },
-    });
+    return minimalXml();
   }
 
-  // Query with Service Role (RLS bypass), still filter published=true
+  // Query with Service Role (bypass RLS), selecting only existing columns
   let rows: any[] = [];
   let qError: any = null;
   try {
@@ -62,9 +66,10 @@ export async function GET(req: Request) {
       global: { fetch },
     });
 
+    // ⚠️ Do NOT select updated_at/created_at (not guaranteed in your DB)
     const res = await supabase
       .from("Providers")
-      .select("slug, category, location, created_at, updated_at", { count: "exact" })
+      .select("slug, category, location", { count: "exact" })
       .eq("published", true);
 
     if (res.error) qError = { message: res.error.message, code: res.error.code };
@@ -73,7 +78,7 @@ export async function GET(req: Request) {
     qError = { message: String(e?.message || e) };
   }
 
-  // Debug JSON (so we can see exactly what the route sees)
+  // Debug JSON mode
   if (debug) {
     return NextResponse.json({
       mode: "debug",
@@ -88,8 +93,8 @@ export async function GET(req: Request) {
     });
   }
 
-  // Build final XML
-  const urls: { loc: string; lastmod?: string; freq?: string; prio?: string }[] = [
+  // Build URLs (no <lastmod> to keep schema-agnostic)
+  const urls: { loc: string; freq?: string; prio?: string }[] = [
     { loc: `${base}/`, freq: "daily", prio: "1.0" },
     { loc: `${base}/directory`, freq: "daily", prio: "0.9" },
   ];
@@ -102,7 +107,6 @@ export async function GET(req: Request) {
       if (slug) {
         urls.push({
           loc: `${base}/book/${slug}`,
-          lastmod: row.updated_at || row.created_at || new Date().toISOString(),
           freq: "weekly",
           prio: "0.8",
         });
@@ -125,7 +129,7 @@ export async function GET(req: Request) {
   const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${urls.map(u => `  <url>
-    <loc>${u.loc}</loc>${u.lastmod ? `\n    <lastmod>${u.lastmod}</lastmod>` : ""}${u.freq ? `\n    <changefreq>${u.freq}</changefreq>` : ""}${u.prio ? `\n    <priority>${u.prio}</priority>` : ""}
+    <loc>${u.loc}</loc>${u.freq ? `\n    <changefreq>${u.freq}</changefreq>` : ""}${u.prio ? `\n    <priority>${u.prio}</priority>` : ""}
   </url>`).join("\n")}
 </urlset>`.trim();
 
