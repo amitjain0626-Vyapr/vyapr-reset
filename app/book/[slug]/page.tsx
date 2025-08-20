@@ -10,13 +10,13 @@ type Provider = {
   slug: string;
   category?: string | null;
   location?: string | null;
-  opening_hours?: any;          // JSON, JSON-string, or text
+  opening_hours?: any;
   address_line1?: string | null;
   address_line2?: string | null;
   pincode?: string | null;
   latitude?: number | string | null;
   longitude?: number | string | null;
-  price_range?: string | null;  // e.g., "₹₹"
+  price_range?: string | null;
   faqs?: any;                   // JSONB or JSON-string: [{q,a}]
   bio?: string | null;
   whatsapp?: string | null;
@@ -111,7 +111,20 @@ function renderOpeningHoursList(opening_hours: any) {
   return <div className="text-sm text-gray-500">Hours not available.</div>;
 }
 
-/** PAGE (data-bound UI; no JSON-LD here) **/
+/** FAQPage schema (only when FAQs exist) **/
+function buildFaqSchema(faqs: Array<{ q: string; a: string }>) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: faqs.map((f) => ({
+      "@type": "Question",
+      name: f.q,
+      acceptedAnswer: { "@type": "Answer", text: f.a },
+    })),
+  };
+}
+
+/** PAGE (data-bound UI) **/
 export default async function Page({ params }: any) {
   const slug = params?.slug ?? "";
   const provider = await getProvider(slug);
@@ -123,7 +136,7 @@ export default async function Page({ params }: any) {
   return (
     <div className="mx-auto max-w-2xl px-4 py-8 space-y-8">
       {/* marker so we know this build is live */}
-      <div className="text-[10px] uppercase tracking-widest text-gray-500">VYAPR-9.5 DATA</div>
+      <div className="text-[10px] uppercase tracking-widest text-gray-500">VYAPR-9.5 FAQLD</div>
 
       {/* Header */}
       <header className="space-y-2">
@@ -185,6 +198,14 @@ export default async function Page({ params }: any) {
           <p className="text-sm text-gray-600">No FAQs yet.</p>
         )}
       </section>
+
+      {/* JSON-LD: only FAQPage; renders ONLY if FAQs exist */}
+      {faqs?.length ? (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(buildFaqSchema(faqs)) }}
+        />
+      ) : null}
     </div>
   );
 }
