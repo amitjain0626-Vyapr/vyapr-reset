@@ -1,3 +1,4 @@
+// app/api/debug/schema-snapshots/route.ts
 // @ts-nocheck
 import { NextRequest, NextResponse } from "next/server";
 
@@ -7,7 +8,6 @@ export const revalidate = 0;
 
 const BASE =
   (process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app").replace(/\/+$/, "");
-
 const TARGET_TYPES = new Set(["LocalBusiness", "FAQPage", "BreadcrumbList", "ItemList"]);
 
 function json(data: any, status = 200) {
@@ -63,10 +63,10 @@ function flattenJsonLd(node: any): any[] {
     if (!n || typeof n !== "object") return;
     acc.push(n);
     if (Array.isArray(n)) return n.forEach(push);
-    if (n["@graph"] && Array.isArray(n["@graph"])) n["@graph"].forEach(push);
+    if ((n as any)["@graph"] && Array.isArray((n as any)["@graph"])) (n as any)["@graph"].forEach(push);
     for (const k of Object.keys(n)) {
       if (k === "@context") continue;
-      const v = n[k];
+      const v = (n as any)[k];
       if (Array.isArray(v)) v.forEach(push);
       else if (v && typeof v === "object") push(v);
     }
@@ -115,11 +115,20 @@ function trimSample(s: string, max = 800): string {
   return s.length <= max ? s : s.slice(0, max) + "…";
 }
 
-export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const path = (searchParams.get("path") || "").trim();
+type PathResult = {
+  ok: true;
+  path: string;
+  markers: string[];
+  counts: {
+    scripts: number;
+    byType: { LocalBusiness: number; FAQPage: number; BreadcrumbList: number; ItemList: number };
+  };
+  samples: string[];
+  notes: string[];
+};
 
-  const payload = {
+async function analyzePath(path: string): Promise<PathResult> {
+  const payload: PathResult = {
     ok: true,
     path,
     markers: ["VYAPR-9.8"],
@@ -127,53 +136,102 @@ export async function GET(req: NextRequest) {
       scripts: 0,
       byType: { LocalBusiness: 0, FAQPage: 0, BreadcrumbList: 0, ItemList: 0 },
     },
-    samples: [] as string[],
-    notes: [] as string[],
+    samples: [],
+    notes: [],
   };
 
+  if (!path) {
+    payload.notes.push("Missing path value");
+    return payload;
+  }
+
+  const safePath = path.startsWith("/") ? path : "/" + path;
+  const url = `${BASE}${safePath}${safePath.includes("?") ? "&" : "?"}now=${Date.now()}`;
+
+  let html = "";
   try {
-    if (!path) {
-      payload.notes.push("Missing ?path (e.g., /book/dr-kapoor)");
-      return json(payload, 200);
+    const r = await fetchWithTimeout(url, 9000);
+    if (!r.ok) {
+      payload.notes.push(`Fetch failed (${r.status}) for ${url}`);
+      return payload;
     }
+    html = await r.text();
+  } catch (e: any) {
+    payload.notes.push(`Fetch error for ${url}: ${e?.name || "error"}`);
+    return payload;
+  }
 
-    const safePath = path.startsWith("/") ? path : "/" + path;
-    const url = `${BASE}${safePath}${safePath.includes("?") ? "&" : "?"}now=${Date.now()}`;
+  const scripts = extractJsonLdScripts(html);
+  payload.counts.scripts = scripts.length;
+  payload.samples = scripts.slice(0, 2).map((s) => trimSample(s.raw, 800));
 
-    let html = "";
-    try {
-      const r = await fetchWithTimeout(url, 9000);
-      if (!r.ok) {
-        payload.notes.push(`Fetch failed (${r.status}) for ${url}`);
-        return json(payload, 200);
+  const nodes: any[] = [];
+  for (const s of scripts) {
+    const parsed = safeJsonParse(s.raw);
+    if (!parsed) continue;
+    nodes.push(...flattenJsonLd(parsed));
+  }
+  const byType = countByType(nodes);
+  payload.counts.byType = {
+    LocalBusiness: byType.LocalBusiness || 0,
+    FAQPage: byType.FAQPage || 0,
+    BreadcrumbList: byType.BreadcrumbList || 0,
+    ItemList: byType.ItemList || 0,
+  };
+
+  return payload;
+}
+
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+
+  // Batch mode: ?paths=/a,/b,/c
+  const pathsParam = (searchParams.get("paths") || "").trim();
+  if (pathsParam) {
+    const paths = pathsParam
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, 12); // hard cap to keep cheap
+
+    const results: PathResult[] = [];
+    for (const p of paths) {
+      try {
+        results.push(await analyzePath(p));
+      } catch (e: any) {
+        results.push({
+          ok: true,
+          path: p,
+          markers: ["VYAPR-9.8"],
+          counts: {
+            scripts: 0,
+            byType: { LocalBusiness: 0, FAQPage: 0, BreadcrumbList: 0, ItemList: 0 },
+          },
+          samples: [],
+          notes: [`Handler error for ${p}: ${e?.message || "unknown"}`],
+        });
       }
-      html = await r.text();
-    } catch (e: any) {
-      payload.notes.push(`Fetch error for ${url}: ${e?.name || "error"}`);
-      return json(payload, 200);
     }
 
-    const scripts = extractJsonLdScripts(html);
-    payload.counts.scripts = scripts.length;
-    payload.samples = scripts.slice(0, 2).map((s) => trimSample(s.raw, 800));
-
-    const nodes: any[] = [];
-    for (const s of scripts) {
-      const parsed = safeJsonParse(s.raw);
-      if (!parsed) continue;
-      nodes.push(...flattenJsonLd(parsed));
-    }
-    const byType = countByType(nodes);
-    payload.counts.byType = {
-      LocalBusiness: byType.LocalBusiness || 0,
-      FAQPage: byType.FAQPage || 0,
-      BreadcrumbList: byType.BreadcrumbList || 0,
-      ItemList: byType.ItemList || 0,
+    // Optional tiny summary
+    const summary = {
+      total: results.length,
+      scripts: results.reduce((n, r) => n + (r.counts?.scripts || 0), 0),
     };
 
-    return json(payload, 200);
-  } catch (e: any) {
-    payload.notes.push(`Handler error: ${e?.message || "unknown"}`);
-    return json(payload, 200);
+    return json(
+      {
+        ok: true,
+        markers: ["VYAPR-9.8", "BATCH"],
+        results,
+        summary,
+      },
+      200
+    );
   }
+
+  // Single mode: ?path=/a
+  const path = (searchParams.get("path") || "").trim();
+  const single = await analyzePath(path);
+  return json(single, 200);
 }
