@@ -1,11 +1,7 @@
 // @ts-nocheck
-// components/DirectorySitemapSeo.tsx
 import React from "react";
 import { buildBreadcrumbs } from "@/lib/schema";
 
-// Reads sitemap.xml, extracts provider URLs (/book/*), and emits:
-// 1) BreadcrumbList (Home > Directory)
-// 2) ItemList with provider URLs
 async function getSitemapUrls(baseUrl: string): Promise<string[]> {
   const base = (baseUrl || "").replace(/\/+$/, "");
   try {
