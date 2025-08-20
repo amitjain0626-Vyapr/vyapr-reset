@@ -10,16 +10,17 @@ type Provider = {
   slug: string;
   category?: string | null;
   location?: string | null;
-  opening_hours?: any;
+  opening_hours?: any;          // JSON, JSON-string, or text
   address_line1?: string | null;
   address_line2?: string | null;
   pincode?: string | null;
   latitude?: number | string | null;
   longitude?: number | string | null;
-  price_range?: string | null;
+  price_range?: string | null;  // e.g., "₹₹"
   faqs?: any;                   // JSONB or JSON-string: [{q,a}]
   bio?: string | null;
   whatsapp?: string | null;
+  url?: string | null;
 };
 
 /** Data fetch (fail-open) **/
@@ -111,6 +112,79 @@ function renderOpeningHoursList(opening_hours: any) {
   return <div className="text-sm text-gray-500">Hours not available.</div>;
 }
 
+/** LocalBusiness enrichment builders **/
+function buildAddress(provider: Provider) {
+  const line1 = provider?.address_line1 ?? null;
+  const line2 = provider?.address_line2 ?? null;
+  const locality = provider?.location ?? null;
+  const postalCode = provider?.pincode ? String(provider.pincode) : null;
+
+  if (!line1 && !line2 && !locality && !postalCode) return undefined;
+
+  const address: any = { "@type": "PostalAddress", addressCountry: "IN" };
+  if (line1 || line2) {
+    address.streetAddress = [line1, line2].filter(Boolean).join(", ");
+  }
+  if (locality) address.addressLocality = locality;
+  if (postalCode) address.postalCode = postalCode;
+  return address;
+}
+
+function buildOpeningHoursSpecification(opening_hours: any) {
+  const oh = parseJSONLoose(opening_hours) ?? opening_hours;
+  const asArray =
+    Array.isArray(oh) && oh.length
+      ? oh
+      : typeof oh === "object" && oh
+      ? Object.entries(oh).flatMap(([day, val]: any) => {
+          if (!val) return [];
+          if (Array.isArray(val)) return val.map((v) => ({ day, opens: v?.opens, closes: v?.closes }));
+          return [{ day, opens: val?.opens, closes: val?.closes }];
+        })
+      : null;
+
+  if (!asArray || !asArray.length) return undefined;
+
+  return asArray
+    .filter((row: any) => row?.day && (row?.opens || row?.closes))
+    .map((row: any) => ({
+      "@type": "OpeningHoursSpecification",
+      dayOfWeek: row.day,
+      opens: row.opens ?? undefined,
+      closes: row.closes ?? undefined,
+    }));
+}
+
+function buildGeo(provider: Provider) {
+  const lat = toNumber(provider?.latitude);
+  const lng = toNumber(provider?.longitude);
+  if (lat === undefined || lng === undefined) return undefined;
+  return { "@type": "GeoCoordinates", latitude: lat, longitude: lng };
+}
+
+function buildLocalBusinessSchema(provider: Provider) {
+  const base = process.env.NEXT_PUBLIC_BASE_URL || "";
+  const address = buildAddress(provider);
+  const hours = buildOpeningHoursSpecification(provider?.opening_hours);
+  const geo = buildGeo(provider);
+  const priceRange = provider?.price_range ? String(provider.price_range) : undefined;
+
+  const schema: any = {
+    "@context": "https://schema.org",
+    "@type": "LocalBusiness",
+    name: provider?.name || provider?.slug,
+    url: `${base}/book/${provider?.slug}`,
+  };
+
+  if (address) schema.address = address;
+  if (hours) schema.openingHoursSpecification = hours;
+  if (geo) schema.geo = geo;
+  if (priceRange) schema.priceRange = priceRange;
+  if (provider?.category) schema.department = provider.category;
+
+  return schema;
+}
+
 /** FAQPage schema (only when FAQs exist) **/
 function buildFaqSchema(faqs: Array<{ q: string; a: string }>) {
   return {
@@ -124,7 +198,7 @@ function buildFaqSchema(faqs: Array<{ q: string; a: string }>) {
   };
 }
 
-/** PAGE (data-bound UI) **/
+/** PAGE (data-bound UI + JSON-LD: LocalBusiness always, FAQPage only if FAQs exist) **/
 export default async function Page({ params }: any) {
   const slug = params?.slug ?? "";
   const provider = await getProvider(slug);
@@ -133,10 +207,15 @@ export default async function Page({ params }: any) {
   const lat = toNumber(provider?.latitude);
   const lng = toNumber(provider?.longitude);
 
+  const localBusinessLD = buildLocalBusinessSchema({
+    ...(provider ?? {}),
+    slug: slug || provider?.slug || "",
+  } as Provider);
+
   return (
     <div className="mx-auto max-w-2xl px-4 py-8 space-y-8">
       {/* marker so we know this build is live */}
-      <div className="text-[10px] uppercase tracking-widest text-gray-500">VYAPR-9.5 FAQLD</div>
+      <div className="text-[10px] uppercase tracking-widest text-gray-500">VYAPR-9.5 LBLD</div>
 
       {/* Header */}
       <header className="space-y-2">
@@ -199,7 +278,11 @@ export default async function Page({ params }: any) {
         )}
       </section>
 
-      {/* JSON-LD: only FAQPage; renders ONLY if FAQs exist */}
+      {/* JSON-LD: LocalBusiness always; FAQPage only if FAQs exist */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusinessLD) }}
+      />
       {faqs?.length ? (
         <script
           type="application/ld+json"
