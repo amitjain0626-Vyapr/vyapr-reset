@@ -9,6 +9,24 @@ type Case = { name: string; pass: boolean; details: any; builder?: string; skipp
 
 function isObj(v: any) { return v && typeof v === "object"; }
 
+async function safeImport(path: string) {
+  try { return { ok: true, mod: await import(path) }; }
+  catch (e: any) { return { ok: false, error: String(e), path }; }
+}
+
+// Try many plausible locations; merge any exports we find.
+async function multiImport(paths: string[]) {
+  const notes: any[] = [];
+  const merged: any = {};
+  for (const p of paths) {
+    const r = await safeImport(p);
+    if (!r.ok) { notes.push({ path: p, error: r.error }); continue; }
+    Object.assign(merged, r.mod || {});
+    notes.push({ path: p, ok: true });
+  }
+  return { merged, notes };
+}
+
 async function callFirst<T>(fns: Array<() => any>) {
   let lastErr: any = null;
   for (const fn of fns) {
@@ -41,11 +59,6 @@ function hoursPass(o: any) {
   return isObj(o);
 }
 
-async function safeImport(path: string) {
-  try { return await import(path); }
-  catch (e) { return { __import_error__: String(e) }; }
-}
-
 function json(body: any, status = 200) {
   const res = NextResponse.json(body, { status });
   res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
@@ -57,10 +70,6 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const base = process.env.NEXT_PUBLIC_BASE_URL || `${url.protocol}//${url.host}`;
 
-  // Modes:
-  // - ?ping=1: trivial reachability
-  // - ?mini=1: summary only (fast, no heavy tests)
-  // - default: heavy tests (same as before) but guarded and opt-in with ?full=1
   const ping = url.searchParams.get("ping");
   const mini = url.searchParams.get("mini");
   const full = url.searchParams.get("full");
@@ -69,38 +78,70 @@ export async function GET(req: Request) {
     return json({ ok: true, markers: ["VYAPR-9.7"], ping: true, now: new Date().toISOString() });
   }
 
-  // Always import (safely) to surface import errors even in mini mode
-  const schemaMod: any = await safeImport("@/lib/schema");
-  const hoursMod: any = await safeImport("@/lib/hours");
+  // Candidates for schema-related builders across your codebase variants
+  const schemaCandidates = [
+    "@/lib/schema",
+    "@/lib/seo/schema",
+    "@/lib/seo/index",
+    "@/lib/seo/breadcrumbs",
+    "@/components/SeoBreadcrumbs",
+    "@/components/seo/Breadcrumbs",
+    "@/lib/seo/faq",
+    "@/components/FAQ",
+  ];
+  // Candidates for hours normalizer
+  const hoursCandidates = [
+    "@/lib/hours",
+    "@/lib/seo/hours",
+    "@/lib/utils/hours",
+  ];
 
-  const importNotes: any = {};
-  if (schemaMod.__import_error__) importNotes.schemaImportError = schemaMod.__import_error__;
-  if (hoursMod.__import_error__) importNotes.hoursImportError = hoursMod.__import_error__;
+  const schemaLoad = await multiImport(schemaCandidates);
+  const hoursLoad = await multiImport(hoursCandidates);
 
-  const exportsFound = {
-    buildBreadcrumbs: !!schemaMod.buildBreadcrumbs,
-    buildLocalBusiness: !!schemaMod.buildLocalBusiness,
-    buildFaqPage: !!schemaMod.buildFaqPage,
-    normalizeHours: !!hoursMod.normalizeHours,
+  // Consolidate possible exports. We accept either camelCase or default collections.
+  const buildBreadcrumbs =
+    schemaLoad.merged.buildBreadcrumbs ||
+    schemaLoad.merged.breadcrumbs ||
+    schemaLoad.merged.default?.buildBreadcrumbs;
+
+  const buildLocalBusiness =
+    schemaLoad.merged.buildLocalBusiness ||
+    schemaLoad.merged.localBusiness ||
+    schemaLoad.merged.default?.buildLocalBusiness;
+
+  const buildFaqPage =
+    schemaLoad.merged.buildFaqPage ||
+    schemaLoad.merged.faqJsonLd ||
+    schemaLoad.merged.default?.buildFaqPage;
+
+  const normalizeHours =
+    hoursLoad.merged.normalizeHours ||
+    hoursLoad.merged.default?.normalizeHours;
+
+  const importsReport = {
+    schemaTried: schemaLoad.notes,
+    hoursTried: hoursLoad.notes,
+    exportsFound: {
+      buildBreadcrumbs: !!buildBreadcrumbs,
+      buildLocalBusiness: !!buildLocalBusiness,
+      buildFaqPage: !!buildFaqPage,
+      normalizeHours: !!normalizeHours,
+    },
   };
 
   if (mini || !full) {
-    // Fast, guaranteed JSON — no heavy tests
     return json({
       ok: true,
       mode: "mini",
       markers: ["VYAPR-9.7"],
       summary: { duration_ms: Date.now() - t0 },
-      exportsFound,
-      importNotes,
-      buildersMentioned: ["buildBreadcrumbs","buildLocalBusiness","buildFaqPage","normalizeHours"],
+      ...importsReport,
+      buildersMentioned: ["buildBreadcrumbs", "buildLocalBusiness", "buildFaqPage", "normalizeHours"],
     });
   }
 
-  // ---------- FULL TESTS (explicit ?full=1) ----------
-  const { buildBreadcrumbs, buildLocalBusiness, buildFaqPage } = schemaMod;
-  const { normalizeHours } = hoursMod;
-
+  // ---------------- FULL TESTS (explicit ?full=1) ----------------
   const cases: Case[] = [];
   cases.push({ name: "Route self-check", builder: "route", pass: true, details: { base } });
 
@@ -278,8 +319,6 @@ export async function GET(req: Request) {
     summary: { cases: total, passed, duration_ms: Date.now() - t0 },
     cases,
     markers: ["VYAPR-9.7"],
-    buildersMentioned: ["buildBreadcrumbs","buildLocalBusiness","buildFaqPage","normalizeHours"],
-    importNotes,
-    exportsFound,
+    ...importsReport,
   });
 }
