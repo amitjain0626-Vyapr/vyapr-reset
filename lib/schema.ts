@@ -1,21 +1,38 @@
 // @ts-nocheck
-// lib/schema.ts
-import { normalizeHours } from "./hours";
-
 /**
- * Pure builders for JSON-LD objects.
- * Fail-open: accept partial/missing fields and only include what's present.
+ * Debug-safe builders for JSON-LD.
+ * Fail-open, dedupe, and omit empty optionals.
+ * NOTE: Only used by /api/debug/* routes. Public pages are untouched.
  */
 
-export function buildBreadcrumbs(baseUrl: string, segments: { name: string; url?: string }[]) {
-  const itemListElement = (segments || [])
-    .filter(s => s?.name)
-    .map((s, idx) => ({
-      "@type": "ListItem",
-      position: idx + 1,
-      name: s.name,
-      item: s.url ? absUrl(baseUrl, s.url) : undefined,
-    }));
+type Crumb = { name?: string; url?: string; item?: string };
+type TrailInput =
+  | Crumb[]
+  | { trail?: Crumb[]; segments?: Crumb[]; baseUrl?: string };
+
+export function buildBreadcrumbs(input: TrailInput) {
+  const list: Crumb[] = Array.isArray(input)
+    ? input
+    : Array.isArray((input as any)?.trail)
+    ? (input as any).trail
+    : Array.isArray((input as any)?.segments)
+    ? (input as any).segments
+    : [];
+
+  const cleaned = (list || [])
+    .filter(Boolean)
+    .map((c) => ({
+      name: String(c?.name ?? "").trim(),
+      item: String(c?.url ?? c?.item ?? "").trim(),
+    }))
+    .filter((c) => c.name || c.item);
+
+  const itemListElement = cleaned.map((c, i) => {
+    const out: any = { "@type": "ListItem", position: i + 1 };
+    if (c.name) out.name = c.name;
+    if (c.item) out.item = c.item;
+    return out;
+  });
 
   return {
     "@context": "https://schema.org",
@@ -24,109 +41,100 @@ export function buildBreadcrumbs(baseUrl: string, segments: { name: string; url?
   };
 }
 
-export function buildFaqPage(faqs?: Array<{ question?: string; answer?: string }>) {
-  const items = Array.isArray(faqs) ? faqs : [];
-  if (!items.length) return null;
+type Address = {
+  streetAddress?: string;
+  addressLocality?: string;
+  addressRegion?: string;
+  postalCode?: string;
+  addressCountry?: string;
+};
 
-  const mainEntity = items
-    .filter(Boolean)
-    .map((f) => {
-      const q = (f?.question ?? "").toString().trim();
-      const a = (f?.answer ?? "").toString().trim();
-      if (!q && !a) return null;
-      return {
-        "@type": "Question",
-        name: q || "Question",
-        acceptedAnswer: a ? { "@type": "Answer", text: a } : undefined,
-      };
-    })
-    .filter(Boolean);
+type Geo = { latitude?: number; longitude?: number };
 
-  if (!mainEntity.length) return null;
+type ProviderLike = {
+  name?: string;
+  slug?: string;
+  url?: string;
+  description?: string;
+  priceRange?: string;
+  telephone?: string;
+  sameAs?: string[]; // social links
+  image?: string | string[];
+  address?: Address;
+  geo?: Geo;
+  openingHoursSpecification?: any[];
+};
+
+export function buildLocalBusiness(input: ProviderLike | { provider?: ProviderLike; baseUrl?: string }) {
+  const p: ProviderLike = (input as any)?.provider ?? (input as any) ?? {};
+  const out: any = {
+    "@context": "https://schema.org",
+    "@type": "LocalBusiness",
+  };
+
+  function assignIf(k: string, v: any) {
+    if (v === undefined || v === null) return;
+    if (typeof v === "string" && v.trim() === "") return;
+    if (Array.isArray(v) && v.length === 0) return;
+    out[k] = v;
+  }
+
+  assignIf("name", p.name);
+  assignIf("description", p.description);
+  assignIf("url", p.url);
+  assignIf("telephone", p.telephone);
+  assignIf("priceRange", p.priceRange);
+  assignIf("sameAs", Array.isArray(p.sameAs) ? p.sameAs.filter(Boolean) : undefined);
+  assignIf("image", p.image);
+
+  if (p.address && typeof p.address === "object") {
+    const addr: any = { "@type": "PostalAddress" };
+    const a = p.address;
+    if (a.streetAddress) addr.streetAddress = a.streetAddress;
+    if (a.addressLocality) addr.addressLocality = a.addressLocality;
+    if (a.addressRegion) addr.addressRegion = a.addressRegion;
+    if (a.postalCode) addr.postalCode = a.postalCode;
+    if (a.addressCountry) addr.addressCountry = a.addressCountry;
+    // only attach if any field present
+    if (Object.keys(addr).length > 1) out.address = addr;
+  }
+
+  if (p.geo && (p.geo.latitude != null || p.geo.longitude != null)) {
+    out.geo = {
+      "@type": "GeoCoordinates",
+      latitude: p.geo.latitude,
+      longitude: p.geo.longitude,
+    };
+  }
+
+  // Permit either already-normalized specs or pass-through (debug)
+  if (Array.isArray(p.openingHoursSpecification)) {
+    assignIf("openingHoursSpecification", p.openingHoursSpecification);
+  }
+
+  return out;
+}
+
+type QA = { question?: string; answer?: string };
+
+export function buildFaqPage(input: QA[] | { items?: QA[] }) {
+  const items: QA[] = Array.isArray(input) ? input : (input as any)?.items ?? [];
+  const pairs = (items || [])
+    .map((x) => ({
+      q: String(x?.question ?? "").trim(),
+      a: String(x?.answer ?? "").trim(),
+    }))
+    .filter((x) => x.q && x.a);
+
+  if (pairs.length === 0) return null;
 
   return {
     "@context": "https://schema.org",
     "@type": "FAQPage",
-    mainEntity,
-  };
-}
-
-export function buildLocalBusiness(baseUrl: string, provider: any) {
-  const {
-    slug,
-    display_name,
-    name,
-    category,
-    telephone,
-    phone,
-    website,
-    address,
-    geo,
-    price_range,
-    opening_hours,
-  } = provider || {};
-
-  // Normalize hours (both UI + schema; UI used by page, schema returned here)
-  const { openingHoursSpecification } = normalizeHours(opening_hours);
-
-  const obj: any = {
-    "@context": "https://schema.org",
-    "@type": "LocalBusiness",
-    name: display_name || name || slug || "Provider",
-    url: slug ? absUrl(baseUrl, `/book/${slug}`) : undefined,
-    image: provider?.image || undefined,
-    telephone: telephone || phone || undefined,
-    priceRange: price_range || undefined,
-    address: buildPostalAddress(address),
-    geo: buildGeo(geo),
-    openingHoursSpecification: openingHoursSpecification?.length ? openingHoursSpecification : undefined,
-    sameAs: Array.isArray(provider?.same_as) && provider.same_as.length ? provider.same_as : undefined,
-  };
-
-  // Category → "areaServed" or "knowsAbout" (optional, only if present)
-  if (category) {
-    obj.knowsAbout = [category];
-  }
-  if (website) {
-    obj.url = website; // prefer user site if provided
-  }
-
-  return obj;
-}
-
-/** helpers */
-
-function absUrl(base: string, path: string) {
-  if (!base) return path;
-  const b = base.replace(/\/+$/, "");
-  const p = path.startsWith("/") ? path : `/${path}`;
-  return `${b}${p}`;
-}
-
-function buildPostalAddress(addr: any) {
-  if (!addr || typeof addr !== "object") return undefined;
-  const { street, locality, region, postal_code, country } = addr;
-  const hasAny = street || locality || region || postal_code || country;
-  if (!hasAny) return undefined;
-
-  return {
-    "@type": "PostalAddress",
-    streetAddress: street || undefined,
-    addressLocality: locality || undefined,
-    addressRegion: region || undefined,
-    postalCode: postal_code || undefined,
-    addressCountry: country || "IN",
-  };
-}
-
-function buildGeo(geo: any) {
-  if (!geo || typeof geo !== "object") return undefined;
-  const lat = Number(geo.lat ?? geo.latitude);
-  const lng = Number(geo.lng ?? geo.longitude);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return undefined;
-  return {
-    "@type": "GeoCoordinates",
-    latitude: lat,
-    longitude: lng,
+    mainEntity: pairs.map((p) => ({
+      "@type": "Question",
+      name: p.q,
+      acceptedAnswer: { "@type": "Answer", text: p.a },
+    })),
   };
 }

@@ -1,112 +1,112 @@
 // @ts-nocheck
-// lib/hours.ts
-
 /**
- * Input can be:
- * - Array<{ day: string, opens?: string, closes?: string }>
- * - Array<string> like "Mon 09:00-17:00"
- * - null/undefined → []
- * Fail-open & tolerant. Returns both UI list and Schema.org OpeningHoursSpecification[].
+ * Debug-safe hours normalizer. Tolerant of messy inputs.
+ * Returns { ui: string[], openingHoursSpecification: Spec[] }.
+ * NOTE: Only used by /api/debug/* routes. Public pages are untouched.
  */
 
-const DAY_ALIASES: Record<string, string> = {
-  mon: "Monday", monday: "Monday",
-  tue: "Tuesday", tues: "Tuesday", tuesday: "Tuesday",
-  wed: "Wednesday", wednesday: "Wednesday",
-  thu: "Thursday", thur: "Thursday", thurs: "Thursday", thursday: "Thursday",
-  fri: "Friday", friday: "Friday",
-  sat: "Saturday", saturday: "Saturday",
-  sun: "Sunday", sunday: "Sunday",
+type Spec = { dayOfWeek?: string | string[]; opens?: string; closes?: string };
+type Normalized = { ui: string[]; openingHoursSpecification: Spec[]; notes?: string[] };
+
+const DAYS = ["mon","tue","wed","thu","fri","sat","sun"];
+const DAY_MAP: Record<string,string> = {
+  mon:"Monday", tue:"Tuesday", wed:"Wednesday", thu:"Thursday",
+  fri:"Friday", sat:"Saturday", sun:"Sunday"
 };
 
-function toDayOfWeek(raw?: string) {
-  if (!raw) return undefined;
-  const key = raw.toLowerCase().replace(/\./g, "").trim();
-  return DAY_ALIASES[key];
+function pad2(n: number){ return (n<10?"0":"")+n; }
+function hhmm(s: string){
+  const m = String(s).trim().match(/^(\d{1,2})(?::?(\d{2}))?$/);
+  if(!m) return null;
+  const h = Math.min(23, Math.max(0, parseInt(m[1],10)));
+  const mm = Math.min(59, Math.max(0, parseInt(m[2] ?? "0",10)));
+  return `${pad2(h)}:${pad2(mm)}`;
 }
-
-function toTimeHHMM(raw?: string) {
-  if (!raw) return undefined;
-  const s = raw.trim();
-  // Accept 9, 09, 9:00, 9.00, 09:30, 9:30am, 9am, 9 PM, etc.
-  const m = s.match(/(\d{1,2})(?::|\.|)?(\d{2})?\s*(am|pm)?/i);
-  if (!m) return undefined;
-  let hh = parseInt(m[1], 10);
-  let mm = m[2] ? parseInt(m[2], 10) : 0;
-  const ap = m[3]?.toLowerCase();
-
-  if (ap === "pm" && hh < 12) hh += 12;
-  if (ap === "am" && hh === 12) hh = 0;
-
-  if (Number.isNaN(hh) || Number.isNaN(mm)) return undefined;
-  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return undefined;
-
-  const H = String(hh).padStart(2, "0");
-  const M = String(mm).padStart(2, "0");
-  return `${H}:${M}`;
+function parseRange(s: string){
+  const m = String(s).replace(/\s+/g,"").match(/^([^-\u2013]+)[-\u2013]([^-\u2013]+)$/);
+  if(!m) return null;
+  const o = hhmm(m[1]); const c = hhmm(m[2]);
+  if(!o || !c) return null;
+  return { opens:o, closes:c };
 }
-
-export type NormalizedHours = {
-  uiList: string[]; // e.g., ["Mon: 09:00–17:00"]
-  openingHoursSpecification: Array<{
-    "@type": "OpeningHoursSpecification";
-    dayOfWeek: string;
-    opens?: string;
-    closes?: string;
-  }>;
-};
-
-export function normalizeHours(input: unknown): NormalizedHours {
-  const uiList: string[] = [];
-  const spec: any[] = [];
-
-  if (!Array.isArray(input)) {
-    return { uiList, openingHoursSpecification: spec };
+function expandDays(tok: string): string[] {
+  const t = tok.toLowerCase();
+  const single = t.slice(0,3);
+  if (t.includes("-") || t.includes("–")) {
+    const [a,b] = t.split(/[-–]/).map(x => x.trim().slice(0,3));
+    if (DAYS.includes(a) && DAYS.includes(b)) {
+      const i1 = DAYS.indexOf(a), i2 = DAYS.indexOf(b);
+      return i1<=i2 ? DAYS.slice(i1,i2+1) : [...DAYS.slice(i1),...DAYS.slice(0,i2+1)];
+    }
   }
+  if (DAYS.includes(single)) return [single];
+  return [];
+}
 
-  for (const item of input) {
-    let day: string | undefined;
-    let opens: string | undefined;
-    let closes: string | undefined;
+export async function normalizeHours(rows: any[]): Promise<Normalized> {
+  const ui: string[] = [];
+  const specs: Spec[] = [];
+  const notes: string[] = [];
 
-    if (typeof item === "string") {
-      // "Mon 09:00-17:00"
-      const m = item.match(
-        /^\s*([A-Za-z\.]+)\s+(\d{1,2}(:|\.)?\d{0,2}\s*(am|pm)?)\s*-\s*(\d{1,2}(:|\.)?\d{0,2}\s*(am|pm)?)\s*$/i
-      );
-      if (m) {
-        day = toDayOfWeek(m[1]);
-        opens = toTimeHHMM(m[2]);
-        closes = toTimeHHMM(m[5]);
-      } else {
-        // Try just day
-        day = toDayOfWeek(item);
+  for (const row of rows || []) {
+    if (typeof row === "string") {
+      const s = row.trim();
+      if (!s) continue;
+
+      if (/closed/i.test(s)) {
+        const m = s.match(/^([A-Za-z]{3})/);
+        const d = m ? m[1] : "";
+        const days = expandDays(d);
+        days.forEach(dd => {
+          specs.push({ dayOfWeek: DAY_MAP[dd], opens: "00:00", closes: "00:00" });
+          ui.push(`${DAY_MAP[dd]}: Closed`);
+        });
+        continue;
       }
-    } else if (item && typeof item === "object") {
-      day = toDayOfWeek(item.day || item.dayOfWeek);
-      opens = toTimeHHMM(item.opens);
-      closes = toTimeHHMM(item.closes);
-    }
 
-    if (!day) continue;
-    const o: any = { "@type": "OpeningHoursSpecification", dayOfWeek: day };
-    if (opens) o.opens = opens;
-    if (closes) o.closes = closes;
+      // "Mon-Fri 09:00-17:00"
+      const m = s.match(/^([A-Za-z]{3}(?:\s*[-–]\s*[A-Za-z]{3})?)\s+(.+)$/);
+      if (m) {
+        const dayTok = m[1]; const rest = m[2];
+        const range = parseRange(rest);
+        const days = expandDays(dayTok);
+        if (range && days.length) {
+          days.forEach(dd => specs.push({ dayOfWeek: DAY_MAP[dd], opens: range.opens, closes: range.closes }));
+          const pretty = days.length>1 ? `${DAY_MAP[days[0]]}–${DAY_MAP[days[days.length-1]]}` : DAY_MAP[days[0]];
+          ui.push(`${pretty}: ${range.opens}–${range.closes}`);
+          continue;
+        }
+      }
 
-    spec.push(o);
+      // pure range → Daily
+      const r = parseRange(s);
+      if (r) {
+        DAYS.forEach(dd => specs.push({ dayOfWeek: DAY_MAP[dd], opens: r.opens, closes: r.closes }));
+        ui.push(`Daily: ${r.opens}–${r.closes}`);
+        continue;
+      }
 
-    // UI string
-    let label = day.slice(0, 3); // Mon, Tue...
-    if (opens && closes) {
-      uiList.push(`${label}: ${opens}–${closes}`);
-    } else if (opens) {
-      uiList.push(`${label}: from ${opens}`);
-    } else if (closes) {
-      uiList.push(`${label}: until ${closes}`);
-    } else {
-      uiList.push(`${label}: Open`);
+      notes.push(`ignored:string:${s}`);
+    } else if (row && typeof row === "object") {
+      const d = String(row.day || row.dayOfWeek || "").toLowerCase().slice(0,3);
+      const o = hhmm(String(row.opens ?? ""));
+      const c = hhmm(String(row.closes ?? ""));
+      if (DAYS.includes(d) && o && c) {
+        specs.push({ dayOfWeek: DAY_MAP[d], opens: o, closes: c });
+        ui.push(`${DAY_MAP[d]}: ${o}–${c}`);
+      } else {
+        notes.push(`ignored:obj:${JSON.stringify(row)}`);
+      }
     }
   }
 
-  return { uiList, openingHoursSpecification: spec };
+  // dedupe identical lines
+  const seen = new Set<string>();
+  const merged: Spec[] = [];
+  for (const s of specs) {
+    const key = `${s.dayOfWeek}|${s.opens}|${s.closes}`;
+    if (!seen.has(key)) { seen.add(key); merged.push(s); }
+  }
+
+  return { ui, openingHoursSpecification: merged, notes };
 }
