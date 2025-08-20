@@ -22,10 +22,10 @@ export async function GET() {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     );
 
-    // Pull all published providers (public read via RLS)
+    // NOTE: Use created_at (Providers has no updated_at)
     const { data, error } = await supabase
       .from("Providers")
-      .select("id, slug, display_name, published, category, location, updated_at")
+      .select("id, slug, display_name, published, category, location, created_at")
       .eq("published", true);
 
     if (error) {
@@ -35,7 +35,6 @@ export async function GET() {
     const rows = Array.isArray(data) ? data : [];
     const withCatLoc = rows.filter(r => r.category && r.location);
 
-    // Compute unique combos (category-location)
     const combosSet = new Set<string>();
     for (const r of withCatLoc) {
       const combo = `${slugify(r.category)}-${slugify(r.location)}`;
