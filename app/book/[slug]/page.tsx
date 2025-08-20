@@ -122,9 +122,7 @@ function buildAddress(provider: Provider) {
   if (!line1 && !line2 && !locality && !postalCode) return undefined;
 
   const address: any = { "@type": "PostalAddress", addressCountry: "IN" };
-  if (line1 || line2) {
-    address.streetAddress = [line1, line2].filter(Boolean).join(", ");
-  }
+  if (line1 || line2) address.streetAddress = [line1, line2].filter(Boolean).join(", ");
   if (locality) address.addressLocality = locality;
   if (postalCode) address.postalCode = postalCode;
   return address;
@@ -185,6 +183,22 @@ function buildLocalBusinessSchema(provider: Provider) {
   return schema;
 }
 
+/** Breadcrumbs (provider) **/
+function buildBreadcrumbsSchema(provider: Provider) {
+  const base = process.env.NEXT_PUBLIC_BASE_URL || "";
+  const name = provider?.name || provider?.slug || "Provider";
+  const slug = provider?.slug || "";
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Home", item: `${base}/` },
+      { "@type": "ListItem", position: 2, name: "Directory", item: `${base}/directory` },
+      { "@type": "ListItem", position: 3, name, item: `${base}/book/${slug}` },
+    ],
+  };
+}
+
 /** FAQPage schema (only when FAQs exist) **/
 function buildFaqSchema(faqs: Array<{ q: string; a: string }>) {
   return {
@@ -198,7 +212,7 @@ function buildFaqSchema(faqs: Array<{ q: string; a: string }>) {
   };
 }
 
-/** PAGE (data-bound UI + JSON-LD: LocalBusiness always, FAQPage only if FAQs exist) **/
+/** PAGE (data-bound UI + JSON-LD: Breadcrumbs + LocalBusiness + FAQPage?) **/
 export default async function Page({ params }: any) {
   const slug = params?.slug ?? "";
   const provider = await getProvider(slug);
@@ -207,15 +221,15 @@ export default async function Page({ params }: any) {
   const lat = toNumber(provider?.latitude);
   const lng = toNumber(provider?.longitude);
 
-  const localBusinessLD = buildLocalBusinessSchema({
-    ...(provider ?? {}),
-    slug: slug || provider?.slug || "",
-  } as Provider);
+  const providerSafe = { ...(provider ?? {}), slug: slug || provider?.slug || "" } as Provider;
+
+  const breadcrumbsLD = buildBreadcrumbsSchema(providerSafe);
+  const localBusinessLD = buildLocalBusinessSchema(providerSafe);
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-8 space-y-8">
       {/* marker so we know this build is live */}
-      <div className="text-[10px] uppercase tracking-widest text-gray-500">VYAPR-9.5 LBLD</div>
+      <div className="text-[10px] uppercase tracking-widest text-gray-500">VYAPR-9.5 BCLD</div>
 
       {/* Header */}
       <header className="space-y-2">
@@ -278,16 +292,11 @@ export default async function Page({ params }: any) {
         )}
       </section>
 
-      {/* JSON-LD: LocalBusiness always; FAQPage only if FAQs exist */}
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusinessLD) }}
-      />
+      {/* JSON-LD: Breadcrumbs + LocalBusiness + FAQPage (if any) */}
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbsLD) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusinessLD) }} />
       {faqs?.length ? (
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(buildFaqSchema(faqs)) }}
-        />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(buildFaqSchema(faqs)) }} />
       ) : null}
     </div>
   );
