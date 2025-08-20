@@ -3,10 +3,12 @@
 import type { MetadataRoute } from "next";
 import { createClient } from "@supabase/supabase-js";
 
-// Force Node runtime; avoids Edge + fetch quirks
+// Ensure this executes at request time (not fully static)
+// and revalidates periodically on Vercel
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 300; // seconds
 
-// Canonical base (fallback hard-coded to staging)
 const BASE = process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
 
 // Minimal slugify for combos
@@ -20,25 +22,26 @@ function slugify(s: string) {
 }
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  // Always include these
   const urls: MetadataRoute.Sitemap = [
     { url: `${BASE}/`, changeFrequency: "daily", priority: 0.8 },
     { url: `${BASE}/directory`, changeFrequency: "daily", priority: 0.6 },
   ];
 
   try {
-    // Public client — reads allowed by RLS for published=true
+    // Public client (RLS must allow SELECT where published=true)
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     );
 
-    // Get all published providers
+    // Pull published providers with category/location for combos
     const { data, error } = await supabase
       .from("Providers")
-      .select("slug, updated_at, category, location, published")
+      .select("slug, updated_at, category, location")
       .eq("published", true);
 
-    if (!error && Array.isArray(data)) {
+    if (!error && Array.isArray(data) && data.length) {
       // 1) Provider microsites
       for (const row of data) {
         if (!row?.slug) continue;
@@ -50,7 +53,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         });
       }
 
-      // 2) Directory combos (unique category+location from published providers)
+      // 2) Directory combos (unique category+location)
       const seen = new Set<string>();
       for (const row of data) {
         const cat = slugify(row?.category);
