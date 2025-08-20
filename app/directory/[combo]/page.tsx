@@ -1,6 +1,7 @@
 // app/directory/[combo]/page.tsx
 // @ts-nocheck
 import Link from "next/link";
+import SeoBreadcrumbs from "@/components/SeoBreadcrumbs";
 
 type Provider = {
   slug: string;
@@ -19,7 +20,11 @@ function toTitle(s: string) {
     .replace(/\b\w/g, (m) => m.toUpperCase());
 }
 
-export default async function ComboPage({ params }: { params: Promise<{ combo: string }> }) {
+export default async function ComboPage({
+  params,
+}: {
+  params: Promise<{ combo: string }>;
+}) {
   const { combo } = await params;
   const [categorySlug, citySlug] = (combo || "").split("-");
   const category = toTitle(categorySlug || "");
@@ -36,21 +41,13 @@ export default async function ComboPage({ params }: { params: Promise<{ combo: s
     .ilike("location", city)
     .limit(60);
 
-  const providers: Provider[] = (!error && Array.isArray(data)) ? data : [];
+  const providers: Provider[] = !error && Array.isArray(data) ? data : [];
 
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "") || "";
+  const baseUrl =
+    process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "") ||
+    "https://vyapr-reset-5rly.vercel.app";
 
-  // JSON-LD helpers
-  const breadcrumbs = {
-    "@context": "https://schema.org",
-    "@type": "BreadcrumbList",
-    itemListElement: [
-      { "@type": "ListItem", position: 1, name: "Home", item: `${baseUrl}/` },
-      { "@type": "ListItem", position: 2, name: "Directory", item: `${baseUrl}/directory` },
-      { "@type": "ListItem", position: 3, name: `${category} in ${city}`, item: `${baseUrl}/directory/${combo}` },
-    ],
-  };
-
+  // JSON-LD (keep only ItemList here; BreadcrumbList comes from <SeoBreadcrumbs/>)
   const itemList = {
     "@context": "https://schema.org",
     "@type": "ItemList",
@@ -64,9 +61,26 @@ export default async function ComboPage({ params }: { params: Promise<{ combo: s
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-10">
-      {/* NEW: Back link strengthens internal linking */}
+      {/* Hidden QA marker */}
+      <div className="sr-only" data-marker="VYAPR-COMBO-9.6">VYAPR-COMBO-9.6</div>
+
+      {/* Shared breadcrumbs (visual + BreadcrumbList JSON-LD) */}
+      <SeoBreadcrumbs
+        baseUrl={baseUrl}
+        trail={[
+          { name: "Home", url: "/" },
+          { name: "Directory", url: "/directory" },
+          { name: `${category} in ${city}`, url: `/directory/${combo}` },
+        ]}
+        className="mb-4"
+      />
+
+      {/* Back link (kept) */}
       <nav className="mb-4 text-sm">
-        <Link href="/directory" className="inline-flex items-center gap-1 text-gray-600 hover:underline">
+        <Link
+          href="/directory"
+          className="inline-flex items-center gap-1 text-gray-600 hover:underline"
+        >
           ← Back to Directory
         </Link>
       </nav>
@@ -103,15 +117,20 @@ export default async function ComboPage({ params }: { params: Promise<{ combo: s
               <div className="mt-1 text-xs text-gray-500">
                 {p.category || category} • {p.location || city}
               </div>
-              {p.bio && <p className="mt-2 text-sm text-gray-600 line-clamp-2">{p.bio}</p>}
+              {p.bio && (
+                <p className="mt-2 text-sm text-gray-600 line-clamp-2">{p.bio}</p>
+              )}
             </Link>
           ))}
         </div>
       )}
 
-      {/* JSON-LD */}
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbs) }} />
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(itemList) }} />
+      {/* JSON-LD: ItemList only */}
+      <script
+        id="ld-combo-itemlist"
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(itemList) }}
+      />
     </main>
   );
 }
