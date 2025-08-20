@@ -1,11 +1,10 @@
 // @ts-nocheck
-// Runtime: Node, dynamic (avoids Edge cookie issues)
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server"; // adjust path if different in your repo
+import { createSupabaseServerClient } from "@/lib/supabase/server"; // keep your existing path
 
 function cleanPhone(raw: string) {
   return (raw || "").replace(/[^0-9+]/g, "");
@@ -33,7 +32,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // Resolve provider from slug (only published providers are publicly bookable)
+    // 1) Resolve provider (to build WhatsApp link + ensure published)
     const { data: provider, error: pErr } = await supabase
       .from("Providers")
       .select("id, display_name, whatsapp, phone, slug, published")
@@ -54,43 +53,36 @@ export async function POST(req: Request) {
       );
     }
 
-    // Insert lead (RLS: public insert via API is allowed)
-    const insertRow = {
-      provider_id: provider.id,
-      patient_name,
-      phone,
-      note,
-      status: "new",
-      source, // jsonb
-    };
+    // 2) Insert via SECURITY DEFINER RPC (bypasses RLS, but checks are inside)
+    const { data: newId, error: rpcErr } = await supabase.rpc(
+      "public_insert_lead_by_slug",
+      {
+        p_slug: slug,
+        p_patient_name: patient_name,
+        p_phone: phone,
+        p_note: note,
+        p_source: source,
+      }
+    );
 
-    const { data: ins, error: iErr } = await supabase
-      .from("Leads")
-      .insert(insertRow)
-      .select("id")
-      .single();
-
-    if (iErr) {
-      // Fail-open: return a usable error; the form will show a toast & keep WA fallback available
+    if (rpcErr) {
       return NextResponse.json(
-        { ok: false, error: `Could not save lead: ${iErr.message}` },
+        { ok: false, error: `Could not save lead: ${rpcErr.message}` },
         { status: 400 }
       );
     }
 
-    // Build WhatsApp fallback link
+    // 3) Build WhatsApp fallback URL
     const waNumber = cleanPhone(provider.whatsapp || provider.phone || "");
     const providerName = provider.display_name ? ` ${provider.display_name}` : "";
-    const text = encodeURIComponent(
-      `Hi${providerName}, I’d like to book a slot.`
-    );
+    const text = encodeURIComponent(`Hi${providerName}, I’d like to book a slot.`);
     const whatsapp_url = waNumber
       ? `https://wa.me/${waNumber.replace(/^\+/, "")}?text=${text}`
       : null;
 
     return NextResponse.json({
       ok: true,
-      id: ins?.id,
+      id: newId, // uuid returned by the RPC
       provider_slug: provider.slug,
       whatsapp_url,
     });
