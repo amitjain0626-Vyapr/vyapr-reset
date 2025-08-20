@@ -119,6 +119,7 @@ export default async function Page({ params }: { params: { slug: string } }) {
     <div className="mx-auto max-w-2xl px-4 py-8 space-y-8">
       {/* Header */}
       <header className="space-y-2">
+        <div className="text-[10px] uppercase tracking-widest text-gray-500">VYAPR-9.5</div>
         <h1 className="text-2xl font-semibold">{provider?.name || provider.slug}</h1>
         {provider?.category ? <p className="text-sm text-gray-600">{provider.category}</p> : null}
         <div className="text-sm text-gray-600">
