@@ -177,6 +177,8 @@ export default async function DirectoryIndexPage() {
           }}
         />
       )}
-    </main>
+    
+      <DirectorySitemapSeo baseUrl={process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app"} />
+</main>
   );
 }
