@@ -66,19 +66,7 @@ async function getLiveCombos(): Promise<Combo[]> {
     .slice(0, 100); // safety cap
 }
 
-/** JSON-LD builders kept local to preserve behavior */
-function BreadcrumbsJSONLD(baseUrl: string) {
-  const base = (baseUrl || "https://vyapr-reset-5rly.vercel.app").replace(/\/+$/, "");
-  return {
-    "@context": "https://schema.org",
-    "@type": "BreadcrumbList",
-    itemListElement: [
-      { "@type": "ListItem", position: 1, name: "Home", item: `${base}/` },
-      { "@type": "ListItem", position: 2, name: "Directory", item: `${base}/directory` },
-    ],
-  };
-}
-
+/** ItemList JSON-LD builder (kept) */
 function ItemListJSONLD(baseUrl: string, combos: Combo[]) {
   const base = (baseUrl || "https://vyapr-reset-5rly.vercel.app").replace(/\/+$/, "");
   return {
@@ -163,12 +151,7 @@ export default async function DirectoryIndexPage() {
         </>
       )}
 
-      {/* JSON-LD scripts (BreadcrumbList + ItemList) */}
-      <script
-        id="ld-dir-breadcrumbs"
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(BreadcrumbsJSONLD(baseUrl)) }}
-      />
+      {/* JSON-LD scripts — keep ONLY ItemList here; BreadcrumbList comes from SeoBreadcrumbs */}
       <script
         id="ld-dir-itemlist"
         type="application/ld+json"
