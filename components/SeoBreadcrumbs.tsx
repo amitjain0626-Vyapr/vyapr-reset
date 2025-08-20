@@ -22,9 +22,7 @@ export default function SeoBreadcrumbs({ baseUrl, trail, className = "" }: Props
         {trail.map((c, i) => (
           <li key={i} className="flex items-center gap-1">
             {c.url ? (
-              <a href={c.url} className="underline">
-                {c.name}
-              </a>
+              <a href={c.url} className="underline">{c.name}</a>
             ) : (
               <span>{c.name}</span>
             )}
