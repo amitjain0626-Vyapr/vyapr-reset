@@ -53,6 +53,13 @@ export default function HomePage() {
         </div>
       </section>
 
+{/* --- Directory entry point --- */}
+<div className="mt-6">
+  <Link href="/directory" className="inline-flex items-center rounded-full border border-gray-200 px-4 py-2 text-sm hover:shadow-sm">
+    Explore the Directory →
+  </Link>
+</div>
+
       {/* Secondary discoverability section with a few hard links */}
       <section className="mt-10">
         <h2 className="text-lg font-semibold">Explore popular categories</h2>
