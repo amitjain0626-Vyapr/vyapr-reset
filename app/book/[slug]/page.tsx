@@ -2,7 +2,8 @@
 // app/book/[slug]/page.tsx
 import React from "react";
 import FAQ from "@/components/FAQ";
-import { buildBreadcrumbs, buildFaqPage, buildLocalBusiness } from "@/lib/schema";
+import SeoBreadcrumbs from "@/components/SeoBreadcrumbs";
+import { buildFaqPage, buildLocalBusiness } from "@/lib/schema";
 import { normalizeHours } from "@/lib/hours";
 
 // Force dynamic so no stale SSG/ISR HTML is served
@@ -20,7 +21,7 @@ async function getProviderFromApi(baseUrl: string, slug: string) {
   }
 }
 
-// ✅ IMPORTANT: Next 15 expects params to be a Promise in generated types
+// ✅ Next 15 expects params to be a Promise in generated types
 export default async function ProviderPage({
   params,
 }: {
@@ -38,12 +39,6 @@ export default async function ProviderPage({
   const { uiList: uiHours } = normalizeHours(safe.opening_hours);
 
   // JSON-LD builders
-  const breadcrumbs = buildBreadcrumbs(baseUrl, [
-    { name: "Home", url: "/" },
-    { name: "Directory", url: "/directory" },
-    { name: safe.display_name || safe.name || slug || "Profile" },
-  ]);
-
   const localBusiness = buildLocalBusiness(baseUrl, { ...safe, slug });
   const faqPage = buildFaqPage(safe.faqs);
 
@@ -58,23 +53,20 @@ export default async function ProviderPage({
 
   return (
     <main className="max-w-2xl mx-auto p-4">
-      {/* QA marker: comment + data-attr + visible string */}
+      {/* QA marker */}
       {/* VYAPR-9.6 */}
-      <div data-vyapr="VYAPR-9.6" className="sr-only">
-        VYAPR-9.6
-      </div>
+      <div data-vyapr="VYAPR-9.6" className="sr-only">VYAPR-9.6</div>
 
-      <nav className="text-sm mb-4">
-        <a href="/" className="underline">
-          Home
-        </a>
-        {" / "}
-        <a href="/directory" className="underline">
-          Directory
-        </a>
-        {" / "}
-        <span>{safe.display_name || safe.name || slug}</span>
-      </nav>
+      {/* Shared breadcrumbs (visual + BreadcrumbList JSON-LD) */}
+      <SeoBreadcrumbs
+        baseUrl={baseUrl}
+        trail={[
+          { name: "Home", url: "/" },
+          { name: "Directory", url: "/directory" },
+          { name: safe.display_name || safe.name || slug || "Profile" },
+        ]}
+        className="mb-4"
+      />
 
       <header className="mb-4">
         <h1 className="text-2xl font-semibold">
@@ -90,12 +82,7 @@ export default async function ProviderPage({
         <section className="mb-4">
           <h2 className="text-lg font-semibold">Address</h2>
           <p className="text-sm">
-            {[
-              safe.address?.street,
-              safe.address?.locality,
-              safe.address?.region,
-              safe.address?.postal_code,
-            ]
+            {[safe.address?.street, safe.address?.locality, safe.address?.region, safe.address?.postal_code]
               .filter(Boolean)
               .join(", ")}
           </p>
@@ -115,9 +102,7 @@ export default async function ProviderPage({
         <section className="mb-4">
           <h2 className="text-lg font-semibold">Opening hours</h2>
           <ul className="text-sm list-disc ml-5">
-            {uiHours.map((line, i) => (
-              <li key={i}>{line}</li>
-            ))}
+            {uiHours.map((line, i) => <li key={i}>{line}</li>)}
           </ul>
         </section>
       ) : null}
@@ -127,17 +112,10 @@ export default async function ProviderPage({
 
       {/* Back link */}
       <p className="mt-6">
-        <a className="underline" href="/directory">
-          ← Back to directory
-        </a>
+        <a className="underline" href="/directory">← Back to directory</a>
       </p>
 
-      {/* JSON-LD scripts — exactly 3 */}
-      <script
-        id="ld-breadcrumbs"
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbs) }}
-      />
+      {/* JSON-LD scripts — 2 here (BreadcrumbList comes from <SeoBreadcrumbs/>) */}
       <script
         id="ld-localbusiness"
         type="application/ld+json"
