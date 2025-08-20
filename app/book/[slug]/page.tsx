@@ -1,5 +1,4 @@
 // @ts-nocheck
-import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Link from "next/link";
 
@@ -83,13 +82,11 @@ function buildFaqSchema(faqs: Array<{ q: string; a: string }>) {
   };
 }
 
-/** SEO **/
-export async function generateMetadata({
-  params,
-}: {
-  params: { slug: string };
-}): Promise<Metadata> {
-  const provider = await getProvider(params.slug);
+/** SEO (loose props to avoid Next type mismatch) **/
+export async function generateMetadata(props: any): Promise<any> {
+  const slug = props?.params?.slug as string | undefined;
+  if (!slug) return {};
+  const provider = await getProvider(slug);
   if (!provider) return {};
   const title = provider?.name ? `${provider.name} — Book on Vyapr` : `Book ${provider.slug} — Vyapr`;
   const description =
@@ -103,9 +100,12 @@ export async function generateMetadata({
   };
 }
 
-/** PAGE **/
-export default async function Page({ params }: { params: { slug: string } }) {
-  const provider = await getProvider(params.slug);
+/** PAGE (loose props to avoid Next type mismatch) **/
+export default async function Page(props: any) {
+  const slug = props?.params?.slug as string | undefined;
+  if (!slug) notFound();
+
+  const provider = await getProvider(slug!);
   if (!provider) notFound();
 
   const faqs = normalizeFaqs(provider?.faqs);
