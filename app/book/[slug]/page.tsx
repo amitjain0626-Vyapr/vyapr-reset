@@ -212,6 +212,31 @@ function buildFaqSchema(faqs: Array<{ q: string; a: string }>) {
   };
 }
 
+/** SEO metadata (loose types, safe) **/
+export async function generateMetadata(props: any): Promise<any> {
+  const slug = props?.params?.slug as string | undefined;
+  if (!slug) return {};
+  const provider = await getProvider(slug);
+  if (!provider) return {};
+
+  const title = provider?.name ? `${provider.name} — Book on Vyapr` : `Book ${slug} — Vyapr`;
+  const description =
+    provider?.bio ??
+    `Book an appointment with ${provider?.name ?? slug}. View hours, address, and FAQs.`;
+
+  return {
+    title,
+    description,
+    alternates: { canonical: `/book/${slug}` },
+    openGraph: {
+      title,
+      description,
+      url: `/book/${slug}`,
+      type: "website",
+    },
+  };
+}
+
 /** PAGE (data-bound UI + JSON-LD: Breadcrumbs + LocalBusiness + FAQPage?) **/
 export default async function Page({ params }: any) {
   const slug = params?.slug ?? "";
