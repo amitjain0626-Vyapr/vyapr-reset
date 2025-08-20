@@ -115,6 +115,47 @@ function trimSample(s: string, max = 800): string {
   return s.length <= max ? s : s.slice(0, max) + "…";
 }
 
+/** Parse expect=LocalBusiness:1,FAQPage:1 (case-insensitive keys, ignore unknown types) */
+function parseExpect(expectParam: string): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (!expectParam) return out;
+  for (const part of expectParam.split(",")) {
+    const [kRaw, vRaw] = part.split(":").map((s) => (s || "").trim());
+    if (!kRaw) continue;
+    const key = kRaw.replace(/\s+/g, "");
+    const proper =
+      [...TARGET_TYPES].find((t) => t.toLowerCase() === key.toLowerCase()) || null;
+    if (!proper) continue;
+    const n = Number(vRaw);
+    if (Number.isFinite(n) && n >= 0) out[proper] = n;
+  }
+  return out;
+}
+
+type AssertResult = {
+  pass: boolean;
+  expected: Record<string, number>;
+  actual: Record<string, number>;
+  deltas: Record<string, number>; // actual - expected
+};
+
+function assertCounts(actualByType: Record<string, number>, expected: Record<string, number>): AssertResult {
+  const actual: Record<string, number> = {};
+  const deltas: Record<string, number> = {};
+  let pass = true;
+  // Initialize actual with all TARGET_TYPES to keep shape stable
+  for (const t of TARGET_TYPES) actual[t] = actualByType[t] || 0;
+
+  for (const k of Object.keys(expected)) {
+    const a = actual[k] || 0;
+    const e = expected[k] || 0;
+    const d = a - e;
+    deltas[k] = d;
+    if (a !== e) pass = false;
+  }
+  return { pass, expected, actual, deltas };
+}
+
 type PathResult = {
   ok: true;
   path: string;
@@ -123,11 +164,12 @@ type PathResult = {
     scripts: number;
     byType: { LocalBusiness: number; FAQPage: number; BreadcrumbList: number; ItemList: number };
   };
+  assert?: AssertResult;
   samples: string[];
   notes: string[];
 };
 
-async function analyzePath(path: string): Promise<PathResult> {
+async function analyzePath(path: string, expected: Record<string, number>): Promise<PathResult> {
   const payload: PathResult = {
     ok: true,
     path,
@@ -142,6 +184,7 @@ async function analyzePath(path: string): Promise<PathResult> {
 
   if (!path) {
     payload.notes.push("Missing path value");
+    if (Object.keys(expected).length) payload.markers.push("EXPECT");
     return payload;
   }
 
@@ -153,11 +196,13 @@ async function analyzePath(path: string): Promise<PathResult> {
     const r = await fetchWithTimeout(url, 9000);
     if (!r.ok) {
       payload.notes.push(`Fetch failed (${r.status}) for ${url}`);
+      if (Object.keys(expected).length) payload.markers.push("EXPECT");
       return payload;
     }
     html = await r.text();
   } catch (e: any) {
     payload.notes.push(`Fetch error for ${url}: ${e?.name || "error"}`);
+    if (Object.keys(expected).length) payload.markers.push("EXPECT");
     return payload;
   }
 
@@ -179,59 +224,73 @@ async function analyzePath(path: string): Promise<PathResult> {
     ItemList: byType.ItemList || 0,
   };
 
+  if (Object.keys(expected).length) {
+    payload.markers.push("EXPECT");
+    payload.assert = assertCounts(payload.counts.byType, expected);
+    if (payload.assert.pass) payload.markers.push("ASSERT-PASS");
+    else payload.markers.push("ASSERT-FAIL");
+  }
+
   return payload;
 }
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
 
-  // Batch mode: ?paths=/a,/b,/c
+  const expected = parseExpect((searchParams.get("expect") || "").trim());
+
+  // Batch mode
   const pathsParam = (searchParams.get("paths") || "").trim();
   if (pathsParam) {
     const paths = pathsParam
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean)
-      .slice(0, 12); // hard cap to keep cheap
+      .slice(0, 12);
 
     const results: PathResult[] = [];
     for (const p of paths) {
       try {
-        results.push(await analyzePath(p));
+        results.push(await analyzePath(p, expected));
       } catch (e: any) {
         results.push({
           ok: true,
           path: p,
-          markers: ["VYAPR-9.8"],
+          markers: ["VYAPR-9.8", ...(Object.keys(expected).length ? ["EXPECT", "ASSERT-FAIL"] : [])],
           counts: {
             scripts: 0,
             byType: { LocalBusiness: 0, FAQPage: 0, BreadcrumbList: 0, ItemList: 0 },
           },
+          assert: Object.keys(expected).length
+            ? { pass: false, expected, actual: { LocalBusiness: 0, FAQPage: 0, BreadcrumbList: 0, ItemList: 0 }, deltas: {} }
+            : undefined,
           samples: [],
           notes: [`Handler error for ${p}: ${e?.message || "unknown"}`],
         });
       }
     }
 
-    // Optional tiny summary
-    const summary = {
-      total: results.length,
-      scripts: results.reduce((n, r) => n + (r.counts?.scripts || 0), 0),
-    };
+    const allHaveAssert = results.every((r) => !!expected && !!r.assert);
+    const pass = allHaveAssert ? results.every((r) => r.assert?.pass) : true;
 
     return json(
       {
         ok: true,
-        markers: ["VYAPR-9.8", "BATCH"],
+        markers: ["VYAPR-9.8", "BATCH", ...(Object.keys(expected).length ? ["EXPECT", pass ? "ASSERT-PASS" : "ASSERT-FAIL"] : [])],
+        expected,
         results,
-        summary,
+        summary: {
+          total: results.length,
+          scripts: results.reduce((n, r) => n + (r.counts?.scripts || 0), 0),
+          pass,
+        },
       },
       200
     );
   }
 
-  // Single mode: ?path=/a
+  // Single mode
   const path = (searchParams.get("path") || "").trim();
-  const single = await analyzePath(path);
+  const single = await analyzePath(path, expected);
   return json(single, 200);
 }
