@@ -1,324 +1,178 @@
 // @ts-nocheck
 import { NextResponse } from "next/server";
+import { buildBreadcrumbs, buildLocalBusiness, buildFaqPage } from "@/lib/schema";
+import { normalizeHours } from "@/lib/hours";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-type Case = { name: string; pass: boolean; details: any; builder?: string; skipped?: boolean };
+type Case = { name: string; builder: string; pass: boolean; details: any };
 
 function isObj(v: any) { return v && typeof v === "object"; }
 
-async function safeImport(path: string) {
-  try { return { ok: true, mod: await import(path) }; }
-  catch (e: any) { return { ok: false, error: String(e), path }; }
-}
-
-// Try many plausible locations; merge any exports we find.
-async function multiImport(paths: string[]) {
-  const notes: any[] = [];
-  const merged: any = {};
-  for (const p of paths) {
-    const r = await safeImport(p);
-    if (!r.ok) { notes.push({ path: p, error: r.error }); continue; }
-    Object.assign(merged, r.mod || {});
-    notes.push({ path: p, ok: true });
-  }
-  return { merged, notes };
-}
-
-async function callFirst<T>(fns: Array<() => any>) {
-  let lastErr: any = null;
-  for (const fn of fns) {
-    try {
-      const out = fn();
-      const res = out?.then ? await out : out;
-      if (res !== undefined) return { ok: true, res };
-    } catch (e: any) { lastErr = e; }
-  }
-  return { ok: false, error: String(lastErr || "No variant matched") };
-}
-
 function bcPass(o: any) {
-  return isObj(o) && (o["@type"] === "BreadcrumbList" || Array.isArray(o.itemListElement) || isObj(o.itemListElement));
+  return (
+    isObj(o) &&
+    o["@type"] === "BreadcrumbList" &&
+    Array.isArray(o.itemListElement)
+  );
 }
 function lbPass(o: any) {
-  return isObj(o) && ((o["@type"] && String(o["@type"]).toLowerCase().includes("business")) || o.name || o.url);
+  return isObj(o) && o["@type"] === "LocalBusiness";
 }
 function faqPass(o: any, allowNull = true) {
-  if (o == null) return allowNull;
-  return isObj(o) && ((o["@type"] === "FAQPage" && Array.isArray(o.mainEntity)) || Array.isArray(o.faq) || Array.isArray(o.items));
+  if (o == null) return allowNull; // omit is allowed
+  return isObj(o) && o["@type"] === "FAQPage" && Array.isArray(o.mainEntity);
 }
 function hoursPass(o: any) {
+  // Accept normalized shape from lib/hours.ts
   if (!o) return false;
-  if (Array.isArray(o)) return true;
   if (Array.isArray(o.openingHoursSpecification)) return true;
-  if (Array.isArray(o.specs)) return true;
-  if (Array.isArray(o.ui)) return true;
-  if (Array.isArray(o.schema)) return true;
-  return isObj(o);
+  // Allow our API route to pass through full object { ui, openingHoursSpecification, ... }
+  if (isObj(o) && Array.isArray(o.openingHoursSpecification)) return true;
+  if (isObj(o) && Array.isArray(o.schema)) return true;
+  return false;
 }
 
-function json(body: any, status = 200) {
-  const res = NextResponse.json(body, { status });
-  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate");
-  return res;
+async function addCase(cases: Case[], name: string, builder: string, fn: () => any | Promise<any>) {
+  try {
+    const out = fn();
+    const res = out?.then ? await out : out;
+    cases.push({ name, builder, pass: true, details: res });
+  } catch (e: any) {
+    cases.push({
+      name, builder, pass: false,
+      details: { error: String(e?.message || e), stack: (e?.stack || "").split("\n").slice(0, 2) }
+    });
+  }
 }
 
 export async function GET(req: Request) {
-  const t0 = Date.now();
   const url = new URL(req.url);
+  if (url.searchParams.get("ping")) {
+    return NextResponse.json({ ok: true, markers: ["VYAPR-9.7"], ping: true, now: new Date().toISOString() });
+  }
+
   const base = process.env.NEXT_PUBLIC_BASE_URL || `${url.protocol}//${url.host}`;
-
-  const ping = url.searchParams.get("ping");
-  const mini = url.searchParams.get("mini");
-  const full = url.searchParams.get("full");
-
-  if (ping) {
-    return json({ ok: true, markers: ["VYAPR-9.7"], ping: true, now: new Date().toISOString() });
-  }
-
-  // Candidates for schema-related builders across your codebase variants
-  const schemaCandidates = [
-    "@/lib/schema",
-    "@/lib/seo/schema",
-    "@/lib/seo/index",
-    "@/lib/seo/breadcrumbs",
-    "@/components/SeoBreadcrumbs",
-    "@/components/seo/Breadcrumbs",
-    "@/lib/seo/faq",
-    "@/components/FAQ",
-  ];
-  // Candidates for hours normalizer
-  const hoursCandidates = [
-    "@/lib/hours",
-    "@/lib/seo/hours",
-    "@/lib/utils/hours",
-  ];
-
-  const schemaLoad = await multiImport(schemaCandidates);
-  const hoursLoad = await multiImport(hoursCandidates);
-
-  // Consolidate possible exports. We accept either camelCase or default collections.
-  const buildBreadcrumbs =
-    schemaLoad.merged.buildBreadcrumbs ||
-    schemaLoad.merged.breadcrumbs ||
-    schemaLoad.merged.default?.buildBreadcrumbs;
-
-  const buildLocalBusiness =
-    schemaLoad.merged.buildLocalBusiness ||
-    schemaLoad.merged.localBusiness ||
-    schemaLoad.merged.default?.buildLocalBusiness;
-
-  const buildFaqPage =
-    schemaLoad.merged.buildFaqPage ||
-    schemaLoad.merged.faqJsonLd ||
-    schemaLoad.merged.default?.buildFaqPage;
-
-  const normalizeHours =
-    hoursLoad.merged.normalizeHours ||
-    hoursLoad.merged.default?.normalizeHours;
-
-  const importsReport = {
-    schemaTried: schemaLoad.notes,
-    hoursTried: hoursLoad.notes,
-    exportsFound: {
-      buildBreadcrumbs: !!buildBreadcrumbs,
-      buildLocalBusiness: !!buildLocalBusiness,
-      buildFaqPage: !!buildFaqPage,
-      normalizeHours: !!normalizeHours,
-    },
-  };
-
-  if (mini || !full) {
-    return json({
-      ok: true,
-      mode: "mini",
-      markers: ["VYAPR-9.7"],
-      summary: { duration_ms: Date.now() - t0 },
-      ...importsReport,
-      buildersMentioned: ["buildBreadcrumbs", "buildLocalBusiness", "buildFaqPage", "normalizeHours"],
-    });
-  }
-
-  // ---------------- FULL TESTS (explicit ?full=1) ----------------
   const cases: Case[] = [];
-  cases.push({ name: "Route self-check", builder: "route", pass: true, details: { base } });
 
-  async function add(name: string, builder: string, thunk: () => Promise<any> | any, skipIfMissing = false) {
-    try {
-      if (skipIfMissing && !thunk) {
-        cases.push({ name, builder, pass: true, skipped: true, details: "builder missing (skipped)" });
-        return;
-      }
-      const out = typeof thunk === "function" ? thunk() : thunk;
-      const res = out?.then ? await out : out;
-      cases.push({ name, builder, pass: true, details: res });
-    } catch (e: any) {
-      cases.push({ name, builder, pass: false, details: { error: String(e?.message || e) } });
-    }
-  }
+  // 1) Breadcrumbs: 3‑segment
+  await addCase(cases, "Breadcrumbs: 3-segment", "buildBreadcrumbs", () => {
+    const bcTrail = [
+      { name: "Home", url: `${base}/` },
+      { name: "Directory", url: `${base}/directory` },
+      { name: "Dance in Pune", url: `${base}/directory/dance-pune` },
+    ];
+    const out = buildBreadcrumbs(bcTrail);
+    if (!bcPass(out)) throw new Error("Unexpected BreadcrumbList shape");
+    return out;
+  });
 
-  // Breadcrumbs
-  const bcTrail = [
-    { name: "Home", url: `${base}/` },
-    { name: "Directory", url: `${base}/directory` },
-    { name: "Dance in Pune", url: `${base}/directory/dance-pune` },
-  ];
-  await add("Breadcrumbs: 3-segment", "buildBreadcrumbs", async () => {
-    if (!buildBreadcrumbs) throw new Error("buildBreadcrumbs not found");
-    const { ok, res, error } = await callFirst([
-      () => buildBreadcrumbs(bcTrail),
-      () => buildBreadcrumbs({ trail: bcTrail }),
-      () => buildBreadcrumbs({ baseUrl: base, segments: bcTrail }),
-    ]);
-    if (!ok) throw new Error(error);
-    if (!bcPass(res)) throw new Error("Breadcrumbs shape unexpected");
-    return { sample: res };
-  }, true);
+  // 2) Breadcrumbs: empty trail
+  await addCase(cases, "Breadcrumbs: empty", "buildBreadcrumbs", () => {
+    const out = buildBreadcrumbs([]);
+    if (!bcPass(out)) throw new Error("Unexpected empty BreadcrumbList shape");
+    return out;
+  });
 
-  await add("Breadcrumbs: empty", "buildBreadcrumbs", async () => {
-    if (!buildBreadcrumbs) throw new Error("buildBreadcrumbs not found");
-    const empty: any[] = [];
-    const { ok, res, error } = await callFirst([
-      () => buildBreadcrumbs(empty),
-      () => buildBreadcrumbs({ trail: empty }),
-      () => buildBreadcrumbs({ baseUrl: base, segments: empty }),
-    ]);
-    if (!ok) throw new Error(error);
-    if (!bcPass(res)) throw new Error("Empty breadcrumb shape unexpected");
-    return { sample: res };
-  }, true);
-
-  // Hours
+  // 3) Hours: mixed normalization
   const hoursMixed = await (async () => {
-    if (!normalizeHours) return { note: "normalizeHours missing" };
-    const input = ["Mon-Fri 09:00-17:00", { day: "tue", opens: "10:00", closes: "18:30" }, "Sunday closed", "invalid"];
-    const out = await normalizeHours(input);
-    if (!hoursPass(out)) throw new Error("normalizeHours shape unexpected");
-    return out;
+    const inputs = [
+      "Mon-Fri 09:00-17:00",
+      { day: "tue", opens: "10", closes: "18:30" },
+      "Sunday closed",
+      "invalid",
+    ];
+    const nh = await normalizeHours(inputs);
+    if (!hoursPass(nh)) throw new Error("normalizeHours mixed shape unexpected");
+    return nh;
   })();
-  await add("Hours: mixed normalization", "normalizeHours", () => hoursMixed, true);
 
-  await add("Hours: invalid-only", "normalizeHours", async () => {
-    if (!normalizeHours) throw new Error("normalizeHours not found");
-    const out = await normalizeHours(["nonsense", "xx"]);
-    if (!hoursPass(out)) throw new Error("normalizeHours invalid shape unexpected");
+  await addCase(cases, "Hours: mixed normalization", "normalizeHours", () => hoursMixed);
+
+  // 4) Hours: invalid-only
+  await addCase(cases, "Hours: invalid-only", "normalizeHours", async () => {
+    const nh = await normalizeHours(["nonsense", "xx"]);
+    if (!hoursPass(nh)) throw new Error("normalizeHours invalid-only shape unexpected");
+    return nh;
+  });
+
+  // 5) LocalBusiness: full object
+  await addCase(cases, "LocalBusiness: full", "buildLocalBusiness", () => {
+    const out = buildLocalBusiness({
+      name: "Dr Kapoor Clinic",
+      slug: "dr-kapoor",
+      url: `${base}/book/dr-kapoor`,
+      priceRange: "₹₹",
+      telephone: "+91-99999-99999",
+      address: {
+        streetAddress: "12 MG Road",
+        addressLocality: "Pune",
+        addressRegion: "MH",
+        postalCode: "411001",
+        addressCountry: "IN",
+      },
+      geo: { latitude: 18.5204, longitude: 73.8567 },
+      openingHoursSpecification: hoursMixed.openingHoursSpecification || [],
+    });
+    if (!lbPass(out)) throw new Error("LocalBusiness full shape unexpected");
     return out;
-  }, true);
+  });
 
-  // LocalBusiness
-  const fullProvider = {
-    name: "Dr Kapoor Clinic",
-    slug: "dr-kapoor",
-    url: `${base}/book/dr-kapoor`,
-    priceRange: "₹₹",
-    telephone: "+91-99999-99999",
-    address: {
-      streetAddress: "12 MG Road",
-      addressLocality: "Pune",
-      addressRegion: "MH",
-      postalCode: "411001",
-      addressCountry: "IN",
-    },
-    geo: { latitude: 18.5204, longitude: 73.8567 },
-    openingHoursSpecification:
-      hoursMixed?.openingHoursSpecification || hoursMixed?.schema || [],
-  };
+  // 6) LocalBusiness: minimal
+  await addCase(cases, "LocalBusiness: minimal", "buildLocalBusiness", () => {
+    const out = buildLocalBusiness({ slug: "amit", url: `${base}/book/amit` });
+    if (!lbPass(out)) throw new Error("LocalBusiness minimal shape unexpected");
+    return out;
+  });
 
-  await add("LocalBusiness: full object", "buildLocalBusiness", async () => {
-    if (!buildLocalBusiness) throw new Error("buildLocalBusiness not found");
-    const { ok, res, error } = await callFirst([
-      () => buildLocalBusiness(fullProvider),
-      () => buildLocalBusiness({ ...fullProvider, baseUrl: base }),
-    ]);
-    if (!ok) throw new Error(error);
-    if (!lbPass(res)) throw new Error("LocalBusiness shape unexpected");
-    return { sample: res };
-  }, true);
+  // 7) FAQPage: full
+  await addCase(cases, "FAQPage: full", "buildFaqPage", () => {
+    const items = [
+      { question: "What are the consultation hours?", answer: "Mon–Fri, 10am–6pm." },
+      { question: "How much is the first visit?", answer: "₹500." },
+    ];
+    const out = buildFaqPage(items);
+    if (!faqPass(out, false)) throw new Error("FAQ full shape unexpected");
+    return out;
+  });
 
-  await add("LocalBusiness: minimal", "buildLocalBusiness", async () => {
-    if (!buildLocalBusiness) throw new Error("buildLocalBusiness not found");
-    const minimal = { slug: "amit", url: `${base}/book/amit` };
-    const { ok, res, error } = await callFirst([
-      () => buildLocalBusiness(minimal),
-      () => buildLocalBusiness({ provider: minimal }),
-    ]);
-    if (!ok) throw new Error(error);
-    if (!lbPass(res)) throw new Error("LocalBusiness minimal shape unexpected");
-    return { sample: res };
-  }, true);
+  // 8) FAQPage: single empty pair → should omit/null but still pass
+  await addCase(cases, "FAQPage: single empty pair", "buildFaqPage", () => {
+    const out = buildFaqPage([{ question: "", answer: "" }]);
+    if (!faqPass(out, true)) throw new Error("FAQ empty-pair handling unexpected");
+    return out ?? null;
+  });
 
-  // FAQ
-  const faqFull = [
-    { question: "What are the consultation hours?", answer: "Mon–Fri, 10am–6pm." },
-    { question: "How much is the first visit?", answer: "₹500." },
-  ];
-  await add("FAQPage: full", "buildFaqPage", async () => {
-    if (!buildFaqPage) throw new Error("buildFaqPage not found");
-    const { ok, res, error } = await callFirst([
-      () => buildFaqPage(faqFull),
-      () => buildFaqPage({ items: faqFull }),
-    ]);
-    if (!ok) throw new Error(error);
-    if (!faqPass(res, false)) throw new Error("FAQ full shape unexpected");
-    return { sample: res };
-  }, true);
+  // 9) FAQPage: empty array → omit/null
+  await addCase(cases, "FAQPage: empty array → omit", "buildFaqPage", () => {
+    const out = buildFaqPage([]);
+    if (!faqPass(out, true)) throw new Error("FAQ empty handling unexpected");
+    return out ?? null;
+  });
 
-  await add("FAQPage: single empty pair", "buildFaqPage", async () => {
-    if (!buildFaqPage) throw new Error("buildFaqPage not found");
-    const emptyPair = [{ question: "", answer: "" }];
-    const { ok, res, error } = await callFirst([
-      () => buildFaqPage(emptyPair),
-      () => buildFaqPage({ items: emptyPair }),
-    ]);
-    if (!ok) throw new Error(error);
-    if (!faqPass(res, true)) throw new Error("FAQ empty-pair handling unexpected");
-    return { sample: res };
-  }, true);
-
-  await add("FAQPage: empty array → omit", "buildFaqPage", async () => {
-    if (!buildFaqPage) throw new Error("buildFaqPage not found");
-    const empty: any[] = [];
-    const { ok, res, error } = await callFirst([
-      () => buildFaqPage(empty),
-      () => buildFaqPage({ items: empty }),
-    ]);
-    if (!ok) throw new Error(error);
-    if (!faqPass(res, true)) throw new Error("FAQ empty handling unexpected");
-    return { sample: res ?? null };
-  }, true);
-
-  // Combined
-  await add("Combined: LB + normalizeHours", "buildLocalBusiness", async () => {
-    if (!buildLocalBusiness) throw new Error("buildLocalBusiness not found");
-    if (!normalizeHours) return { skipped: "normalizeHours missing" };
+  // 10) Combined: LocalBusiness + normalizeHours
+  await addCase(cases, "Combined: LB + normalizeHours", "buildLocalBusiness", async () => {
     const nh = await normalizeHours(["Mon 09:00-17:00", "Tue 10:00-18:00"]);
-    const withHours = {
+    const out = buildLocalBusiness({
       name: "Chic Studio",
       slug: "chic",
       url: `${base}/book/chic`,
-      openingHoursSpecification:
-        nh?.openingHoursSpecification || nh?.schema || [],
-    };
-    const { ok, res, error } = await callFirst([
-      () => buildLocalBusiness(withHours),
-      () => buildLocalBusiness({ ...withHours, baseUrl: base }),
-    ]);
-    if (!ok) throw new Error(error);
-    if (!lbPass(res)) throw new Error("Combined LB shape unexpected");
-    return { sample: res };
-  }, true);
+      openingHoursSpecification: nh.openingHoursSpecification || [],
+    });
+    if (!lbPass(out)) throw new Error("Combined LB shape unexpected");
+    return out;
+  });
 
   const total = cases.length;
   const passed = cases.filter(c => c.pass).length;
 
-  return json({
+  return NextResponse.json({
     ok: passed === total,
-    mode: "full",
-    summary: { cases: total, passed, duration_ms: Date.now() - t0 },
+    summary: { cases: total, passed },
     cases,
     markers: ["VYAPR-9.7"],
-    ...importsReport,
-  });
+    buildersMentioned: ["buildBreadcrumbs","buildLocalBusiness","buildFaqPage","normalizeHours"],
+  }, { status: 200 });
 }
