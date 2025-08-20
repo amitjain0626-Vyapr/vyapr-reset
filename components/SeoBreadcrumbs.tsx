@@ -6,13 +6,20 @@ import { buildBreadcrumbs } from "@/lib/schema";
 type Crumb = { name: string; url?: string };
 type Props = {
   baseUrl?: string;
-  trail: Crumb[]; // e.g., [{ name: "Home", url: "/" }, { name: "Directory" }]
+  trail: Crumb[];                    // e.g., [{ name: "Home", url: "/" }, { name: "Directory" }]
   className?: string;
+  emitJsonLd?: boolean;              // NEW: default true
 };
 
-export default function SeoBreadcrumbs({ baseUrl, trail, className = "" }: Props) {
+export default function SeoBreadcrumbs({
+  baseUrl,
+  trail,
+  className = "",
+  emitJsonLd = true,
+}: Props) {
   const _base =
     baseUrl || process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
+
   const data = buildBreadcrumbs(_base, trail);
 
   return (
@@ -31,11 +38,13 @@ export default function SeoBreadcrumbs({ baseUrl, trail, className = "" }: Props
         ))}
       </ol>
 
-      {/* JSON-LD for Breadcrumbs */}
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(data) }}
-      />
+      {/* JSON-LD for Breadcrumbs (optional, default on) */}
+      {emitJsonLd ? (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(data) }}
+        />
+      ) : null}
     </nav>
   );
 }
