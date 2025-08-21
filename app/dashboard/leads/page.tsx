@@ -1,5 +1,5 @@
 // @ts-nocheck
-import dynamic from 'next/dynamic';
+import NextDynamic from 'next/dynamic'; // ✅ renamed to avoid clash with export const dynamic
 import { cookies } from 'next/headers';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import LeadsTable from '@/components/leads/LeadsTable';
@@ -10,7 +10,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 // Load the realtime subscriber only on the client
-const EventsSubscriber = dynamic(() => import('@/components/EventsSubscriber'), {
+const EventsSubscriber = NextDynamic(() => import('@/components/EventsSubscriber'), {
   ssr: false,
 });
 
