@@ -79,6 +79,16 @@ export default function LeadsTable() {
   const fromIsoRef = useRef<string>("");
   const toIsoRef = useRef<string>("");
 
+<a
+  href={`/api/leads/export.csv?query=${encodeURIComponent(query)}&from=${encodeURIComponent(
+    fromIsoRef.current || ""
+  )}&to=${encodeURIComponent(toIsoRef.current || "")}`}
+  target="_blank"
+  className="px-3 py-1.5 rounded-md border text-sm"
+>
+  Export CSV
+</a>
+
   // Cursors (Prev/Next)
   const cursorStackRef = useRef<string[]>([]);
   const hasPrev = cursorStackRef.current.length > 0;
