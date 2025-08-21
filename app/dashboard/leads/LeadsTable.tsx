@@ -26,6 +26,29 @@ const DEBOUNCE_MS = 400;
 
 type QuickRange = "ALL" | "TODAY" | "7D" | "30D";
 
+/** --- mini toast (no deps) --- */
+function useToast() {
+  const [msg, setMsg] = useState<string | null>(null);
+  const timerRef = useRef<any>(null);
+
+  const show = (text: string, ms = 1800) => {
+    setMsg(text);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => setMsg(null), ms);
+  };
+
+  const Toast = () =>
+    msg ? (
+      <div className="fixed left-1/2 -translate-x-1/2 bottom-6 z-50">
+        <div className="rounded-xl border bg-white/90 backdrop-blur px-4 py-2 text-sm shadow">
+          {msg}
+        </div>
+      </div>
+    ) : null;
+
+  return { show, Toast };
+}
+
 function startOfLocalDay(d = new Date()) {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);
@@ -37,7 +60,7 @@ function endOfLocalDay(d = new Date()) {
   return x;
 }
 function toIsoZ(dt: Date) {
-  return dt.toISOString(); // UTC ISO; server expects ISO; DB is in UTC
+  return dt.toISOString();
 }
 
 export default function LeadsTable() {
@@ -51,14 +74,17 @@ export default function LeadsTable() {
 
   // Date filters
   const [quick, setQuick] = useState<QuickRange>("ALL");
-  const [fromDate, setFromDate] = useState<string>(""); // yyyy-mm-dd (local)
-  const [toDate, setToDate] = useState<string>("");     // yyyy-mm-dd (local)
-  const fromIsoRef = useRef<string>(""); // computed ISO for API
-  const toIsoRef = useRef<string>("");   // computed ISO for API
+  const [fromDate, setFromDate] = useState<string>("");
+  const [toDate, setToDate] = useState<string>("");
+  const fromIsoRef = useRef<string>("");
+  const toIsoRef = useRef<string>("");
 
-  // Cursor stack for Prev/Next
+  // Cursors (Prev/Next)
   const cursorStackRef = useRef<string[]>([]);
   const hasPrev = cursorStackRef.current.length > 0;
+
+  // Toast
+  const { show, Toast } = useToast();
 
   const computeIsoWindow = () => {
     let fromIso = "";
@@ -69,7 +95,7 @@ export default function LeadsTable() {
       toIso = toIsoZ(endOfLocalDay(new Date()));
     } else if (quick === "7D") {
       const now = new Date();
-      const start = startOfLocalDay(new Date(now.getTime() - 6 * 24 * 3600 * 1000)); // inclusive 7 days window
+      const start = startOfLocalDay(new Date(now.getTime() - 6 * 24 * 3600 * 1000));
       fromIso = toIsoZ(start);
       toIso = toIsoZ(endOfLocalDay(now));
     } else if (quick === "30D") {
@@ -78,15 +104,8 @@ export default function LeadsTable() {
       fromIso = toIsoZ(start);
       toIso = toIsoZ(endOfLocalDay(now));
     } else if (quick === "ALL") {
-      // If user picked custom dates, respect them
-      if (fromDate) {
-        const s = startOfLocalDay(new Date(fromDate + "T00:00:00"));
-        fromIso = toIsoZ(s);
-      }
-      if (toDate) {
-        const e = endOfLocalDay(new Date(toDate + "T00:00:00"));
-        toIso = toIsoZ(e);
-      }
+      if (fromDate) fromIso = toIsoZ(startOfLocalDay(new Date(fromDate + "T00:00:00")));
+      if (toDate) toIso = toIsoZ(endOfLocalDay(new Date(toDate + "T00:00:00")));
     }
 
     fromIsoRef.current = fromIso;
@@ -126,6 +145,7 @@ export default function LeadsTable() {
       setErr(e?.message || "Failed to load leads");
       setRows([]);
       (window as any).__leads_next_cursor__ = null;
+      show("Couldn’t load leads. Please retry.");
     } finally {
       setLoading(false);
     }
@@ -137,13 +157,13 @@ export default function LeadsTable() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Debounce search input
+  // Debounce search
   useEffect(() => {
     const h = setTimeout(() => {
       const trimmed = query.trim();
       if (debouncedQueryRef.current !== trimmed) {
         debouncedQueryRef.current = trimmed;
-        cursorStackRef.current = []; // reset to page 1 for new search
+        cursorStackRef.current = [];
       }
       fetchPage(null);
     }, DEBOUNCE_MS);
@@ -151,9 +171,8 @@ export default function LeadsTable() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
-  // React on quick range / custom dates
+  // Date filters
   useEffect(() => {
-    // Any change in date filters resets pagination to page 1
     cursorStackRef.current = [];
     fetchPage(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -162,9 +181,7 @@ export default function LeadsTable() {
   const onNext = async () => {
     const nextCursor = (window as any).__leads_next_cursor__ || null;
     if (!nextCursor) return;
-    if (cursorStackRef.current.length === 0) {
-      cursorStackRef.current.push("NULL");
-    }
+    if (cursorStackRef.current.length === 0) cursorStackRef.current.push("NULL");
     cursorStackRef.current.push(nextCursor);
     await fetchPage(nextCursor);
   };
@@ -173,23 +190,18 @@ export default function LeadsTable() {
     if (cursorStackRef.current.length === 0) return;
     cursorStackRef.current.pop();
     const prevStart = cursorStackRef.current[cursorStackRef.current.length - 1] ?? "NULL";
-    const cursor = prevStart === "NULL" ? null : prevStart;
-    await fetchPage(cursor);
+    await fetchPage(prevStart === "NULL" ? null : prevStart);
   };
 
   const onPickQuick = (val: QuickRange) => {
     setQuick(val);
-    // When using quick ranges, clear custom fields for clarity
     if (val !== "ALL") {
       setFromDate("");
       setToDate("");
     }
   };
 
-  const onApplyCustom = () => {
-    setQuick("ALL"); // "ALL" honors custom dates if present
-  };
-
+  const onApplyCustom = () => setQuick("ALL");
   const onClearDates = () => {
     setFromDate("");
     setToDate("");
@@ -211,14 +223,25 @@ export default function LeadsTable() {
     }
   };
 
-  const empty = !loading && rows && rows.length === 0;
+  const onCopyPhone = async (raw: string) => {
+    const cleaned = raw.replace(/[^\d+]/g, "");
+    try {
+      await navigator.clipboard.writeText(cleaned);
+      show("Phone copied");
+    } catch {
+      show("Copy failed");
+    }
+  };
 
-  const isActive = (k: QuickRange) =>
-    quick === k && (k !== "ALL" || (!fromDate && !toDate));
+  const empty = !loading && rows && rows.length === 0;
+  const isActive = (k: QuickRange) => quick === k && (k !== "ALL" || (!fromDate && !toDate));
 
   return (
     <div className="space-y-3">
-      {/* Controls row */}
+      {/* Toast */}
+      <Toast />
+
+      {/* Controls */}
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="text-sm text-gray-500">
           Sorted by <span className="font-medium">Newest first</span>
@@ -237,7 +260,6 @@ export default function LeadsTable() {
               type="button"
               onClick={() => setQuery("")}
               className="px-2 py-1.5 rounded-md border text-xs"
-              aria-label="Clear search"
             >
               Clear
             </button>
@@ -253,10 +275,9 @@ export default function LeadsTable() {
                 className={`px-2.5 py-1.5 rounded-md border text-xs ${
                   isActive(k) ? "bg-gray-900 text-white" : ""
                 }`}
-                aria-label={`Range ${k}`}
                 title={
                   k === "ALL"
-                    ? "All time (or custom dates, if set)"
+                    ? "All time (or custom dates)"
                     : k === "TODAY"
                     ? "Today"
                     : k === "7D"
@@ -269,7 +290,7 @@ export default function LeadsTable() {
             ))}
           </div>
 
-          {/* Custom date range */}
+          {/* Custom dates */}
           <div className="flex items-center gap-2 ml-2">
             <input
               type="date"
@@ -286,19 +307,11 @@ export default function LeadsTable() {
               className="px-2 py-1.5 rounded-md border text-xs"
               aria-label="To date"
             />
-            <button
-              type="button"
-              onClick={onApplyCustom}
-              className="px-2 py-1.5 rounded-md border text-xs"
-            >
+            <button type="button" onClick={onApplyCustom} className="px-2 py-1.5 rounded-md border text-xs">
               Apply
             </button>
             {(fromDate || toDate) && (
-              <button
-                type="button"
-                onClick={onClearDates}
-                className="px-2 py-1.5 rounded-md border text-xs"
-              >
+              <button type="button" onClick={onClearDates} className="px-2 py-1.5 rounded-md border text-xs">
                 Clear Dates
               </button>
             )}
@@ -310,7 +323,6 @@ export default function LeadsTable() {
             onClick={onPrev}
             disabled={!hasPrev || loading}
             className="px-3 py-1.5 rounded-md border text-sm disabled:opacity-50 ml-2"
-            aria-label="Previous page"
           >
             Prev
           </button>
@@ -319,7 +331,6 @@ export default function LeadsTable() {
             onClick={onNext}
             disabled={loading || !(window as any).__leads_next_cursor__}
             className="px-3 py-1.5 rounded-md border text-sm disabled:opacity-50"
-            aria-label="Next page"
           >
             Next
           </button>
@@ -329,7 +340,7 @@ export default function LeadsTable() {
       {/* Table */}
       <div className="overflow-x-auto rounded-xl border">
         <table className="min-w-full text-sm">
-          <thead className="bg-gray-50">
+          <thead className="bg-gray-50 sticky top-0 z-10">
             <tr className="text-left">
               <th className="px-3 py-2 w-[40%]">Patient</th>
               <th className="px-3 py-2 w-[20%]">Phone</th>
@@ -345,6 +356,7 @@ export default function LeadsTable() {
                 </td>
               </tr>
             )}
+
             {err && !loading && (
               <tr>
                 <td className="px-3 py-3 text-red-600" colSpan={4}>
@@ -352,15 +364,15 @@ export default function LeadsTable() {
                 </td>
               </tr>
             )}
-            {!loading &&
-              !err &&
-              rows?.length === 0 && (
-                <tr>
-                  <td className="px-3 py-6 text-gray-500" colSpan={4}>
-                    No leads found.
-                  </td>
-                </tr>
-              )}
+
+            {!loading && !err && rows?.length === 0 && (
+              <tr>
+                <td className="px-3 py-6 text-gray-500" colSpan={4}>
+                  No leads yet. Try clearing filters or create a test lead from the booking page.
+                </td>
+              </tr>
+            )}
+
             {!loading &&
               !err &&
               rows?.map((r) => (
@@ -373,15 +385,25 @@ export default function LeadsTable() {
                   </td>
                   <td className="px-3 py-2">
                     {r.phone ? (
-                      <a
-                        href={`https://wa.me/${r.phone.replace(/[^\d]/g, "")}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="underline"
-                        title="Open in WhatsApp"
-                      >
-                        {r.phone}
-                      </a>
+                      <div className="flex items-center gap-2">
+                        <a
+                          href={`https://wa.me/${r.phone.replace(/[^\d]/g, "")}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="underline"
+                          title="Open in WhatsApp"
+                        >
+                          {r.phone}
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => onCopyPhone(r.phone!)}
+                          className="px-2 py-0.5 rounded border text-xs"
+                          title="Copy phone"
+                        >
+                          Copy
+                        </button>
+                      </div>
                     ) : (
                       <span className="text-gray-400">—</span>
                     )}
