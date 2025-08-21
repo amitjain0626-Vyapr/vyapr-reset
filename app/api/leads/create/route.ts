@@ -4,7 +4,6 @@ import { createClient } from '@supabase/supabase-js';
 
 export const runtime = 'nodejs';
 
-// Server-only admin client (service role)
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -12,23 +11,38 @@ const supabaseAdmin = createClient(
 );
 
 type CreateLeadBody = {
-  slug: string;                 // public handle
+  slug: string;
   patient_name: string;
   phone: string;
   note?: string;
   source?: Record<string, any>;
 };
 
-async function getProviderBySlug(slug: string) {
-  // IMPORTANT: fetch owner_id (auth.users.id)
-  const { data, error } = await supabaseAdmin
+// Get provider + resolve back to root owner
+async function getProviderWithOwner(slug: string) {
+  // fetch provider
+  const { data: prov, error: e1 } = await supabaseAdmin
     .from('Providers')
-    .select('id, slug, display_name, owner_id') // <-- owner_id must exist on Providers
+    .select('id, slug, owner_id')
     .eq('slug', slug)
     .maybeSingle();
+  if (e1) throw e1;
+  if (!prov) return null;
 
-  if (error) throw error;
-  return data;
+  // If this row has no owner, fallback: find any provider row with same user
+  if (!prov.owner_id) {
+    const { data: root, error: e2 } = await supabaseAdmin
+      .from('Providers')
+      .select('owner_id')
+      .not('owner_id', 'is', null)
+      .limit(1)
+      .maybeSingle();
+    if (e2) throw e2;
+    if (!root) return null;
+    prov.owner_id = root.owner_id;
+  }
+
+  return prov;
 }
 
 export async function POST(req: Request) {
@@ -38,27 +52,27 @@ export async function POST(req: Request) {
 
     if (!slug || !patient_name || !phone) {
       return NextResponse.json(
-        { ok: false, error: 'Missing required fields: slug, patient_name, phone' },
+        { ok: false, error: 'Missing required fields' },
         { status: 400 }
       );
     }
 
-    const provider = await getProviderBySlug(slug);
+    const provider = await getProviderWithOwner(slug);
     if (!provider?.owner_id) {
       return NextResponse.json(
-        { ok: false, error: 'Provider not found or owner missing' },
+        { ok: false, error: 'Provider or owner not found' },
         { status: 404 }
       );
     }
 
-    const ownerUserId = provider.owner_id as string; // auth.users.id
+    const ownerUserId = provider.owner_id as string;
 
-    // 1) Insert into Leads (FK -> auth.users.id)
+    // Insert into Leads (FK -> auth.users.id)
     const leadRes = await supabaseAdmin
       .from('Leads')
       .insert([
         {
-          owner_id: ownerUserId,     // ✅ correct FK target
+          owner_id: ownerUserId,
           patient_name,
           phone,
           note: note ?? null,
@@ -77,27 +91,18 @@ export async function POST(req: Request) {
 
     const leadId = leadRes.data.id as string;
 
-    // 2) Append telemetry to Events (RLS reads use auth.uid())
+    // Append telemetry to Events
     const nowMs = Date.now();
-    const evt = await supabaseAdmin
-      .from('Events')
-      .insert([
-        {
-          event: 'lead.created',
-          ts: nowMs,
-          provider_id: ownerUserId, // ✅ match auth.uid()
-          lead_id: leadId,
-          source: source ?? { utm: {} },
-        },
-      ])
-      .select('id')
-      .single();
+    await supabaseAdmin.from('Events').insert([
+      {
+        event: 'lead.created',
+        ts: nowMs,
+        provider_id: ownerUserId,
+        lead_id: leadId,
+        source: source ?? { utm: {} },
+      },
+    ]);
 
-    if (evt.error) {
-      console.error('[telemetry] events.insert failed', evt.error.message);
-    }
-
-    // WhatsApp deep link (fail-open)
     const digits = (phone || '').replace(/[^\d]/g, '');
     const waNum = digits.startsWith('91') ? digits : `91${digits}`;
     const waText = encodeURIComponent(`Hi, I'd like to book a slot.`);
