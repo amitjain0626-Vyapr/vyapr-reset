@@ -5,7 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 
 export const runtime = 'nodejs'; // stay on Node runtime
 
-// server/admin client (service role) — server-only
+// Server-only admin client (service role)
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -47,13 +47,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'Provider not found' }, { status: 404 });
     }
 
-    // 1) Insert into Leads (existing flow)
+    // Insert into Leads
+    // IMPORTANT: Do NOT include provider_slug (column doesn't exist in your schema).
+    // Use the owner/provider id only.
     const leadRes = await supabaseAdmin
       .from('Leads')
       .insert([
         {
-          owner_id: provider.id,
-          provider_slug: slug,
+          owner_id: provider.id,     // keep this if your schema has owner_id (NOT NULL)
+          // provider_id: provider.id, // uncomment ONLY if your schema requires provider_id instead of owner_id
           patient_name,
           phone,
           note: note ?? null,
@@ -72,21 +74,29 @@ export async function POST(req: Request) {
 
     const leadId = leadRes.data.id as string;
 
-    // 2) Append telemetry to Events (append-only)
+    // Append telemetry to Events (append-only; non-blocking)
     const nowMs = Date.now();
-    const eventPayload = {
-      event: 'lead.created',
-      ts: nowMs,
-      provider_id: provider.id,
-      lead_id: leadId,
-      source: source ?? { utm: {} },
-    };
+    const evt = await supabaseAdmin
+      .from('Events')
+      .insert([
+        {
+          event: 'lead.created',
+          ts: nowMs,
+          provider_id: provider.id,
+          lead_id: leadId,
+          source: source ?? { utm: {} },
+        },
+      ])
+      .select('id')
+      .single();
 
-    const evt = await supabaseAdmin.from('Events').insert([eventPayload]).select('id').single();
     if (evt.error) {
       console.error('[telemetry] events.insert failed', evt.error.message);
     } else {
-      console.info('[telemetry]', JSON.stringify({ event: 'lead.created', ts: nowMs, provider_id: provider.id }));
+      console.info(
+        '[telemetry]',
+        JSON.stringify({ event: 'lead.created', ts: nowMs, provider_id: provider.id })
+      );
     }
 
     // WhatsApp deep link (fail-open)
@@ -95,7 +105,6 @@ export async function POST(req: Request) {
     const waText = encodeURIComponent(`Hi, I'd like to book a slot.`);
     const whatsapp_url = `https://wa.me/${waNum}?text=${waText}`;
 
-    // IMPORTANT: include id in response (so we know the right build is live)
     return NextResponse.json({
       ok: true,
       id: leadId,
