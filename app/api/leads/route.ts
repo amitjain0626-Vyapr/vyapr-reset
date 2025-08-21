@@ -40,7 +40,6 @@ function decodeCursor(raw: string | null) {
 }
 
 // Authenticated Supabase (RLS applies) -------------------------------
-// NOTE: cookies() is async in Next.js 15 route handlers.
 async function getSupabase() {
   const cookieStore = await cookies();
   return createServerClient(
@@ -62,7 +61,7 @@ async function getSupabase() {
   );
 }
 
-// GET /api/leads?limit=20&cursor=<base64>|<iso|uuid>&query=<text>
+// GET /api/leads?limit=20&cursor=<base64>|<iso|uuid>&query=<text>&from=<iso>&to=<iso>
 export async function GET(req: NextRequest) {
   const supabase = await getSupabase();
 
@@ -78,6 +77,8 @@ export async function GET(req: NextRequest) {
 
   const rawCursor = url.searchParams.get("cursor");
   const queryText = (url.searchParams.get("query") || "").trim();
+  const from = (url.searchParams.get("from") || "").trim(); // ISO datetime
+  const to = (url.searchParams.get("to") || "").trim();     // ISO datetime
 
   const cursor = decodeCursor(rawCursor);
 
@@ -89,9 +90,12 @@ export async function GET(req: NextRequest) {
     .order("created_at", { ascending: false })
     .order("id", { ascending: false });
 
+  // Date range filter (optional)
+  if (from) q = q.gte("created_at", from);
+  if (to) q = q.lte("created_at", to);
+
   // Seek pagination using (created_at, id)
   if (cursor?.created_at && cursor?.id) {
-    // For DESC order, fetch rows strictly after the cursor
     q = q.or(
       `and(created_at.lt.${cursor.created_at}),and(created_at.eq.${cursor.created_at},id.lt.${cursor.id})`
     );
