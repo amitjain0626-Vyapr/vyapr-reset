@@ -22,10 +22,10 @@ type ApiResp = {
 };
 
 /** TUNABLES */
-const PAGE_LIMIT = 200;              // fetch more per page to benefit from virtualization
+const PAGE_LIMIT = 200;
 const DEBOUNCE_MS = 400;
-const ROW_HEIGHT_PX = 52;            // estimated per-row height (px)
-const OVERSCAN_ROWS = 8;             // render a few extra rows above/below the viewport
+const ROW_HEIGHT_PX = 52;
+const OVERSCAN_ROWS = 8;
 
 type QuickRange = "ALL" | "TODAY" | "7D" | "30D";
 
@@ -79,16 +79,6 @@ export default function LeadsTable() {
   const fromIsoRef = useRef<string>("");
   const toIsoRef = useRef<string>("");
 
-<a
-  href={`/api/leads/export.csv?query=${encodeURIComponent(query)}&from=${encodeURIComponent(
-    fromIsoRef.current || ""
-  )}&to=${encodeURIComponent(toIsoRef.current || "")}`}
-  target="_blank"
-  className="px-3 py-1.5 rounded-md border text-sm"
->
-  Export CSV
-</a>
-
   // Cursors (Prev/Next)
   const cursorStackRef = useRef<string[]>([]);
   const hasPrev = cursorStackRef.current.length > 0;
@@ -96,7 +86,7 @@ export default function LeadsTable() {
   // Toast
   const { show, Toast } = useToast();
 
-  // Virtualization refs/state
+  // Virtualization
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState<number>(0);
   const [viewportH, setViewportH] = useState<number>(0);
@@ -149,7 +139,6 @@ export default function LeadsTable() {
       setRows(json.data || []);
       (window as any).__leads_next_cursor__ = json.next_cursor ?? null;
 
-      // Reset scroll position on any new load
       if (scrollRef.current) {
         scrollRef.current.scrollTop = 0;
         setScrollTop(0);
@@ -201,7 +190,7 @@ export default function LeadsTable() {
     return () => ro.disconnect();
   }, []);
 
-  // Handle scroll
+  // Scroll handler
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -256,6 +245,37 @@ export default function LeadsTable() {
     } catch {
       show("Copy failed");
     }
+  };
+
+  /** Build export URL from current UI state → /api/leads/export */
+  const buildExportUrl = () => {
+    let fromIso = "";
+    let toIso = "";
+    if (quick === "TODAY") {
+      fromIso = toIsoZ(startOfLocalDay(new Date()));
+      toIso = toIsoZ(endOfLocalDay(new Date()));
+    } else if (quick === "7D") {
+      const now = new Date();
+      const start = startOfLocalDay(new Date(now.getTime() - 6 * 24 * 3600 * 1000));
+      fromIso = toIsoZ(start);
+      toIso = toIsoZ(endOfLocalDay(now));
+    } else if (quick === "30D") {
+      const now = new Date();
+      const start = startOfLocalDay(new Date(now.getTime() - 29 * 24 * 3600 * 1000));
+      fromIso = toIsoZ(start);
+      toIso = toIsoZ(endOfLocalDay(now));
+    } else if (quick === "ALL") {
+      if (fromDate) fromIso = toIsoZ(startOfLocalDay(new Date(fromDate + "T00:00:00")));
+      if (toDate) toIso = toIsoZ(endOfLocalDay(new Date(toDate + "T00:00:00")));
+    }
+
+    const params = new URLSearchParams();
+    const q = (query || "").trim();
+    if (q) params.set("query", q);
+    if (fromIso) params.set("from", fromIso);
+    if (toIso) params.set("to", toIso);
+
+    return `/api/leads/export${params.toString() ? `?${params.toString()}` : ""}`;
   };
 
   const total = rows?.length || 0;
@@ -345,11 +365,30 @@ export default function LeadsTable() {
               Apply
             </button>
             {(fromDate || toDate) && (
-              <button type="button" onClick={() => { setFromDate(""); setToDate(""); setQuick("ALL"); }} className="px-2 py-1.5 rounded-md border text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setFromDate("");
+                  setToDate("");
+                  setQuick("ALL");
+                }}
+                className="px-2 py-1.5 rounded-md border text-xs"
+              >
                 Clear Dates
               </button>
             )}
           </div>
+
+          {/* Export CSV — points to /api/leads/export */}
+          <a
+            href={buildExportUrl()}
+            target="_blank"
+            rel="noreferrer"
+            className="px-3 py-1.5 rounded-md border text-sm ml-2"
+            download
+          >
+            Export CSV
+          </a>
 
           {/* Prev/Next */}
           <button
@@ -414,10 +453,12 @@ export default function LeadsTable() {
               </tr>
             )}
 
-            {/* Visible slice */}
+            {/* Visible rows */}
             {!loading &&
               !err &&
-              slice.map((r) => (
+              rows &&
+              rows.length > 0 &&
+              rows.slice(firstVisible, end).map((r) => (
                 <tr key={r.id} className="border-t" style={{ height: ROW_HEIGHT_PX }}>
                   <td className="px-3 py-2">
                     <div className="font-medium">
