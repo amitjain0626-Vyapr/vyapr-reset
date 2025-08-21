@@ -1,9 +1,8 @@
 // @ts-nocheck
-// app/api/leads/create/route.ts
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-export const runtime = 'nodejs'; // stay on Node runtime
+export const runtime = 'nodejs';
 
 // Server-only admin client (service role)
 const supabaseAdmin = createClient(
@@ -13,7 +12,7 @@ const supabaseAdmin = createClient(
 );
 
 type CreateLeadBody = {
-  slug: string;
+  slug: string;                 // public handle
   patient_name: string;
   phone: string;
   note?: string;
@@ -21,11 +20,13 @@ type CreateLeadBody = {
 };
 
 async function getProviderBySlug(slug: string) {
+  // IMPORTANT: fetch owner_id (auth.users.id)
   const { data, error } = await supabaseAdmin
     .from('Providers')
-    .select('id, slug, display_name')
+    .select('id, slug, display_name, owner_id') // <-- owner_id must exist on Providers
     .eq('slug', slug)
     .maybeSingle();
+
   if (error) throw error;
   return data;
 }
@@ -43,19 +44,21 @@ export async function POST(req: Request) {
     }
 
     const provider = await getProviderBySlug(slug);
-    if (!provider?.id) {
-      return NextResponse.json({ ok: false, error: 'Provider not found' }, { status: 404 });
+    if (!provider?.owner_id) {
+      return NextResponse.json(
+        { ok: false, error: 'Provider not found or owner missing' },
+        { status: 404 }
+      );
     }
 
-    // Insert into Leads
-    // IMPORTANT: Do NOT include provider_slug (column doesn't exist in your schema).
-    // Use the owner/provider id only.
+    const ownerUserId = provider.owner_id as string; // auth.users.id
+
+    // 1) Insert into Leads (FK -> auth.users.id)
     const leadRes = await supabaseAdmin
       .from('Leads')
       .insert([
         {
-          owner_id: provider.id,     // keep this if your schema has owner_id (NOT NULL)
-          // provider_id: provider.id, // uncomment ONLY if your schema requires provider_id instead of owner_id
+          owner_id: ownerUserId,     // ✅ correct FK target
           patient_name,
           phone,
           note: note ?? null,
@@ -74,7 +77,7 @@ export async function POST(req: Request) {
 
     const leadId = leadRes.data.id as string;
 
-    // Append telemetry to Events (append-only; non-blocking)
+    // 2) Append telemetry to Events (RLS reads use auth.uid())
     const nowMs = Date.now();
     const evt = await supabaseAdmin
       .from('Events')
@@ -82,7 +85,7 @@ export async function POST(req: Request) {
         {
           event: 'lead.created',
           ts: nowMs,
-          provider_id: provider.id,
+          provider_id: ownerUserId, // ✅ match auth.uid()
           lead_id: leadId,
           source: source ?? { utm: {} },
         },
@@ -92,11 +95,6 @@ export async function POST(req: Request) {
 
     if (evt.error) {
       console.error('[telemetry] events.insert failed', evt.error.message);
-    } else {
-      console.info(
-        '[telemetry]',
-        JSON.stringify({ event: 'lead.created', ts: nowMs, provider_id: provider.id })
-      );
     }
 
     // WhatsApp deep link (fail-open)
