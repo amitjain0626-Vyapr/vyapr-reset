@@ -28,7 +28,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "missing_fields" }, { status: 400 });
     }
 
-    // SECURITY DEFINER RPC enforces Providers.published=true and bypasses RLS for public insert
     const { data, error } = await supabase.rpc("public_insert_lead_by_slug", {
       p_slug: slug,
       p_patient_name: patient_name ?? null,
@@ -41,30 +40,22 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "insert_failed" }, { status: 500 });
     }
 
-    // Normalize RPC response shapes
     const lead = data?.lead || data;
     const provider_slug = data?.provider_slug || slug;
     const provider_id = data?.provider_id || lead?.provider_id || null;
     const id = lead?.id || data?.id;
 
-    // --- TELEMETRY: unconditional direct server log (so it always shows up in Vercel logs) ---
     try {
-      console.log(
-        "[telemetry] " +
-          JSON.stringify({
-            event: "lead.created",
-            ts: Date.now(),
-            provider_id,
-            provider_slug,
-            lead_id: id,
-            source: source ?? {},
-          })
-      );
-    } catch {
-      // fail-open
-    }
+      console.log("[telemetry] " + JSON.stringify({
+        event: "lead.created",
+        ts: Date.now(),
+        provider_id,
+        provider_slug,
+        lead_id: id,
+        source: source ?? {}
+      }));
+    } catch {}
 
-    // Also fire the logger shim (non-blocking). If NEXT_PUBLIC_BASE_URL is not set, same-origin '' works on Vercel.
     try {
       await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || ""}/api/events/log`, {
         method: "POST",
@@ -75,15 +66,12 @@ export async function POST(req: Request) {
           provider_id,
           provider_slug,
           lead_id: id,
-          source: source ?? {},
+          source: source ?? {}
         }),
         cache: "no-store",
       });
-    } catch {
-      // swallow — user flow must not block on telemetry
-    }
+    } catch {}
 
-    // WhatsApp URL passthrough if your RPC returns it (kept from earlier steps)
     const whatsapp_url =
       data?.whatsapp_url ||
       (source?.wa && typeof source.wa === "string" ? source.wa : undefined);
