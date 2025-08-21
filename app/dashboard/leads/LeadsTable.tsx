@@ -21,8 +21,11 @@ type ApiResp = {
   error?: string;
 };
 
-const PAGE_LIMIT = 20;
+/** TUNABLES */
+const PAGE_LIMIT = 200;              // fetch more per page to benefit from virtualization
 const DEBOUNCE_MS = 400;
+const ROW_HEIGHT_PX = 52;            // estimated per-row height (px)
+const OVERSCAN_ROWS = 8;             // render a few extra rows above/below the viewport
 
 type QuickRange = "ALL" | "TODAY" | "7D" | "30D";
 
@@ -30,13 +33,11 @@ type QuickRange = "ALL" | "TODAY" | "7D" | "30D";
 function useToast() {
   const [msg, setMsg] = useState<string | null>(null);
   const timerRef = useRef<any>(null);
-
   const show = (text: string, ms = 1800) => {
     setMsg(text);
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => setMsg(null), ms);
   };
-
   const Toast = () =>
     msg ? (
       <div className="fixed left-1/2 -translate-x-1/2 bottom-6 z-50">
@@ -45,7 +46,6 @@ function useToast() {
         </div>
       </div>
     ) : null;
-
   return { show, Toast };
 }
 
@@ -86,10 +86,14 @@ export default function LeadsTable() {
   // Toast
   const { show, Toast } = useToast();
 
+  // Virtualization refs/state
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [scrollTop, setScrollTop] = useState<number>(0);
+  const [viewportH, setViewportH] = useState<number>(0);
+
   const computeIsoWindow = () => {
     let fromIso = "";
     let toIso = "";
-
     if (quick === "TODAY") {
       fromIso = toIsoZ(startOfLocalDay(new Date()));
       toIso = toIsoZ(endOfLocalDay(new Date()));
@@ -107,7 +111,6 @@ export default function LeadsTable() {
       if (fromDate) fromIso = toIsoZ(startOfLocalDay(new Date(fromDate + "T00:00:00")));
       if (toDate) toIso = toIsoZ(endOfLocalDay(new Date(toDate + "T00:00:00")));
     }
-
     fromIsoRef.current = fromIso;
     toIsoRef.current = toIso;
   };
@@ -117,14 +120,11 @@ export default function LeadsTable() {
     setErr(null);
     try {
       computeIsoWindow();
-
       const params = new URLSearchParams();
       params.set("limit", String(PAGE_LIMIT));
       if (cursor) params.set("cursor", cursor);
-
       const q = debouncedQueryRef.current.trim();
       if (q) params.set("query", q);
-
       if (fromIsoRef.current) params.set("from", fromIsoRef.current);
       if (toIsoRef.current) params.set("to", toIsoRef.current);
 
@@ -133,14 +133,17 @@ export default function LeadsTable() {
         headers: { Accept: "application/json" },
         cache: "no-store",
       });
-
       const json = (await res.json()) as ApiResp;
-      if (!res.ok || !json.ok) {
-        throw new Error(json?.error || `HTTP ${res.status}`);
-      }
+      if (!res.ok || !json.ok) throw new Error(json?.error || `HTTP ${res.status}`);
 
       setRows(json.data || []);
       (window as any).__leads_next_cursor__ = json.next_cursor ?? null;
+
+      // Reset scroll position on any new load
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop = 0;
+        setScrollTop(0);
+      }
     } catch (e: any) {
       setErr(e?.message || "Failed to load leads");
       setRows([]);
@@ -178,6 +181,25 @@ export default function LeadsTable() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quick, fromDate, toDate]);
 
+  // Observe container height
+  useEffect(() => {
+    if (!scrollRef.current) return;
+    const el = scrollRef.current;
+    const ro = new ResizeObserver(() => setViewportH(el.clientHeight));
+    ro.observe(el);
+    setViewportH(el.clientHeight);
+    return () => ro.disconnect();
+  }, []);
+
+  // Handle scroll
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => setScrollTop(el.scrollTop);
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
   const onNext = async () => {
     const nextCursor = (window as any).__leads_next_cursor__ || null;
     if (!nextCursor) return;
@@ -199,13 +221,6 @@ export default function LeadsTable() {
       setFromDate("");
       setToDate("");
     }
-  };
-
-  const onApplyCustom = () => setQuick("ALL");
-  const onClearDates = () => {
-    setFromDate("");
-    setToDate("");
-    setQuick("ALL");
   };
 
   const prettyDate = (iso: string) => {
@@ -233,7 +248,16 @@ export default function LeadsTable() {
     }
   };
 
-  const empty = !loading && rows && rows.length === 0;
+  const total = rows?.length || 0;
+  const firstVisible = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT_PX) - OVERSCAN_ROWS);
+  const visibleCount = Math.ceil((viewportH || 0) / ROW_HEIGHT_PX) + OVERSCAN_ROWS * 2;
+  const end = Math.min(total, firstVisible + visibleCount);
+  const slice = rows?.slice(firstVisible, end) ?? [];
+
+  const topPad = firstVisible * ROW_HEIGHT_PX;
+  const bottomPad = Math.max(0, (total - end) * ROW_HEIGHT_PX);
+
+  const empty = !loading && total === 0;
   const isActive = (k: QuickRange) => quick === k && (k !== "ALL" || (!fromDate && !toDate));
 
   return (
@@ -307,11 +331,11 @@ export default function LeadsTable() {
               className="px-2 py-1.5 rounded-md border text-xs"
               aria-label="To date"
             />
-            <button type="button" onClick={onApplyCustom} className="px-2 py-1.5 rounded-md border text-xs">
+            <button type="button" onClick={() => setQuick("ALL")} className="px-2 py-1.5 rounded-md border text-xs">
               Apply
             </button>
             {(fromDate || toDate) && (
-              <button type="button" onClick={onClearDates} className="px-2 py-1.5 rounded-md border text-xs">
+              <button type="button" onClick={() => { setFromDate(""); setToDate(""); setQuick("ALL"); }} className="px-2 py-1.5 rounded-md border text-xs">
                 Clear Dates
               </button>
             )}
@@ -337,10 +361,10 @@ export default function LeadsTable() {
         </div>
       </div>
 
-      {/* Table */}
-      <div className="rounded-xl border max-h-[70vh] overflow-auto">
-  <table className="min-w-full text-sm">
-    <thead className="bg-gray-50 sticky top-0 z-10">
+      {/* Table (virtualized body) */}
+      <div ref={scrollRef} className="rounded-xl border max-h-[70vh] overflow-auto">
+        <table className="min-w-full text-sm">
+          <thead className="bg-gray-50 sticky top-0 z-10">
             <tr className="text-left">
               <th className="px-3 py-2 w-[40%]">Patient</th>
               <th className="px-3 py-2 w-[20%]">Phone</th>
@@ -365,7 +389,7 @@ export default function LeadsTable() {
               </tr>
             )}
 
-            {!loading && !err && rows?.length === 0 && (
+            {!loading && !err && empty && (
               <tr>
                 <td className="px-3 py-6 text-gray-500" colSpan={4}>
                   No leads yet. Try clearing filters or create a test lead from the booking page.
@@ -373,15 +397,23 @@ export default function LeadsTable() {
               </tr>
             )}
 
+            {/* Top spacer */}
+            {!loading && !err && !empty && topPad > 0 && (
+              <tr aria-hidden="true">
+                <td colSpan={4} style={{ height: `${topPad}px`, padding: 0, border: 0 }} />
+              </tr>
+            )}
+
+            {/* Visible slice */}
             {!loading &&
               !err &&
-              rows?.map((r) => (
-                <tr key={r.id} className="border-t">
+              slice.map((r) => (
+                <tr key={r.id} className="border-t" style={{ height: ROW_HEIGHT_PX }}>
                   <td className="px-3 py-2">
                     <div className="font-medium">
                       {r.patient_name || <span className="text-gray-400">Unnamed</span>}
                     </div>
-                    {r.note && <div className="text-gray-500">{r.note}</div>}
+                    {r.note && <div className="text-gray-500 line-clamp-1">{r.note}</div>}
                   </td>
                   <td className="px-3 py-2">
                     {r.phone ? (
@@ -409,19 +441,25 @@ export default function LeadsTable() {
                     )}
                   </td>
                   <td className="px-3 py-2">
-                    <span className="line-clamp-2">{r.note || "—"}</span>
+                    <span className="line-clamp-1">{r.note || "—"}</span>
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">{prettyDate(r.created_at)}</td>
                 </tr>
               ))}
+
+            {/* Bottom spacer */}
+            {!loading && !err && !empty && bottomPad > 0 && (
+              <tr aria-hidden="true">
+                <td colSpan={4} style={{ height: `${bottomPad}px`, padding: 0, border: 0 }} />
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
 
       {/* Footer */}
       <div className="text-xs text-gray-500">
-        Showing up to {PAGE_LIMIT} per page. Search is debounced ({DEBOUNCE_MS}ms).
-        Ranges: All / Today / 7d / 30d, or pick custom dates and press Apply.
+        Virtualized view: rendering ~{visibleCount} rows at a time (of {total}). Page size {PAGE_LIMIT}.
       </div>
     </div>
   );
