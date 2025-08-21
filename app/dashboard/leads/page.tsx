@@ -1,18 +1,11 @@
 // @ts-nocheck
-import NextDynamic from 'next/dynamic'; // ✅ renamed to avoid clash with export const dynamic
 import { cookies } from 'next/headers';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import LeadsTable from '@/components/leads/LeadsTable';
+import EventsMount from '@/components/EventsMount';
 
-// Force Node runtime; avoid Edge quirks
 export const runtime = 'nodejs';
-// Always render fresh (dashboard data)
 export const dynamic = 'force-dynamic';
-
-// Load the realtime subscriber only on the client
-const EventsSubscriber = NextDynamic(() => import('@/components/EventsSubscriber'), {
-  ssr: false,
-});
 
 export default async function LeadsPage() {
   const supabase = await createSupabaseServerClient(cookies());
@@ -24,7 +17,7 @@ export default async function LeadsPage() {
 
   return (
     <>
-      <EventsSubscriber />
+      <EventsMount />
       <div className="p-6 space-y-4">
         <div className="flex items-end justify-between">
           <h1 className="text-2xl font-semibold">Leads</h1>
