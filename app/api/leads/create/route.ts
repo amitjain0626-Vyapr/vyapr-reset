@@ -1,95 +1,83 @@
+// app/api/leads/create/route.ts
 // @ts-nocheck
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import { NextResponse } from "next/server";
-import { createSupabaseServerClient } from "@/lib/supabase/server"; // keep your existing path
-
-function cleanPhone(raw: string) {
-  return (raw || "").replace(/[^0-9+]/g, "");
-}
-function trimOrNull(v: any) {
-  const s = (v ?? "").toString().trim();
-  return s.length ? s : null;
-}
+import { createServerClient } from "@supabase/ssr";
+import { cookies, headers } from "next/headers";
 
 export async function POST(req: Request) {
+  const cookieStore = cookies();
+  const hdrs = headers();
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: { get: (n: string) => cookieStore.get(n)?.value },
+      headers: { get: (n: string) => hdrs.get(n) ?? undefined },
+    }
+  );
+
   try {
-    const supabase = await createSupabaseServerClient();
-
-    const body = await req.json().catch(() => ({}));
-    const slug = (body?.slug ?? "").toString().trim();
-    const patient_name = trimOrNull(body?.patient_name);
-    const phone = cleanPhone(body?.phone ?? "");
-    const note = trimOrNull(body?.note);
-    const source = body?.source ?? null;
-
-    if (!slug || !patient_name || !phone) {
-      return NextResponse.json(
-        { ok: false, error: "Missing fields: slug, name, phone are required." },
-        { status: 400 }
-      );
+    const body = await req.json();
+    const { slug, patient_name, phone, note, source } = body || {};
+    if (!slug || !phone) {
+      return NextResponse.json({ ok: false, error: "missing_fields" }, { status: 400 });
     }
 
-    // 1) Resolve provider (to build WhatsApp link + ensure published)
-    const { data: provider, error: pErr } = await supabase
-      .from("Providers")
-      .select("id, display_name, whatsapp, phone, slug, published")
-      .eq("slug", slug)
-      .eq("published", true)
-      .maybeSingle();
+    // use SECURITY DEFINER RPC
+    const { data, error } = await supabase.rpc("public_insert_lead_by_slug", {
+      p_slug: slug,
+      p_patient_name: patient_name ?? null,
+      p_phone: phone,
+      p_note: note ?? null,
+      p_source: source ?? {},
+    });
 
-    if (pErr) {
-      return NextResponse.json(
-        { ok: false, error: `Provider lookup failed: ${pErr.message}` },
-        { status: 500 }
-      );
-    }
-    if (!provider?.id) {
-      return NextResponse.json(
-        { ok: false, error: "Provider not found or not published." },
-        { status: 404 }
-      );
+    if (error) {
+      return NextResponse.json({ ok: false, error: "insert_failed" }, { status: 500 });
     }
 
-    // 2) Insert via SECURITY DEFINER RPC (bypasses RLS, but checks are inside)
-    const { data: newId, error: rpcErr } = await supabase.rpc(
-      "public_insert_lead_by_slug",
-      {
-        p_slug: slug,
-        p_patient_name: patient_name,
-        p_phone: phone,
-        p_note: note,
-        p_source: source,
-      }
-    );
+    const lead = data?.lead || data; // tolerate different RPC shapes
+    const provider_slug = data?.provider_slug || slug;
+    const provider_id = data?.provider_id || lead?.provider_id || null;
+    const id = lead?.id || data?.id;
 
-    if (rpcErr) {
-      return NextResponse.json(
-        { ok: false, error: `Could not save lead: ${rpcErr.message}` },
-        { status: 400 }
-      );
+    // WhatsApp url reuse (existing behavior)
+    const wa = data?.whatsapp_url ||
+      (source?.wa && typeof source.wa === "string" ? source.wa : undefined);
+
+    // --- Telemetry (fail-open) ---
+    try {
+      await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || ""}/api/events/log`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // minimal payload for now
+        body: JSON.stringify({
+          event: "lead.created",
+          ts: Date.now(),
+          provider_id,
+          provider_slug,
+          lead_id: id,
+          source: source ?? {},
+        }),
+        // never block user flow
+        cache: "no-store",
+      });
+    } catch {
+      // swallow
     }
-
-    // 3) Build WhatsApp fallback URL
-    const waNumber = cleanPhone(provider.whatsapp || provider.phone || "");
-    const providerName = provider.display_name ? ` ${provider.display_name}` : "";
-    const text = encodeURIComponent(`Hi${providerName}, I’d like to book a slot.`);
-    const whatsapp_url = waNumber
-      ? `https://wa.me/${waNumber.replace(/^\+/, "")}?text=${text}`
-      : null;
 
     return NextResponse.json({
       ok: true,
-      id: newId, // uuid returned by the RPC
-      provider_slug: provider.slug,
-      whatsapp_url,
+      id,
+      provider_slug,
+      whatsapp_url: wa,
     });
-  } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, error: e?.message || "Unexpected error" },
-      { status: 500 }
-    );
+  } catch {
+    return NextResponse.json({ ok: false, error: "bad_json" }, { status: 400 });
   }
 }
