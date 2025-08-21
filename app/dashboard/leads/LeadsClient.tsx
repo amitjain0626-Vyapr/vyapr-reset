@@ -10,49 +10,59 @@ type LeadRow = {
 
 function UtmChip({ source }: { source: any }) {
   const utm = source?.utm || {};
-  const parts = [];
+  const parts: string[] = [];
   if (utm.source) parts.push(`src:${utm.source}`);
   if (utm.medium) parts.push(`med:${utm.medium}`);
   if (utm.campaign) parts.push(`cmp:${utm.campaign}`);
   const label = parts.length ? parts.join(" · ") : (source?.ref ? `ref:${source.ref}` : "direct");
   return <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium">{label}</span>;
 }
-
-function CellMuted({ children }: { children: React.ReactNode }) {
-  return <div className="text-sm text-neutral-600">{children}</div>;
-}
-function Title({ children }: { children: React.ReactNode }) {
-  return <div className="font-medium">{children}</div>;
-}
+function CellMuted({ children }: { children: React.ReactNode }) { return <div className="text-sm text-neutral-600">{children}</div>; }
+function Title({ children }: { children: React.ReactNode }) { return <div className="font-medium">{children}</div>; }
 
 export default function LeadsClient({ initial }: { initial: LeadRow[] }) {
   const [leads, setLeads] = useState<LeadRow[]>(initial || []);
 
+  async function fetchLeads() {
+    try {
+      const url = `/api/leads/list?t=${Date.now()}`;
+      const res = await fetch(url, {
+        cache: "no-store",
+        credentials: "include",
+        headers: { "Cache-Control": "no-store" },
+        next: { revalidate: 0 },
+      });
+      const json = await res.json();
+      if (json?.ok && Array.isArray(json.leads)) {
+        const head = (xs: LeadRow[]) => (xs[0]?.id || "") + "|" + (xs[0]?.created_at || "");
+        if (head(json.leads) !== head(leads)) setLeads(json.leads);
+      }
+    } catch {}
+  }
+
+  // 30s poll (fallback)
   useEffect(() => {
-    let mounted = true;
+    fetchLeads();
+    const iv = setInterval(fetchLeads, 30_000);
+    return () => clearInterval(iv);
+  }, []);
 
-    async function fetchLeads() {
-      try {
-        const url = `/api/leads/list?t=${Date.now()}`; // bust every call
-        const res = await fetch(url, {
-          cache: "no-store",
-          credentials: "include",
-          headers: { "Cache-Control": "no-store" },
-          next: { revalidate: 0 },
-        });
-        const json = await res.json();
-        if (mounted && json?.ok && Array.isArray(json.leads)) {
-          // update only if head changes
-          const head = (xs: LeadRow[]) => (xs[0]?.id || "") + "|" + (xs[0]?.created_at || "");
-          if (head(json.leads) !== head(leads)) setLeads(json.leads);
-        }
-      } catch {}
+  // SSE primary channel (instant updates)
+  useEffect(() => {
+    let es: EventSource | null = null;
+    try {
+      es = new EventSource("/api/leads/stream"); // same-origin, cookies included
+      es.addEventListener("leads.updated", () => fetchLeads());
+      // optional: on hello, we could reconcile, but not required
+      es.onerror = () => {
+        // if SSE fails, we rely on the 30s poll
+        es?.close();
+      };
+    } catch {
+      // ignore; fallback polling already running
     }
-
-    fetchLeads();                        // immediate
-    const iv = setInterval(fetchLeads, 30_000); // 30s
-    return () => { mounted = false; clearInterval(iv); };
-  }, [/* none */]);
+    return () => { es?.close(); };
+  }, []);
 
   const count = leads.length;
   const newestTs = leads[0]?.created_at ? new Date(leads[0].created_at).toLocaleString() : "—";
@@ -67,7 +77,7 @@ export default function LeadsClient({ initial }: { initial: LeadRow[] }) {
       {count === 0 ? (
         <div className="rounded-xl border p-8 text-center">
           <div className="text-lg font-medium">No leads yet</div>
-          <div className="mt-1 text-sm text-neutral-600">This view auto‑refreshes every 30s.</div>
+          <div className="mt-1 text-sm text-neutral-600">Auto‑refresh is on (SSE + 30s fallback).</div>
         </div>
       ) : (
         <div className="overflow-hidden rounded-2xl border">
@@ -99,7 +109,7 @@ export default function LeadsClient({ initial }: { initial: LeadRow[] }) {
         </div>
       )}
 
-      <div className="text-xs text-neutral-500">Auto‑refresh: 30s • No schema changes • Node runtime preserved</div>
+      <div className="text-xs text-neutral-500">SSE realtime + 30s fallback • Node runtime • No schema changes</div>
     </>
   );
 }
