@@ -338,9 +338,9 @@ export default function LeadsTable() {
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto rounded-xl border">
-        <table className="min-w-full text-sm">
-          <thead className="bg-gray-50 sticky top-0 z-10">
+      <div className="rounded-xl border max-h-[70vh] overflow-auto">
+  <table className="min-w-full text-sm">
+    <thead className="bg-gray-50 sticky top-0 z-10">
             <tr className="text-left">
               <th className="px-3 py-2 w-[40%]">Patient</th>
               <th className="px-3 py-2 w-[20%]">Phone</th>
