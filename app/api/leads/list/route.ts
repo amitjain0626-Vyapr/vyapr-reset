@@ -1,9 +1,20 @@
 // app/api/leads/list/route.ts
 // @ts-nocheck
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 import { NextResponse } from "next/server";
 import { cookies, headers } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
+
+function noStore(json: any, status = 200) {
+  const res = NextResponse.json(json, { status });
+  res.headers.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
+  res.headers.set("Pragma", "no-cache");
+  res.headers.set("Expires", "0");
+  return res;
+}
 
 export async function GET() {
   try {
@@ -13,38 +24,24 @@ export async function GET() {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
-        cookies: {
-          get(name: string) {
-            return cookieStore.get(name)?.value;
-          },
-        },
-        headers: {
-          get(name: string) {
-            return hdrs.get(name) ?? undefined;
-          },
-        },
+        cookies: { get: (n: string) => cookieStore.get(n)?.value },
+        headers: { get: (n: string) => hdrs.get(n) ?? undefined },
       }
     );
 
     const { data: auth } = await supabase.auth.getUser();
     const user = auth?.user;
-    if (!user) {
-      return NextResponse.json({ ok: false, error: "not_authenticated" }, { status: 401 });
-    }
+    if (!user) return noStore({ ok: false, error: "not_authenticated" }, 401);
 
     const { data: providers, error: pErr } = await supabase
       .from("Providers")
       .select("id")
       .eq("owner_id", user.id);
 
-    if (pErr) {
-      return NextResponse.json({ ok: false, error: "providers_fetch_failed" }, { status: 500 });
-    }
+    if (pErr) return noStore({ ok: false, error: "providers_fetch_failed" }, 500);
 
     const providerIds = (providers || []).map((p: any) => p.id);
-    if (providerIds.length === 0) {
-      return NextResponse.json({ ok: true, leads: [] });
-    }
+    if (providerIds.length === 0) return noStore({ ok: true, leads: [] });
 
     const { data: leads, error: lErr } = await supabase
       .from("Leads")
@@ -53,12 +50,10 @@ export async function GET() {
       .order("created_at", { ascending: false })
       .limit(50);
 
-    if (lErr) {
-      return NextResponse.json({ ok: false, error: "leads_fetch_failed" }, { status: 500 });
-    }
+    if (lErr) return noStore({ ok: false, error: "leads_fetch_failed" }, 500);
 
-    return NextResponse.json({ ok: true, leads: leads || [] });
-  } catch (e) {
-    return NextResponse.json({ ok: false, error: "unexpected" }, { status: 500 });
+    return noStore({ ok: true, leads: leads || [] });
+  } catch {
+    return noStore({ ok: false, error: "unexpected" }, 500);
   }
 }
