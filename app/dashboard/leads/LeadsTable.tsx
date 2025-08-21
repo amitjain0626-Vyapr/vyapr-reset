@@ -63,6 +63,22 @@ function toIsoZ(dt: Date) {
   return dt.toISOString();
 }
 
+/** Helpers for URL <-> state sync */
+function parseUrlParams() {
+  const params = new URLSearchParams(window.location.search);
+  const q = params.get("q") || "";
+  const range = (params.get("range") || "ALL").toUpperCase() as QuickRange;
+  const from = params.get("from") || "";
+  const to = params.get("to") || "";
+  const allowed: QuickRange[] = ["ALL", "TODAY", "7D", "30D"];
+  return {
+    q,
+    range: allowed.includes(range) ? range : ("ALL" as QuickRange),
+    from, // yyyy-mm-dd (local)
+    to,   // yyyy-mm-dd (local)
+  };
+}
+
 export default function LeadsTable() {
   const [rows, setRows] = useState<Lead[] | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
@@ -90,6 +106,10 @@ export default function LeadsTable() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [scrollTop, setScrollTop] = useState<number>(0);
   const [viewportH, setViewportH] = useState<number>(0);
+
+  // URL sync control
+  const didInitRef = useRef<boolean>(false);
+  const canSyncUrlRef = useRef<boolean>(false); // guard against initial parse -> sync loop
 
   const computeIsoWindow = () => {
     let fromIso = "";
@@ -153,50 +173,93 @@ export default function LeadsTable() {
     }
   };
 
-  // Initial load
+  /** INITIALIZE from URL once, then fetch */
   useEffect(() => {
-    fetchPage(null);
+    if (didInitRef.current) return;
+    didInitRef.current = true;
+
+    try {
+      const parsed = parseUrlParams();
+      if (parsed.q) setQuery(parsed.q);
+      setQuick(parsed.range);
+      if (parsed.range === "ALL") {
+        if (parsed.from) setFromDate(parsed.from);
+        if (parsed.to) setToDate(parsed.to);
+      } else {
+        setFromDate("");
+        setToDate("");
+      }
+    } finally {
+      // allow sync after first fetch
+      fetchPage(null).then(() => {
+        canSyncUrlRef.current = true;
+      });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Debounce search
+  /** Write current filters to URL (replaceState), debounced for search */
+  const syncUrl = () => {
+    if (!canSyncUrlRef.current) return;
+    const p = new URLSearchParams();
+    const q = (query || "").trim();
+    if (q) p.set("q", q);
+    p.set("range", quick);
+    if (quick === "ALL") {
+      if (fromDate) p.set("from", fromDate);
+      if (toDate) p.set("to", toDate);
+    }
+    const search = p.toString();
+    const newUrl = `${window.location.pathname}${search ? `?${search}` : ""}`;
+    if (newUrl !== `${window.location.pathname}${window.location.search}`) {
+      history.replaceState(null, "", newUrl);
+    }
+  };
+
+  // Debounce search -> fetch & sync URL
   useEffect(() => {
+    if (!didInitRef.current) return;
     const h = setTimeout(() => {
       const trimmed = query.trim();
       if (debouncedQueryRef.current !== trimmed) {
         debouncedQueryRef.current = trimmed;
         cursorStackRef.current = [];
       }
+      syncUrl();
       fetchPage(null);
     }, DEBOUNCE_MS);
     return () => clearTimeout(h);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
-  // Date filters
+  // Date filters & quick range -> fetch & sync URL
   useEffect(() => {
+    if (!didInitRef.current) return;
     cursorStackRef.current = [];
+    syncUrl();
     fetchPage(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quick, fromDate, toDate]);
 
-  // Observe container height
+  /** Handle back/forward navigation restoring filters from URL */
   useEffect(() => {
-    if (!scrollRef.current) return;
-    const el = scrollRef.current;
-    const ro = new ResizeObserver(() => setViewportH(el.clientHeight));
-    ro.observe(el);
-    setViewportH(el.clientHeight);
-    return () => ro.disconnect();
-  }, []);
-
-  // Scroll handler
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const onScroll = () => setScrollTop(el.scrollTop);
-    el.addEventListener("scroll", onScroll, { passive: true });
-    return () => el.removeEventListener("scroll", onScroll);
+    const onPop = () => {
+      const parsed = parseUrlParams();
+      setQuery(parsed.q);
+      setQuick(parsed.range);
+      if (parsed.range === "ALL") {
+        setFromDate(parsed.from || "");
+        setToDate(parsed.to || "");
+      } else {
+        setFromDate("");
+        setToDate("");
+      }
+      cursorStackRef.current = [];
+      fetchPage(null);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const onNext = async () => {
@@ -247,7 +310,7 @@ export default function LeadsTable() {
     }
   };
 
-  /** Build export URL from current UI state → /api/leads/export */
+  /** Build export URL from current UI state → /api/leads/export (keeps shareability) */
   const buildExportUrl = () => {
     let fromIso = "";
     let toIso = "";
@@ -379,7 +442,7 @@ export default function LeadsTable() {
             )}
           </div>
 
-          {/* Export CSV — points to /api/leads/export */}
+          {/* Export CSV — shareable */}
           <a
             href={buildExportUrl()}
             target="_blank"
@@ -511,6 +574,7 @@ export default function LeadsTable() {
       {/* Footer */}
       <div className="text-xs text-gray-500">
         Virtualized view: rendering ~{visibleCount} rows at a time (of {total}). Page size {PAGE_LIMIT}.
+        Shareable filters: URL updates with q/range/dates.
       </div>
     </div>
   );
