@@ -2,7 +2,7 @@
 "use client";
 
 // @ts-nocheck
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Lead = {
   id: string;
@@ -22,50 +22,47 @@ type ApiResp = {
 };
 
 const PAGE_LIMIT = 20;
+const DEBOUNCE_MS = 400;
 
 export default function LeadsTable() {
   const [rows, setRows] = useState<Lead[] | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // Cursors: stack of cursors we used to reach the current page
-  // - top of the stack corresponds to CURRENT page's "start position"
-  // - when we go next, we push the next_cursor returned by API
-  // - when we go prev, we pop (go back to the previous cursor)
-  const cursorStackRef = useRef<string[]>([]);
+  // Search state
+  const [query, setQuery] = useState<string>("");
+  const debouncedQueryRef = useRef<string>("");
 
-  // For display / disabled states
+  // Cursor stack to support Prev/Next
+  const cursorStackRef = useRef<string[]>([]);
   const hasPrev = cursorStackRef.current.length > 0;
 
-  const fetchPage = async (cursor: string | null) => {
+  const fetchPage = async (cursor: string | null, activeQuery: string) => {
     setLoading(true);
     setErr(null);
     try {
       const params = new URLSearchParams();
       params.set("limit", String(PAGE_LIMIT));
       if (cursor) params.set("cursor", cursor);
+      if (activeQuery) params.set("query", activeQuery);
 
       const res = await fetch(`/api/leads?${params.toString()}`, {
-        // credentials included automatically for same-origin in browsers
         method: "GET",
-        headers: { "Accept": "application/json" },
+        headers: { Accept: "application/json" },
         cache: "no-store",
       });
 
       const json = (await res.json()) as ApiResp;
-
       if (!res.ok || !json.ok) {
         throw new Error(json?.error || `HTTP ${res.status}`);
       }
 
       setRows(json.data || []);
-
-      // Store the "next" we can go to from this page
-      // We DO NOT push anything here; pushing is handled on "Next" click.
       (window as any).__leads_next_cursor__ = json.next_cursor ?? null;
     } catch (e: any) {
       setErr(e?.message || "Failed to load leads");
       setRows([]);
+      (window as any).__leads_next_cursor__ = null;
     } finally {
       setLoading(false);
     }
@@ -73,41 +70,53 @@ export default function LeadsTable() {
 
   // Initial load
   useEffect(() => {
-    fetchPage(null);
+    fetchPage(null, "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Debounce search input
+  useEffect(() => {
+    const h = setTimeout(() => {
+      const trimmed = query.trim();
+      // If search term changed vs last debounced, reset pagination
+      if (debouncedQueryRef.current !== trimmed) {
+        debouncedQueryRef.current = trimmed;
+        cursorStackRef.current = []; // reset to first page for a new query
+      }
+      fetchPage(null, debouncedQueryRef.current);
+    }, DEBOUNCE_MS);
+    return () => clearTimeout(h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query]);
+
   const onNext = async () => {
-    // Read the next cursor captured from the last response
     const nextCursor = (window as any).__leads_next_cursor__ || null;
     if (!nextCursor) return;
-    // We are moving forward: push the current cursor marker
-    // Convention: the top of the stack is the cursor we used to fetch CURRENT page.
-    // For the first page, there is no cursor (null). Track it as an empty marker.
+
+    // Track that current page is at a start cursor; for first page, we store a "NULL" marker
     if (cursorStackRef.current.length === 0) {
-      cursorStackRef.current.push("NULL"); // marker for the first page
-    } else {
-      // no-op; stack already tracks current start
+      cursorStackRef.current.push("NULL");
     }
-    // Now fetch the next page and push its cursor as the new "current start"
     cursorStackRef.current.push(nextCursor);
-    await fetchPage(nextCursor);
+    await fetchPage(nextCursor, debouncedQueryRef.current);
   };
 
   const onPrev = async () => {
     if (cursorStackRef.current.length === 0) return;
-    // Pop the current page's start cursor
     cursorStackRef.current.pop();
-    // Peek the previous page's start cursor (or null if none/marker)
     const prevStart = cursorStackRef.current[cursorStackRef.current.length - 1] ?? "NULL";
     const cursor = prevStart === "NULL" ? null : prevStart;
-    await fetchPage(cursor);
+    await fetchPage(cursor, debouncedQueryRef.current);
+  };
+
+  const onClear = () => {
+    setQuery("");
+    // debounced effect will reset and reload page 1
   };
 
   const prettyDate = (iso: string) => {
     try {
       const d = new Date(iso);
-      // Show local time; keep it short
       return d.toLocaleString(undefined, {
         year: "numeric",
         month: "short",
@@ -125,11 +134,33 @@ export default function LeadsTable() {
   return (
     <div className="space-y-3">
       {/* Controls */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="text-sm text-gray-500">
           Sorted by <span className="font-medium">Newest first</span>
         </div>
         <div className="flex items-center gap-2">
+          {/* Search box */}
+          <div className="flex items-center gap-2">
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search name or phone…"
+              className="px-3 py-1.5 rounded-md border text-sm w-64"
+              aria-label="Search leads"
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={onClear}
+                className="px-2 py-1.5 rounded-md border text-xs"
+                aria-label="Clear search"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+          {/* Prev/Next */}
           <button
             type="button"
             onClick={onPrev}
@@ -221,7 +252,7 @@ export default function LeadsTable() {
 
       {/* Footer info */}
       <div className="text-xs text-gray-500">
-        Showing up to {PAGE_LIMIT} per page. Use Next/Prev to navigate.
+        Showing up to {PAGE_LIMIT} per page. Search is debounced ({DEBOUNCE_MS}ms). Use Next/Prev to navigate.
       </div>
     </div>
   );
