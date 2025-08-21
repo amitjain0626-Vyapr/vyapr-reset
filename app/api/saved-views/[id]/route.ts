@@ -1,21 +1,20 @@
 // app/api/saved-views/[id]/route.ts
-// @ts-nocheck
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
 export async function DELETE(
-  request: Request,
-  { params }: { params: { id: string } }
+  req: NextRequest,
+  context: { params: { id: string } }
 ) {
-  const id = (params?.id || "").toString();
+  // Validate param
+  const id = (context?.params?.id ?? "").toString();
   if (!id || id.length < 10) {
     return NextResponse.json({ ok: false, error: "Invalid id" }, { status: 400 });
   }
 
+  // Authenticated Supabase with cookie passthrough (RLS applies)
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -27,9 +26,11 @@ export async function DELETE(
         },
         set(name: string, value: string, options: CookieOptions) {
           cookieStore.set({ name, value, ...options });
+          return;
         },
         remove(name: string, options: CookieOptions) {
           cookieStore.set({ name, value: "", ...options, expires: new Date(0) });
+          return;
         },
       },
     }
@@ -45,5 +46,5 @@ export async function DELETE(
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true }, { status: 200 });
 }
