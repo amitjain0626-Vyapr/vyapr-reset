@@ -17,7 +17,7 @@ type Lead = {
 
 export default function LeadsLiveTable({ initial }: { initial: Lead[] }) {
   const [leads, setLeads] = useState<Lead[]>(initial ?? []);
-  // Track which IDs we already have to avoid duplicates (and stale-closure bugs)
+  // Track IDs we already have (prevents duplicates + avoids stale-closure issues)
   const seenIdsRef = useRef<Set<string>>(new Set((initial ?? []).map((l) => l.id)));
 
   useEffect(() => {
@@ -30,12 +30,13 @@ export default function LeadsLiveTable({ initial }: { initial: Lead[] }) {
     let channel: ReturnType<typeof supabase.channel> | null = null;
     let cancelled = false;
 
-    // Subscribe ONCE; do NOT depend on `leads`
+    // Subscribe ONCE (no deps)
     supabase.auth.getUser().then(({ data }) => {
       if (cancelled) return;
       const userId = data?.user?.id;
       if (!userId) return;
 
+      // Subscribe to ALL Events inserts (no server filter)
       channel = supabase
         .channel('events:leads:ui')
         .on(
@@ -44,17 +45,17 @@ export default function LeadsLiveTable({ initial }: { initial: Lead[] }) {
             event: 'INSERT',
             schema: 'public',
             table: 'Events',
-            filter: `provider_id=eq.${userId}`,
+            // ⛔️ no filter here
           },
           async (payload: any) => {
+            // ✅ Client-side guard to ensure only *my* events are processed
+            if (payload?.new?.provider_id !== userId) return;
+
             const newLeadId: string | undefined = payload?.new?.lead_id;
             if (!newLeadId) return;
 
             // Dup guard using ref (not stale state)
-            if (seenIdsRef.current.has(newLeadId)) {
-              // console.log('[live] duplicate ignored', newLeadId);
-              return;
-            }
+            if (seenIdsRef.current.has(newLeadId)) return;
 
             try {
               const res = await fetch(`/api/leads/by-id?id=${encodeURIComponent(newLeadId)}`, {
@@ -62,26 +63,18 @@ export default function LeadsLiveTable({ initial }: { initial: Lead[] }) {
               });
               const json = await res.json();
               if (json?.ok && json.lead) {
-                // Functional update so we never close over stale `leads`
                 setLeads((prev) => {
-                  // Final dup guard if multiple events land quickly
                   if (prev.some((l) => l.id === newLeadId)) return prev;
-                  // remember this id
                   seenIdsRef.current.add(newLeadId);
-                  // Prepend new lead
-                  return [json.lead as Lead, ...prev];
+                  return [json.lead as Lead, ...prev]; // prepend
                 });
-                // Optional: debug log
-                // console.log('[live] prepended lead', newLeadId);
               }
-            } catch (e) {
-              // console.warn('[live] fetch failed', e);
+            } catch {
+              // ignore transient network errors
             }
           }
         )
-        .subscribe((status) => {
-          // console.log('[realtime] ui channel status:', status);
-        });
+        .subscribe();
     });
 
     return () => {
@@ -91,7 +84,6 @@ export default function LeadsLiveTable({ initial }: { initial: Lead[] }) {
         channel.unsubscribe();
       }
     };
-    // []: subscribe only once
   }, []);
 
   return <LeadsTable leads={leads} />;
