@@ -7,17 +7,15 @@ import { NextResponse } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
-// Use the Web Fetch API types for App Router route handlers
 export async function DELETE(
   request: Request,
-  ctx: { params: { id: string } }
+  { params }: { params: { id: string } }
 ) {
-  const id = (ctx?.params?.id || "").toString();
+  const id = (params?.id || "").toString();
   if (!id || id.length < 10) {
     return NextResponse.json({ ok: false, error: "Invalid id" }, { status: 400 });
   }
 
-  // Authenticated Supabase with cookie passthrough
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
