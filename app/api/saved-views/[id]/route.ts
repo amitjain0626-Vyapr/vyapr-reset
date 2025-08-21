@@ -3,13 +3,23 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { cookies } from "next/headers";
 
-async function getSupabase() {
+// Use the Web Fetch API types for App Router route handlers
+export async function DELETE(
+  request: Request,
+  ctx: { params: { id: string } }
+) {
+  const id = (ctx?.params?.id || "").toString();
+  if (!id || id.length < 10) {
+    return NextResponse.json({ ok: false, error: "Invalid id" }, { status: 400 });
+  }
+
+  // Authenticated Supabase with cookie passthrough
   const cookieStore = await cookies();
-  return createServerClient(
+  const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -26,24 +36,16 @@ async function getSupabase() {
       },
     }
   );
-}
 
-function bad(status: number, msg: string) {
-  return NextResponse.json({ ok: false, error: msg }, { status });
-}
-
-export async function DELETE(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  const supabase = await getSupabase();
   const { data: ures, error: uerr } = await supabase.auth.getUser();
-  if (uerr || !ures?.user) return bad(401, "Not authenticated");
-
-  const id = (params?.id || "").toString();
-  if (!id || id.length < 10) return bad(400, "Invalid id");
+  if (uerr || !ures?.user) {
+    return NextResponse.json({ ok: false, error: "Not authenticated" }, { status: 401 });
+  }
 
   const { error } = await supabase.from("SavedViews").delete().eq("id", id);
-  if (error) return bad(500, error.message);
+  if (error) {
+    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+  }
+
   return NextResponse.json({ ok: true });
 }
