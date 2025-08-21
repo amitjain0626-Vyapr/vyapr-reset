@@ -21,6 +21,18 @@ type ApiResp = {
   error?: string;
 };
 
+type SavedView = {
+  id: string;
+  name: string;
+  params: {
+    q?: string;
+    range: "ALL" | "TODAY" | "7D" | "30D";
+    from?: string; // yyyy-mm-dd
+    to?: string;   // yyyy-mm-dd
+  };
+  created_at: string;
+};
+
 /** TUNABLES */
 const PAGE_LIMIT = 200;
 const DEBOUNCE_MS = 400;
@@ -74,8 +86,8 @@ function parseUrlParams() {
   return {
     q,
     range: allowed.includes(range) ? range : ("ALL" as QuickRange),
-    from, // yyyy-mm-dd (local)
-    to,   // yyyy-mm-dd (local)
+    from,
+    to,
   };
 }
 
@@ -83,6 +95,10 @@ export default function LeadsTable() {
   const [rows, setRows] = useState<Lead[] | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Saved Views state
+  const [views, setViews] = useState<SavedView[]>([]);
+  const [viewsLoading, setViewsLoading] = useState<boolean>(false);
 
   // Search
   const [query, setQuery] = useState<string>("");
@@ -109,7 +125,7 @@ export default function LeadsTable() {
 
   // URL sync control
   const didInitRef = useRef<boolean>(false);
-  const canSyncUrlRef = useRef<boolean>(false); // guard against initial parse -> sync loop
+  const canSyncUrlRef = useRef<boolean>(false);
 
   const computeIsoWindow = () => {
     let fromIso = "";
@@ -173,7 +189,69 @@ export default function LeadsTable() {
     }
   };
 
-  /** INITIALIZE from URL once, then fetch */
+  /** Views helpers */
+  const loadViews = async () => {
+    try {
+      setViewsLoading(true);
+      const res = await fetch("/api/saved-views", { cache: "no-store" });
+      const json = await res.json();
+      if (json?.ok) setViews(json.data || []);
+    } catch {
+      // ignore
+    } finally {
+      setViewsLoading(false);
+    }
+  };
+
+  const saveCurrentView = async () => {
+    const name = window.prompt("Save view as… (e.g., 'Last 7 days – WhatsApp')");
+    if (!name) return;
+    const params: SavedView["params"] = {
+      q: (query || "").trim() || undefined,
+      range: quick,
+      from: quick === "ALL" ? (fromDate || undefined) : undefined,
+      to: quick === "ALL" ? (toDate || undefined) : undefined,
+    };
+    const res = await fetch("/api/saved-views", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, params }),
+    });
+    const json = await res.json();
+    if (!json?.ok) {
+      show(json?.error || "Could not save view");
+      return;
+    }
+    show("View saved");
+    await loadViews();
+  };
+
+  const applyView = async (v: SavedView) => {
+    setQuery(v.params.q || "");
+    setQuick(v.params.range || "ALL");
+    if ((v.params.range || "ALL") === "ALL") {
+      setFromDate(v.params.from || "");
+      setToDate(v.params.to || "");
+    } else {
+      setFromDate("");
+      setToDate("");
+    }
+    // triggers effects to sync URL + fetch
+  };
+
+  const deleteView = async (id: string) => {
+    if (!confirm("Delete this view?")) return;
+    const res = await fetch(`/api/saved-views/${id}`, { method: "DELETE" });
+    const json = await res.json();
+    if (!json?.ok) {
+      show(json?.error || "Delete failed");
+      return;
+    }
+    show("View deleted");
+    setViews((prev) => prev.filter((x) => x.id !== id));
+  };
+
+  /** INITIALIZE: URL → state, then fetch + load views */
   useEffect(() => {
     if (didInitRef.current) return;
     didInitRef.current = true;
@@ -190,15 +268,15 @@ export default function LeadsTable() {
         setToDate("");
       }
     } finally {
-      // allow sync after first fetch
       fetchPage(null).then(() => {
         canSyncUrlRef.current = true;
+        loadViews();
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** Write current filters to URL (replaceState), debounced for search */
+  /** Write current filters to URL */
   const syncUrl = () => {
     if (!canSyncUrlRef.current) return;
     const p = new URLSearchParams();
@@ -241,7 +319,7 @@ export default function LeadsTable() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quick, fromDate, toDate]);
 
-  /** Handle back/forward navigation restoring filters from URL */
+  /** Back/forward restores filters */
   useEffect(() => {
     const onPop = () => {
       const parsed = parseUrlParams();
@@ -260,6 +338,25 @@ export default function LeadsTable() {
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Observe container height
+  useEffect(() => {
+    if (!scrollRef.current) return;
+    const el = scrollRef.current;
+    const ro = new ResizeObserver(() => setViewportH(el.clientHeight));
+    ro.observe(el);
+    setViewportH(el.clientHeight);
+    return () => ro.disconnect();
+  }, []);
+
+  // Scroll handler
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => setScrollTop(el.scrollTop);
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
   }, []);
 
   const onNext = async () => {
@@ -310,7 +407,7 @@ export default function LeadsTable() {
     }
   };
 
-  /** Build export URL from current UI state → /api/leads/export (keeps shareability) */
+  /** Build export URL from current UI state → /api/leads/export */
   const buildExportUrl = () => {
     let fromIso = "";
     let toIso = "";
@@ -442,6 +539,51 @@ export default function LeadsTable() {
             )}
           </div>
 
+          {/* Saved Views: dropdown + actions */}
+          <div className="flex items-center gap-2 ml-2">
+            <select
+              className="px-2 py-1.5 rounded-md border text-xs min-w-48"
+              onChange={(e) => {
+                const id = e.target.value;
+                if (!id) return;
+                const v = views.find((x) => x.id === id);
+                if (v) applyView(v);
+                // reset select back to placeholder
+                e.currentTarget.selectedIndex = 0;
+              }}
+              disabled={viewsLoading}
+              defaultValue=""
+              aria-label="Saved views"
+              title="Apply a saved view"
+            >
+              <option value="" disabled>
+                {viewsLoading ? "Loading views..." : "Saved Views"}
+              </option>
+              {views.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.name}
+                </option>
+              ))}
+            </select>
+
+            <button
+              type="button"
+              className="px-2 py-1.5 rounded-md border text-xs"
+              onClick={saveCurrentView}
+            >
+              Save View
+            </button>
+
+            <button
+              type="button"
+              className="px-2 py-1.5 rounded-md border text-xs"
+              onClick={loadViews}
+              title="Refresh views"
+            >
+              Refresh
+            </button>
+          </div>
+
           {/* Export CSV — shareable */}
           <a
             href={buildExportUrl()}
@@ -510,9 +652,9 @@ export default function LeadsTable() {
             )}
 
             {/* Top spacer */}
-            {!loading && !err && !empty && topPad > 0 && (
+            {!loading && !err && !empty && (firstVisible * ROW_HEIGHT_PX) > 0 && (
               <tr aria-hidden="true">
-                <td colSpan={4} style={{ height: `${topPad}px`, padding: 0, border: 0 }} />
+                <td colSpan={4} style={{ height: `${firstVisible * ROW_HEIGHT_PX}px`, padding: 0, border: 0 }} />
               </tr>
             )}
 
@@ -521,7 +663,7 @@ export default function LeadsTable() {
               !err &&
               rows &&
               rows.length > 0 &&
-              rows.slice(firstVisible, end).map((r) => (
+              rows.slice(firstVisible, Math.min(total, firstVisible + (Math.ceil((viewportH || 0) / ROW_HEIGHT_PX) + OVERSCAN_ROWS * 2))).map((r) => (
                 <tr key={r.id} className="border-t" style={{ height: ROW_HEIGHT_PX }}>
                   <td className="px-3 py-2">
                     <div className="font-medium">
@@ -543,7 +685,7 @@ export default function LeadsTable() {
                         </a>
                         <button
                           type="button"
-                          onClick={() => onCopyPhone(r.phone!)}
+                          onClick={() => navigator.clipboard.writeText(r.phone!.replace(/[^\d+]/g, "")).then(() => {}, () => {})}
                           className="px-2 py-0.5 rounded border text-xs"
                           title="Copy phone"
                         >
@@ -562,9 +704,9 @@ export default function LeadsTable() {
               ))}
 
             {/* Bottom spacer */}
-            {!loading && !err && !empty && bottomPad > 0 && (
+            {!loading && !err && !empty && (Math.max(0, (total - (firstVisible + Math.ceil((viewportH || 0) / ROW_HEIGHT_PX) - 1)) * ROW_HEIGHT_PX)) > 0 && (
               <tr aria-hidden="true">
-                <td colSpan={4} style={{ height: `${bottomPad}px`, padding: 0, border: 0 }} />
+                <td colSpan={4} style={{ height: `${Math.max(0, (total - (firstVisible + Math.ceil((viewportH || 0) / ROW_HEIGHT_PX) - 1)) * ROW_HEIGHT_PX)}px`, padding: 0, border: 0 }} />
               </tr>
             )}
           </tbody>
@@ -573,8 +715,7 @@ export default function LeadsTable() {
 
       {/* Footer */}
       <div className="text-xs text-gray-500">
-        Virtualized view: rendering ~{visibleCount} rows at a time (of {total}). Page size {PAGE_LIMIT}.
-        Shareable filters: URL updates with q/range/dates.
+        Virtualized view. Saved Views: use the dropdown to apply; “Save View” stores your current filters.
       </div>
     </div>
   );
