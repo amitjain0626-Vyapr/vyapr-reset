@@ -24,9 +24,9 @@ function getSupabaseServerClient() {
 }
 
 // DELETE /api/saved-views/:id
-export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
+export async function DELETE(_req: Request, context: any) {
   try {
-    const id = params?.id
+    const id = context?.params?.id
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
 
     const supabase = getSupabaseServerClient()
