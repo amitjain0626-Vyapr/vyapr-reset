@@ -1,52 +1,53 @@
 // app/api/saved-views/[id]/route.ts
-// @ts-nocheck
-// Minimal, App Router–compatible route: only export the HTTP method.
-// Use NextRequest; leave `context` untyped to satisfy Next's checker.
+export const runtime = 'nodejs'
 
-import { NextRequest, NextResponse } from "next/server";
-import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import { NextResponse } from 'next/server'
+import { cookies } from 'next/headers'
+import { createServerClient } from '@supabase/ssr'
 
-function readCookie(req: NextRequest, name: string): string | undefined {
-  const raw = req.headers.get("cookie") || "";
-  const parts = raw.split(";").map((s) => s.trim());
-  for (const p of parts) {
-    const i = p.indexOf("=");
-    if (i === -1) continue;
-    const k = p.slice(0, i);
-    if (k === name) return decodeURIComponent(p.slice(i + 1));
-  }
-  return undefined;
+function getSupabaseServerClient() {
+  const cookieStore = cookies()
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  return createServerClient(url, anon, {
+    cookies: {
+      get: (name: string) => cookieStore.get(name)?.value,
+      set: (name: string, value: string, options: any) => {
+        cookieStore.set({ name, value, ...options })
+      },
+      remove: (name: string, options: any) => {
+        cookieStore.set({ name, value: '', ...options })
+      }
+    }
+  })
 }
 
-export async function DELETE(req: NextRequest, context: any) {
-  const id = (context?.params?.id ?? "").toString();
-  if (!id || id.length < 10) {
-    return NextResponse.json({ ok: false, error: "Invalid id" }, { status: 400 });
-  }
+// DELETE /api/saved-views/:id
+export async function DELETE(
+  _req: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const id = params?.id
+    if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return readCookie(req, name);
-        },
-        set(_name: string, _value: string, _options: CookieOptions) {},
-        remove(_name: string, _options: CookieOptions) {},
-      },
+    const supabase = getSupabaseServerClient()
+    const { data: userData, error: userErr } = await supabase.auth.getUser()
+    if (userErr || !userData?.user) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     }
-  );
 
-  const { data: ures, error: uerr } = await supabase.auth.getUser();
-  if (uerr || !ures?.user) {
-    return NextResponse.json({ ok: false, error: "Not authenticated" }, { status: 401 });
+    // Owner-scoped delete (RLS should also enforce this)
+    const { error } = await supabase
+      .from('saved_views')
+      .delete()
+      .eq('id', id)
+      .eq('owner_id', userData.user.id)
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+
+    return NextResponse.json({ ok: true }, { status: 200 })
+  } catch (e: any) {
+    return NextResponse.json({ error: e?.message || 'unknown' }, { status: 400 })
   }
-
-  const { error } = await supabase.from("SavedViews").delete().eq("id", id);
-  if (error) {
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
-  }
-
-  return NextResponse.json({ ok: true }, { status: 200 });
 }
