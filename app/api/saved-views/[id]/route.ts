@@ -6,21 +6,23 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
 
-function getSupabaseServerClient() {
-  const cookieStore = cookies()
+async function getSupabaseServerClient() {
+  const cookieStorePromise = cookies() // Next 15: this is a Promise
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  return createServerClient(url, anon, {
+
+  const client = createServerClient(url, anon, {
     cookies: {
-      get: (name: string) => cookieStore.get(name)?.value,
-      set: (name: string, value: string, options: any) => {
-        cookieStore.set({ name, value, ...options })
+      get: async (name: string) => (await cookieStorePromise).get(name)?.value,
+      set: async (name: string, value: string, options: any) => {
+        ;(await cookieStorePromise).set({ name, value, ...options })
       },
-      remove: (name: string, options: any) => {
-        cookieStore.set({ name, value: '', ...options })
+      remove: async (name: string, options: any) => {
+        ;(await cookieStorePromise).set({ name, value: '', ...options })
       },
     },
   })
+  return client
 }
 
 // DELETE /api/saved-views/:id
@@ -29,7 +31,7 @@ export async function DELETE(_req: Request, context: any) {
     const id = context?.params?.id
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
 
-    const supabase = getSupabaseServerClient()
+    const supabase = await getSupabaseServerClient()
     const { data: userData, error: userErr } = await supabase.auth.getUser()
     if (userErr || !userData?.user) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
