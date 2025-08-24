@@ -1,7 +1,7 @@
 // app/api/saved-views/[id]/route.ts
 export const runtime = 'nodejs'
 
-import { NextResponse } from 'next/server'
+import { NextResponse, NextRequest } from 'next/server'
 import { cookies } from 'next/headers'
 import { createServerClient } from '@supabase/ssr'
 
@@ -17,18 +17,15 @@ function getSupabaseServerClient() {
       },
       remove: (name: string, options: any) => {
         cookieStore.set({ name, value: '', ...options })
-      }
-    }
+      },
+    },
   })
 }
 
 // DELETE /api/saved-views/:id
-export async function DELETE(
-  _req: Request,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(req: NextRequest, context: { params: { id: string } }) {
   try {
-    const id = params?.id
+    const id = context?.params?.id
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
 
     const supabase = getSupabaseServerClient()
@@ -37,7 +34,6 @@ export async function DELETE(
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
     }
 
-    // Owner-scoped delete (RLS should also enforce this)
     const { error } = await supabase
       .from('saved_views')
       .delete()
