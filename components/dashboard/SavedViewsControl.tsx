@@ -1,4 +1,4 @@
-use client'
+'use client'
 // @ts-nocheck
 
 import { useEffect, useMemo, useState } from 'react'
