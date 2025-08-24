@@ -6,9 +6,9 @@ import dynamic from "next/dynamic";
 
 // Dynamically import the SavedViewsControl to avoid SSR/client hook issues
 const SavedViewsControl = dynamic(
-  () => import("@/components/dashboard/SavedViewsControl"),
+  () => import("../../../components/dashboard/SavedViewsControl"),
   { ssr: false }
-);
+)
 
 export default async function LeadsPage() {
   // Server component shell; data is fetched by the client table via /api/leads
