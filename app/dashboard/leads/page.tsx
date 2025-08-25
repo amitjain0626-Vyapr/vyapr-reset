@@ -5,12 +5,13 @@ export const revalidate = 0;
 
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import RoiTrackerClient from "../../../components/dashboard/RoiTrackerClient";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import LeadActions from "@/components/leads/LeadActions";
 
 type PageProps = { searchParams?: Record<string, string | string[]> };
 
-function param(sp: PageProps["searchParams"], key: string) {
+function getParam(sp: PageProps["searchParams"], key: string) {
   const v = sp?.[key];
   return Array.isArray(v) ? (v[0] ?? "") : (v ?? "");
 }
@@ -18,13 +19,13 @@ function param(sp: PageProps["searchParams"], key: string) {
 export default async function LeadsPage({ searchParams }: PageProps) {
   const supabase = await createSupabaseServerClient();
 
-  // 1) Must be logged in
+  // 1) Require auth
   const { data: auth } = await supabase.auth.getUser();
   const user = auth?.user;
   if (!user) redirect("/login");
 
-  // 2) Resolve slug -> ?slug or first owned
-  let slug = String(param(searchParams, "slug") || "").trim();
+  // 2) Resolve provider slug: ?slug=… or first owned
+  let slug = String(getParam(searchParams, "slug") || "").trim();
   if (!slug) {
     const { data: firstOwned } = await supabase
       .from("Providers")
@@ -35,23 +36,22 @@ export default async function LeadsPage({ searchParams }: PageProps) {
       .maybeSingle();
     if (firstOwned?.slug) slug = firstOwned.slug;
   }
-
   if (!slug) {
     return (
-      <div className="p-6 space-y-3">
-        <h1 className="text-2xl font-semibold">Vyapr — Leads</h1>
+      <div className="p-6 space-y-4">
+        <h1 className="text-2xl font-semibold">Vyapr — Dashboard</h1>
         <p className="text-sm opacity-80">
-          No provider found for your account. Please finish{" "}
+          You don’t have a provider yet. Please finish{" "}
           <Link href="/onboarding" className="underline">onboarding</Link>.
         </p>
       </div>
     );
   }
 
-  // 3) Validate ownership of this slug (RLS-bound client)
+  // 3) Validate ownership (select ONLY existing cols)
   const { data: provider, error: pErr } = await supabase
     .from("Providers")
-    .select("id, slug, owner_id, published, name, display_name")
+    .select("id, slug, owner_id, published, display_name")
     .eq("slug", slug)
     .eq("owner_id", user.id)
     .maybeSingle();
@@ -64,42 +64,39 @@ export default async function LeadsPage({ searchParams }: PageProps) {
       </div>
     );
   }
-
   if (!provider) {
     return (
       <div className="p-6 space-y-2">
         <h1 className="text-xl font-semibold">Leads — {slug}</h1>
-        <p className="text-sm">This slug isn’t owned by your current login, or it isn’t published.</p>
+        <p className="text-sm">This slug either doesn’t exist, isn’t published, or isn’t owned by your current login.</p>
         <p className="text-xs opacity-70">
-          Tip: make sure you’re logged in as the owner and the provider is published in{" "}
+          Tip: Log in as the owner and ensure it’s published in{" "}
           <Link href="/onboarding" className="underline">Onboarding</Link>.
         </p>
       </div>
     );
   }
 
-  // 4) Fetch leads via RLS (your session), newest first
-  const q = String(param(searchParams, "q") || "").trim();
+  // 4) Fetch leads via RLS using your current session
+  const q = String(getParam(searchParams, "q") || "").trim();
   let sel = supabase
     .from("Leads")
     .select("id, patient_name, phone, note, status, appointment_at, created_at")
     .eq("provider_id", provider.id)
     .order("created_at", { ascending: false })
     .limit(50);
-
   if (q) {
     sel = sel.or(`patient_name.ilike.%${q}%,phone.ilike.%${q}%,note.ilike.%${q}%`);
   }
-
   const { data: leads, error: lErr } = await sel;
 
-  const providerLabel = provider.display_name || provider.name || provider.slug || "your provider";
+  const providerLabel = provider.display_name || provider.slug;
 
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Vyapr — Leads</h1>
+        <h1 className="text-2xl font-semibold">Vyapr — Dashboard</h1>
         <div className="flex items-center gap-2">
           <Link
             href={`/dashboard/leads?slug=${encodeURIComponent(provider.slug)}`}
@@ -116,12 +113,10 @@ export default async function LeadsPage({ searchParams }: PageProps) {
         </div>
       </div>
 
-      {/* Context */}
-      <div className="text-sm opacity-80">
-        Provider: <b>{providerLabel}</b> <span className="opacity-60">({provider.slug})</span>
-      </div>
+      {/* ROI tracker (unchanged) */}
+      <RoiTrackerClient />
 
-      {/* Simple search (kept minimal; full UX polish later) */}
+      {/* Search */}
       <form action="/dashboard/leads" method="get" className="flex items-center gap-2">
         <input type="hidden" name="slug" value={provider.slug} />
         <input
@@ -134,7 +129,7 @@ export default async function LeadsPage({ searchParams }: PageProps) {
         <span className="text-xs opacity-60">Showing latest 50</span>
       </form>
 
-      {/* Leads table (inline) */}
+      {/* Leads table (inline, with WA actions) */}
       {lErr ? (
         <div className="text-sm text-red-600">Error loading leads: {String(lErr.message || lErr)}</div>
       ) : !leads || leads.length === 0 ? (
