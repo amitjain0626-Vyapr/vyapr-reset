@@ -1,163 +1,156 @@
-"use client";
-
+// components/leads/LeadActions.tsx
 // @ts-nocheck
-import * as React from "react";
+'use client';
 
-type Lead = {
-  id: string;
-  patient_name?: string | null;
-  phone?: string | null;
-  note?: string | null;
-  created_at?: string;
-  status?: string | null;
-};
+import * as React from 'react';
+import { useCallback } from 'react';
+import { toast } from 'sonner';
 
-type ProviderLite = {
-  id: string;
-  slug: string;
-  display_name?: string | null;
-};
+type Lead = { id: string; patient_name?: string | null; phone?: string | null };
+type Provider = { slug: string; id?: string; display_name?: string | null };
 
-function sanitizePhone(raw?: string | null) {
-  if (!raw) return "";
-  const digits = raw.replace(/\D/g, "");
-  // If 10 digits, assume Indian mobile and prefix 91
-  if (digits.length === 10) return "91" + digits;
-  // If already starts with country code (e.g. 91...), keep as-is
-  return digits;
+interface Props {
+  lead: Lead;
+  provider: Provider;
+  className?: string;
 }
 
-function istDateTime(iso?: string) {
-  if (!iso) return "";
-  try {
-    return new Intl.DateTimeFormat("en-IN", {
-      timeZone: "Asia/Kolkata",
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: true,
-    }).format(new Date(iso));
-  } catch {
-    return "";
+const encode = (s: string) => encodeURIComponent(s);
+
+const isMobile = () => {
+  // Prefer UA-CH if available
+  // @ts-ignore
+  const ch = typeof navigator !== 'undefined' && (navigator as any).userAgentData;
+  if (ch && typeof ch.mobile === 'boolean') return ch.mobile;
+  if (typeof navigator !== 'undefined') {
+    const ua = navigator.userAgent || '';
+    return /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
   }
-}
+  return false;
+};
 
-function buildReminderMessage(providerName: string, lead: Lead) {
-  const when = istDateTime(lead.created_at);
-  const who = lead.patient_name?.trim() || "there";
-  return (
-    `Hi ${who}, this is ${providerName}.\n` +
-    `Reminder for your appointment/enquiry — ${when} (IST).\n` +
-    (lead.note ? `Note: ${lead.note}\n` : "") +
-    `Reply here and I’ll confirm your slot.`
-  );
-}
-
-function buildRebookMessage(providerName: string, lead: Lead) {
-  const who = lead.patient_name?.trim() || "there";
-  return (
-    `Hi ${who}, this is ${providerName}.\n` +
-    `Hope you’re doing well. Would you like to book a fresh slot this week?\n` +
-    `Reply YES and I’ll share available times.`
-  );
-}
-
-async function copy(text: string) {
+const copyToClipboard = async (text: string) => {
   try {
     await navigator.clipboard.writeText(text);
     return true;
   } catch {
     return false;
   }
-}
+};
 
-async function sendEvent(name: "wa.reminder.sent" | "wa.rebook.sent", payload: any) {
+async function logEvent(payload: {
+  event: 'wa.reminder.sent' | 'wa.rebook.sent';
+  provider_slug?: string;
+  provider_id?: string;
+  lead_id?: string;
+  source: any;
+}) {
   try {
-    await fetch("/api/events/log", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, payload }),
+    const res = await fetch('/api/events/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        event: payload.event,
+        provider_slug: payload.provider_slug,
+        provider_id: payload.provider_id,
+        lead_id: payload.lead_id,
+        source: payload.source,
+        ts: Date.now(),
+      }),
     });
-  } catch {
-    // best-effort, ignore
+    if (!res.ok) console.warn('events/log non-200', res.status);
+  } catch (e) {
+    console.warn('events/log failed', e);
   }
 }
 
-export default function LeadActions({
-  lead,
-  provider,
-}: {
-  lead: Lead;
-  provider: ProviderLite;
-}) {
-  const providerName = provider.display_name || provider.slug;
-  const envTest = (process.env.NEXT_PUBLIC_WA_TEST_NUMBER || "").trim();
+function buildReminderText(lead: Lead, provider: Provider) {
+  const name = (lead.patient_name || '').trim();
+  const prov = (provider.display_name || provider.slug || 'your provider').trim();
+  return `Hi${name ? ' ' + name : ''}, reminder for your booking with ${prov}. Reply YES to confirm or pick another time: https://vyapr.com/book/${provider.slug}`;
+}
 
-  // ✅ Correct priority: test override (if explicitly set) → lead.phone → (no fallback)
-  const targetNumber =
-    envTest || sanitizePhone(lead.phone) || "";
+function buildRebookText(lead: Lead, provider: Provider) {
+  const name = (lead.patient_name || '').trim();
+  const prov = (provider.display_name || provider.slug || 'your provider').trim();
+  return `Hi${name ? ' ' + name : ''}, we missed you last time with ${prov}. Want to pick a slot this week? https://vyapr.com/book/${provider.slug}`;
+}
 
-  const disabled = !targetNumber;
+export function LeadActions({ lead, provider, className }: Props) {
+  const disabled = !lead?.phone;
 
-  const onSend = async (kind: "reminder" | "rebook") => {
-    const message =
-      kind === "reminder"
-        ? buildReminderMessage(providerName, lead)
-        : buildRebookMessage(providerName, lead);
-
-    // Copy text so desktop users can paste if WhatsApp Web doesn't auto-open
-    await copy(message);
-
-    if (!disabled) {
-      const url =
-        "https://wa.me/" +
-        targetNumber +
-        "?text=" +
-        encodeURIComponent(message);
-
-      window.open(url, "_blank", "noopener,noreferrer");
-    } else {
-      // No phone present — just inform the user we copied the message
-      alert("This lead has no phone number. The message has been copied to your clipboard.");
-    }
-
-    // Telemetry (best-effort)
-    await sendEvent(
-      kind === "reminder" ? "wa.reminder.sent" : "wa.rebook.sent",
-      {
-        lead_id: lead.id,
-        provider_slug: provider.slug,
-        to: disabled ? null : targetNumber,
-        has_phone: Boolean(lead.phone),
+  const handleSend = useCallback(
+    async (kind: 'reminder' | 'rebook') => {
+      if (!lead?.phone) {
+        toast.info('No phone on this lead');
+        return;
       }
-    );
-  };
 
-  const btnBase =
-    "px-3 py-1.5 border rounded text-sm disabled:opacity-50 disabled:cursor-not-allowed";
+      const rawText =
+        kind === 'reminder'
+          ? buildReminderText(lead, provider)
+          : buildRebookText(lead, provider);
+
+      // Always copy first (fallback)
+      const copied = await copyToClipboard(rawText);
+
+      const phone = lead.phone.replace(/[^\d+]/g, ''); // keep + and digits
+      const textParam = encode(rawText);
+
+      const mobile = isMobile();
+      let opened = false;
+
+      try {
+        if (mobile) {
+          window.location.href = `https://wa.me/${phone}?text=${textParam}`;
+          opened = true;
+          toast.success('Opening WhatsApp… Message copied as backup.');
+        } else {
+          const url = `https://web.whatsapp.com/send?phone=${encode(phone)}&text=${textParam}`;
+          const win = window.open(url, '_blank', 'noopener,noreferrer');
+          opened = !!win;
+          toast.success('Copied message. Opened WhatsApp Web (if available).');
+        }
+      } catch (e) {
+        console.warn('WA open failed', e);
+        toast.success(copied ? 'Copied message to clipboard.' : 'Tried to copy message.');
+      }
+
+      // Telemetry (non-blocking)
+      logEvent({
+        event: kind === 'reminder' ? 'wa.reminder.sent' : 'wa.rebook.sent',
+        provider_slug: provider.slug,
+        provider_id: provider.id,
+        lead_id: lead.id,
+        source: { via: 'ui', bulk: false, to: 1, opened, copied },
+      });
+    },
+    [lead, provider]
+  );
 
   return (
-    <div className="flex gap-2">
+    <div className={className}>
       <button
-        className={btnBase}
-        onClick={() => onSend("reminder")}
-        disabled={disabled}
-        title={disabled ? "No phone number on this lead" : "Send WhatsApp reminder"}
         type="button"
+        onClick={() => handleSend('reminder')}
+        disabled={disabled}
+        title={disabled ? 'No phone on lead' : 'Send WhatsApp Reminder'}
+        className={`px-2 py-1 rounded border ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}`}
       >
         Send WA Reminder
       </button>
       <button
-        className={btnBase}
-        onClick={() => onSend("rebook")}
-        disabled={disabled}
-        title={disabled ? "No phone number on this lead" : "Send WhatsApp rebooking ping"}
         type="button"
+        onClick={() => handleSend('rebook')}
+        disabled={disabled}
+        title={disabled ? 'No phone on lead' : 'Send WhatsApp Rebooking'}
+        className={`ml-2 px-2 py-1 rounded border ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}`}
       >
-        Send Rebooking Ping
+        Send Rebooking
       </button>
     </div>
   );
 }
+
+// ✅ Default export to satisfy files importing `import LeadActions from '@/components/leads/LeadActions'`
+export default LeadActions;
