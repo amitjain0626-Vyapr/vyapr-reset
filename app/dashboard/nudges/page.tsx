@@ -15,15 +15,25 @@ const getParam = (sp: PageProps["searchParams"], k: string) =>
 // Parse windows like "m10" (10 minutes) or "h12" (12 hours)
 function windowToMs(w: string) {
   const s = (w || "").toLowerCase().trim();
-  if (s.startsWith("m")) {
-    const n = parseInt(s.slice(1) || "0", 10);
-    return Math.max(1, n) * 60 * 1000;
-  }
-  if (s.startsWith("h")) {
-    const n = parseInt(s.slice(1) || "12", 10);
-    return Math.max(1, n) * 60 * 60 * 1000;
-  }
+  if (s.startsWith("m")) return Math.max(1, parseInt(s.slice(1) || "0", 10)) * 60 * 1000;
+  if (s.startsWith("h")) return Math.max(1, parseInt(s.slice(1) || "12", 10)) * 60 * 60 * 1000;
   return 12 * 60 * 60 * 1000; // default 12h
+}
+
+// IST start/end of today → UTC ms to compare against Events.ts (ms epoch)
+function istTodayBoundsUtcMs(): { start: number; end: number } {
+  const IST_OFFSET = 330 * 60 * 1000; // +05:30
+  const nowUtc = Date.now();
+  const nowIstMs = nowUtc + IST_OFFSET; // shift to IST
+  const istNow = new Date(nowIstMs);
+  const startIstLocalAsUtc = Date.UTC(
+    istNow.getUTCFullYear(),
+    istNow.getUTCMonth(),
+    istNow.getUTCDate(),
+    0, 0, 0
+  );
+  const startUtcMs = startIstLocalAsUtc - IST_OFFSET; // shift back to UTC ms
+  return { start: startUtcMs, end: startUtcMs + 24 * 60 * 60 * 1000 };
 }
 
 export default async function NudgesPage({ searchParams }: PageProps) {
@@ -74,12 +84,13 @@ export default async function NudgesPage({ searchParams }: PageProps) {
     );
   }
 
-  // 4) Window selection (default 12h; allow test like m10)
-  const windowParam = String(getParam(searchParams, "window") || "h12");
-  const cutoffISO = new Date(Date.now() - windowToMs(windowParam)).toISOString();
   const providerLabel = provider.display_name || provider.slug;
 
-  // 5) Fetch candidates
+  // 4) “Older than” window (for Due Reminders section)
+  const windowParam = String(getParam(searchParams, "window") || "h12");
+  const cutoffISO = new Date(Date.now() - windowToMs(windowParam)).toISOString();
+
+  // 5) Fetch candidates (live)
   const { data: dueReminders, error: rErr } = await supabase
     .from("Leads")
     .select("id, patient_name, phone, note, status, created_at")
@@ -97,13 +108,32 @@ export default async function NudgesPage({ searchParams }: PageProps) {
     .order("created_at", { ascending: false })
     .limit(200);
 
+  // 6) Suggested today (from Events table) — IST day bounds
+  const { start: istStartUtcMs, end: istEndUtcMs } = istTodayBoundsUtcMs();
+  const { count: suggestedToday } = await supabase
+    .from("Events")
+    .select("event", { count: "exact", head: true })
+    .eq("provider_id", provider.id)
+    .eq("event", "nudge.suggested")
+    .gte("ts", istStartUtcMs)
+    .lt("ts", istEndUtcMs);
+
   return (
     <div className="p-6 space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Nudge Center</h1>
-        <Link href={`/dashboard/leads?slug=${encodeURIComponent(provider.slug)}`} className="text-sm underline">
-          Back to Leads
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link
+            href={`/dashboard/leads?slug=${encodeURIComponent(provider.slug)}`}
+            className="text-sm underline"
+          >
+            Back to Leads
+          </Link>
+          <span className="text-xs px-2 py-1 border rounded-full">
+            Suggested today: <b>{typeof suggestedToday === "number" ? suggestedToday : 0}</b>
+          </span>
+        </div>
       </div>
 
       <div className="text-sm opacity-80">
