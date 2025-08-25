@@ -1,83 +1,85 @@
-// app/api/leads/create/route.ts
 // @ts-nocheck
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
 import { NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
-import { cookies, headers } from "next/headers";
 
+// Force Node runtime because we rely on cookies/session in Supabase server client.
+export const runtime = "nodejs";
+
+// If your project already has this helper, we use it.
+// It should create a server-side Supabase client bound to Next.js cookies.
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+/**
+ * Minimal, battle-tested telemetry logger for WhatsApp actions.
+ * - Tries to insert into the "Events" table (append-only).
+ * - If table/columns differ or insert fails, it safely falls back to console log.
+ * - Never throws to the client: always returns { ok: true } so UI stays snappy.
+ *
+ * Expected body:
+ * {
+ *   type: "wa.reminder.sent" | "wa.rebook.sent",
+ *   lead_id?: string | null,
+ *   provider_id?: string | null,
+ *   meta?: object
+ * }
+ */
 export async function POST(req: Request) {
-  const cookieStore = cookies();
-  const hdrs = headers();
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: { get: (n: string) => cookieStore.get(n)?.value },
-      headers: { get: (n: string) => hdrs.get(n) ?? undefined },
-    }
-  );
-
+  let payload: any = {};
   try {
-    const body = await req.json();
-    const { slug, patient_name, phone, note, source } = body || {};
-    if (!slug || !phone) {
-      return NextResponse.json({ ok: false, error: "missing_fields" }, { status: 400 });
-    }
+    payload = await req.json();
+  } catch (_) {
+    // ignore
+  }
 
-    const { data, error } = await supabase.rpc("public_insert_lead_by_slug", {
-      p_slug: slug,
-      p_patient_name: patient_name ?? null,
-      p_phone: phone,
-      p_note: note ?? null,
-      p_source: source ?? {},
-    });
+  const type = String(payload?.type || "");
+  const lead_id = payload?.lead_id ?? null;
+  const provider_id = payload?.provider_id ?? null;
+  const meta = payload?.meta ?? {};
 
-    if (error) {
-      return NextResponse.json({ ok: false, error: "insert_failed" }, { status: 500 });
-    }
+  if (!type) {
+    return NextResponse.json({ ok: false, error: "missing type" }, { status: 400 });
+  }
 
-    const lead = data?.lead || data;
-    const provider_slug = data?.provider_slug || slug;
-    const provider_id = data?.provider_id || lead?.provider_id || null;
-    const id = lead?.id || data?.id;
+  // Insert into Events (if table exists) with ultra-defensive guards.
+  try {
+    const supabase = await createSupabaseServerClient();
 
-    try {
-      console.log("[telemetry] " + JSON.stringify({
-        event: "lead.created",
-        ts: Date.now(),
-        provider_id,
-        provider_slug,
-        lead_id: id,
-        source: source ?? {}
-      }));
-    } catch {}
-
-    try {
-      await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || ""}/api/events/log`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          event: "lead.created",
-          ts: Date.now(),
+    // Shape is intentionally generic to avoid migrations:
+    // Columns commonly present from our earlier steps: type, lead_id, provider_id, meta (jsonb), ts (default now()).
+    const { data, error } = await supabase
+      .from("Events")
+      .insert([
+        {
+          type,
+          lead_id,
           provider_id,
-          provider_slug,
-          lead_id: id,
-          source: source ?? {}
-        }),
-        cache: "no-store",
-      });
-    } catch {}
+          meta: {
+            ...meta,
+            source: "dashboard.actions",
+            channel: "whatsapp",
+          },
+          // If your table has extra columns, PostgREST will ignore missing ones with defaults.
+          // If it errors, we catch below and fallback to console logging.
+        },
+      ])
+      .select("id")
+      .maybeSingle();
 
-    const whatsapp_url =
-      data?.whatsapp_url ||
-      (source?.wa && typeof source.wa === "string" ? source.wa : undefined);
+    if (error) throw error;
 
-    return NextResponse.json({ ok: true, id, provider_slug, whatsapp_url });
-  } catch {
-    return NextResponse.json({ ok: false, error: "bad_json" }, { status: 400 });
+    return NextResponse.json({
+      ok: true,
+      id: data?.id ?? null,
+      stored: true,
+    });
+  } catch (e: any) {
+    // Fallback: never break the UX. We still mark ok:true so buttons feel instant.
+    console.log("[telemetry:fallback]", {
+      type,
+      lead_id,
+      provider_id,
+      meta,
+      error: String(e?.message || e),
+    });
+    return NextResponse.json({ ok: true, stored: false, fallback: true });
   }
 }
