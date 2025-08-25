@@ -1,43 +1,49 @@
 // @ts-nocheck
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
-import LeadsTable from "../../../components/dashboard/LeadsTable";
+import LeadTable from "../../../components/dashboard/LeadTable";
 import LeadsFilterBar from "../../../components/dashboard/LeadsFilterBar";
 import RoiTracker from "../../../components/dashboard/RoiTracker";
 import { notFound } from "next/navigation";
 
-// Utility: parse querystring filters into SQL-safe clauses
-function buildFilters(searchParams: URLSearchParams) {
+// Parse ?status & ?range from Next's searchParams (object, not URLSearchParams)
+type SearchParams = { [key: string]: string | string[] | undefined };
+function getParam(sp: SearchParams, key: string): string | null {
+  const v = sp?.[key];
+  if (typeof v === "string") return v;
+  if (Array.isArray(v) && v.length) return v[0]!;
+  return null;
+}
+function buildFilters(sp: SearchParams) {
   const filters: { status?: string; rangeDays?: number } = {};
-  const status = searchParams.get("status");
+  const status = getParam(sp, "status");
   if (status) filters.status = status;
 
-  const range = searchParams.get("range");
+  const range = getParam(sp, "range");
   if (range && range.endsWith("d")) {
-    const days = parseInt(range.replace("d", ""), 10);
+    const days = parseInt(range.slice(0, -1), 10);
     if (!isNaN(days)) filters.rangeDays = days;
   }
   return filters;
 }
 
-export default async function LeadsPage({ searchParams }) {
+export default async function LeadsPage({ searchParams }: { searchParams: SearchParams }) {
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return notFound();
 
-  const filters = buildFilters(new URLSearchParams(searchParams));
+  const filters = buildFilters(searchParams || {});
 
   let query = supabase
     .from("Leads")
     .select("*")
-    // RLS scopes rows to the signed-in owner; no manual .eq("provider_id", user.id)
+    // RLS scopes rows to the signed-in owner
     .order("created_at", { ascending: false });
 
   if (filters.status) {
     query = query.eq("status", filters.status);
   }
-
   if (filters.rangeDays) {
     const since = new Date();
     since.setDate(since.getDate() - filters.rangeDays);
@@ -54,12 +60,12 @@ export default async function LeadsPage({ searchParams }) {
     <div className="p-6">
       <h1 className="text-xl font-semibold mb-4">Leads</h1>
 
-      {/* ROI Tracker row */}
+      {/* ROI tracker row */}
       <RoiTracker />
 
       {/* Filters + Table */}
       <LeadsFilterBar />
-      <LeadsTable initialData={leads || []} />
+      <LeadTable initialData={leads || []} />
     </div>
   );
 }
