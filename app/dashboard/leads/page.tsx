@@ -21,7 +21,7 @@ export default async function LeadsPage({ searchParams }: PageProps) {
   const user = auth?.user;
   if (!user) redirect("/login");
 
-  // 2) Resolve provider slug: ?slug=… or first owned
+  // 2) Resolve slug: ?slug=… or first owned
   let slug = String(getParam(searchParams, "slug") || "").trim();
   if (!slug) {
     const { data: firstOwned } = await supabase
@@ -44,7 +44,7 @@ export default async function LeadsPage({ searchParams }: PageProps) {
     );
   }
 
-  // 3) Validate ownership (only existing columns)
+  // 3) Validate ownership
   const { data: provider, error: pErr } = await supabase
     .from("Providers")
     .select("id, slug, owner_id, published, display_name")
@@ -72,7 +72,7 @@ export default async function LeadsPage({ searchParams }: PageProps) {
     );
   }
 
-  // 4) Fetch leads (RLS, no appointment_at)
+  // 4) Fetch leads (RLS, stable columns)
   const q = String(getParam(searchParams, "q") || "").trim();
   let sel = supabase
     .from("Leads")
@@ -87,24 +87,18 @@ export default async function LeadsPage({ searchParams }: PageProps) {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Page title ONLY (top navbar comes from layout, so we avoid duplicate headers) */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Leads</h1>
-        <div className="flex items-center gap-2">
-          <Link href={`/dashboard/leads?slug=${encodeURIComponent(provider.slug)}`} className="px-3 py-1.5 text-sm border rounded">Leads</Link>
-          <Link href={`/dashboard/payments?slug=${encodeURIComponent(provider.slug)}`} className="px-3 py-1.5 text-sm border rounded">Payments</Link>
-        </div>
-      </div>
+      {/* Single, clean page header (layout already has the top navbar) */}
+      <h1 className="text-2xl font-semibold">Leads</h1>
 
       {/* Provider context */}
       <div className="text-sm opacity-80">
         Provider: <b>{providerLabel}</b> <span className="opacity-60">({provider.slug})</span>
       </div>
 
-      {/* ROI cards (client component remains untouched) */}
+      {/* ROI cards (already wired) */}
       <RoiTrackerClient />
 
-      {/* Simple search (filters overhaul = next step 13.UX1) */}
+      {/* Search (filters bar redux in next step) */}
       <form action="/dashboard/leads" method="get" className="flex items-center gap-2">
         <input type="hidden" name="slug" value={provider.slug} />
         <input name="q" placeholder="Search name, phone, note…" className="px-3 py-2 border rounded w-72" defaultValue={q} />
