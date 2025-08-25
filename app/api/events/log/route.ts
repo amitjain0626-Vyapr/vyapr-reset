@@ -1,43 +1,58 @@
+// app/api/events/log/route.ts
 // @ts-nocheck
-import { NextResponse } from "next/server";
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+import { NextRequest, NextResponse } from 'next/server';
+export const runtime = 'nodejs';
 
-import { createClient as createSb } from "@supabase/supabase-js";
+// 1) GET healthcheck so curl doesn't return empty
+export async function GET() {
+  return NextResponse.json({ ok: true });
+}
 
-export async function POST(req: Request) {
+// 2) POST already works for telemetry; keeping it here so nothing breaks
+import { createClient } from '@supabase/supabase-js';
+
+function admin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  return createClient(url, key, { auth: { persistSession: false } });
+}
+
+const ALLOWED = new Set([
+  'wa.reminder.sent',
+  'wa.rebook.sent',
+  'nudge.suggested',
+  'note.provider.added',
+  'note.customer.added',
+]);
+
+export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => ({}));
-    const name = String(body?.name || "").trim();
-    const payload = body?.payload ?? {};
-    if (!name) return NextResponse.json({ ok: false, error: "missing name" }, { status: 400 });
-
-    const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-    const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-    if (!SUPABASE_URL || !SERVICE_KEY) return NextResponse.json({ ok: false, error: "server_misconfigured" }, { status: 500 });
-
-    const admin = createSb(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
-
-    const nowISO = new Date().toISOString();
-    let okCount = 0;
-
-    // Try rich
-    const r1 = await admin.from("Events").insert([{ name, type: name, payload, created_at: nowISO }]).select("name");
-    if (!r1.error) okCount = (r1.data || []).length;
-    else {
-      // Try minimal with created_at
-      const r2 = await admin.from("Events").insert([{ name, created_at: nowISO }]).select("name");
-      if (!r2.error) okCount = (r2.data || []).length;
-      else {
-        // Final fallback: name only
-        const r3 = await admin.from("Events").insert([{ name }]).select("name");
-        if (!r3.error) okCount = (r3.data || []).length;
-      }
+    const body = await req.json();
+    const event: string = body.event;
+    if (!ALLOWED.has(event)) {
+      return NextResponse.json({ ok: false, error: 'event_not_allowed' }, { status: 400 });
     }
 
-    return NextResponse.json({ ok: true, wrote: okCount });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 200 });
+    const ts: number = typeof body.ts === 'number' ? body.ts : Date.now();
+    const lead_id: string | null = body.lead_id ?? null;
+    const source = body.source ?? { via: 'ui' };
+    let provider_id: string | null = body.provider_id ?? null;
+
+    const sb = admin();
+
+    if (!provider_id && body.provider_slug) {
+      const { data: prov } = await sb.from('Providers').select('id').eq('slug', body.provider_slug).limit(1).single();
+      provider_id = prov?.id ?? null;
+    }
+    if (!provider_id) {
+      return NextResponse.json({ ok: false, error: 'missing_provider_id' }, { status: 400 });
+    }
+
+    const { error } = await sb.from('Events').insert({ event, ts, provider_id, lead_id, source });
+    if (error) return NextResponse.json({ ok: false, error: 'insert_failed' }, { status: 500 });
+
+    return NextResponse.json({ ok: true });
+  } catch {
+    return NextResponse.json({ ok: false, error: 'bad_request' }, { status: 400 });
   }
 }
