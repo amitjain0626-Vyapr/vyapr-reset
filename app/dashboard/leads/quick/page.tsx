@@ -11,7 +11,7 @@ import { redirect } from "next/navigation";
 export default async function QuickLeadsPage({ searchParams }: { searchParams?: Record<string, string | string[]> }) {
   const supabase = await createSupabaseServerClient();
 
-  // Require login (uses server-side cookie session)
+  // Must be logged in
   const { data: auth } = await supabase.auth.getUser();
   const user = auth?.user;
   if (!user) redirect("/login");
@@ -27,30 +27,21 @@ export default async function QuickLeadsPage({ searchParams }: { searchParams?: 
     );
   }
 
-  // Load provider for this slug but only if owned by current user (RLS guardrail)
-  const { data: provider, error: pErr } = await supabase
+  // Load provider ONLY if owned by this user (RLS-safe)
+  const { data: provider } = await supabase
     .from("Providers")
     .select("id, slug, owner_id, published, name, display_name")
     .eq("slug", slug)
     .eq("owner_id", user.id)
     .maybeSingle();
 
-  if (pErr) {
-    return (
-      <div className="p-6">
-        <h1 className="text-xl font-semibold mb-4">Quick Leads — {slug}</h1>
-        <p className="text-red-600 text-sm">Error loading provider: {String(pErr.message || pErr)}</p>
-      </div>
-    );
-  }
-
   if (!provider) {
     return (
       <div className="p-6">
-        <h1 className="text-xl font-semibold mb-4">Quick Leads — {slug}</h1>
-        <p className="text-sm">Provider not found, not published, or not owned by your current login.</p>
+        <h1 className="text-xl font-semibold mb-2">Quick Leads — {slug}</h1>
+        <p className="text-sm">Provider not found / not owned by current login / not published.</p>
         <p className="text-xs opacity-70 mt-2">
-          Tip: Ensure you’re logged in as the email that owns <code>{slug}</code>, and that it’s published in Onboarding.
+          Ensure you’re logged in as the owner of <code>{slug}</code> and it’s published.
         </p>
       </div>
     );
@@ -64,17 +55,13 @@ export default async function QuickLeadsPage({ searchParams }: { searchParams?: 
     .order("created_at", { ascending: false })
     .limit(50);
 
-  const providerLabel =
-    provider.display_name || provider.name || provider.slug || "your provider";
+  const providerLabel = provider.display_name || provider.name || provider.slug || "your provider";
 
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Quick Leads — {provider.slug}</h1>
-        <Link
-          href={`/dashboard/leads?slug=${encodeURIComponent(provider.slug)}`}
-          className="text-sm underline"
-        >
+        <Link href={`/dashboard/leads?slug=${encodeURIComponent(provider.slug)}`} className="text-sm underline">
           Back to full dashboard
         </Link>
       </div>
@@ -84,9 +71,6 @@ export default async function QuickLeadsPage({ searchParams }: { searchParams?: 
       ) : (leads?.length ?? 0) === 0 ? (
         <div className="text-sm opacity-80">
           No leads yet for <b>{provider.slug}</b>. Submit one and refresh.
-          <div className="mt-2 text-xs">
-            You can use: <code>curl -s -X POST "$BASE/api/leads/create" -H "Content-Type: application/json" -d '{{"slug":"{provider.slug}","patient_name":"Test","phone":"+919888888888","note":"quick"}}'</code>
-          </div>
         </div>
       ) : (
         <div className="overflow-x-auto rounded border">
