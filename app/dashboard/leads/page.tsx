@@ -8,6 +8,7 @@ import { redirect } from "next/navigation";
 import RoiTrackerClient from "../../../components/dashboard/RoiTrackerClient";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import LeadActions from "@/components/leads/LeadActions";
+import QuickAddLead from "@/components/leads/QuickAddLead";
 
 type PageProps = { searchParams?: Record<string, string | string[]> };
 const getParam = (sp: PageProps["searchParams"], k: string) =>
@@ -46,7 +47,7 @@ export default async function LeadsPage({ searchParams }: PageProps) {
     );
   }
 
-  // 3) Validate ownership (only existing cols)
+  // 3) Validate ownership (existing cols only)
   const { data: provider, error: pErr } = await supabase
     .from("Providers")
     .select("id, slug, owner_id, published, display_name")
@@ -79,7 +80,7 @@ export default async function LeadsPage({ searchParams }: PageProps) {
   const status = (String(getParam(searchParams, "status") || "all").toLowerCase() as (typeof STATUS_OPTIONS)[number]);
   const sort = (String(getParam(searchParams, "sort") || "newest").toLowerCase() === "oldest" ? "oldest" : "newest");
 
-  // 5) Fetch leads (RLS, stable columns only)
+  // 5) Fetch leads via RLS
   let sel = supabase
     .from("Leads")
     .select("id, patient_name, phone, note, status, created_at")
@@ -97,8 +98,13 @@ export default async function LeadsPage({ searchParams }: PageProps) {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Single, clean page header */}
-      <h1 className="text-2xl font-semibold">Leads</h1>
+      {/* Header + Quick Add */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Leads</h1>
+        <div className="flex items-center gap-2">
+          <QuickAddLead slug={provider.slug} />
+        </div>
+      </div>
 
       {/* Provider context */}
       <div className="text-sm opacity-80">
@@ -108,7 +114,7 @@ export default async function LeadsPage({ searchParams }: PageProps) {
       {/* ROI cards */}
       <RoiTrackerClient />
 
-      {/* Filters bar (top) */}
+      {/* Filters bar */}
       <form action="/dashboard/leads" method="get" className="flex flex-wrap items-center gap-2">
         <input type="hidden" name="slug" value={provider.slug} />
         <input
@@ -133,12 +139,7 @@ export default async function LeadsPage({ searchParams }: PageProps) {
 
         <button className="px-3 py-2 border rounded text-sm">Apply</button>
 
-        <a
-          href={exportHref}
-          className="ml-auto px-3 py-2 border rounded text-sm"
-        >
-          Export CSV
-        </a>
+        <a href={exportHref} className="ml-auto px-3 py-2 border rounded text-sm">Export CSV</a>
       </form>
 
       {/* Leads table with WhatsApp actions */}
