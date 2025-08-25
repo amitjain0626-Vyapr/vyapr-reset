@@ -13,6 +13,8 @@ type PageProps = { searchParams?: Record<string, string | string[]> };
 const getParam = (sp: PageProps["searchParams"], k: string) =>
   Array.isArray(sp?.[k]) ? (sp?.[k]?.[0] ?? "") : (sp?.[k] ?? "");
 
+const STATUS_OPTIONS = ["all", "new", "confirmed", "cancelled", "no_show", "won", "lost"] as const;
+
 export default async function LeadsPage({ searchParams }: PageProps) {
   const supabase = await createSupabaseServerClient();
 
@@ -44,7 +46,7 @@ export default async function LeadsPage({ searchParams }: PageProps) {
     );
   }
 
-  // 3) Validate ownership
+  // 3) Validate ownership (only existing cols)
   const { data: provider, error: pErr } = await supabase
     .from("Providers")
     .select("id, slug, owner_id, published, display_name")
@@ -72,22 +74,30 @@ export default async function LeadsPage({ searchParams }: PageProps) {
     );
   }
 
-  // 4) Fetch leads (RLS, stable columns)
+  // 4) Filters (URL-driven)
   const q = String(getParam(searchParams, "q") || "").trim();
+  const status = (String(getParam(searchParams, "status") || "all").toLowerCase() as (typeof STATUS_OPTIONS)[number]);
+  const sort = (String(getParam(searchParams, "sort") || "newest").toLowerCase() === "oldest" ? "oldest" : "newest");
+
+  // 5) Fetch leads (RLS, stable columns only)
   let sel = supabase
     .from("Leads")
     .select("id, patient_name, phone, note, status, created_at")
     .eq("provider_id", provider.id)
-    .order("created_at", { ascending: false })
-    .limit(50);
+    .order("created_at", { ascending: sort === "oldest" })
+    .limit(200);
+
+  if (status && status !== "all") sel = sel.eq("status", status);
   if (q) sel = sel.or(`patient_name.ilike.%${q}%,phone.ilike.%${q}%,note.ilike.%${q}%`);
+
   const { data: leads, error: lErr } = await sel;
 
   const providerLabel = provider.display_name || provider.slug;
+  const exportHref = `/api/leads/export?slug=${encodeURIComponent(provider.slug)}${q ? `&q=${encodeURIComponent(q)}` : ""}${status && status !== "all" ? `&status=${encodeURIComponent(status)}` : ""}&sort=${sort}`;
 
   return (
     <div className="p-6 space-y-6">
-      {/* Single, clean page header (layout already has the top navbar) */}
+      {/* Single, clean page header */}
       <h1 className="text-2xl font-semibold">Leads</h1>
 
       {/* Provider context */}
@@ -95,22 +105,47 @@ export default async function LeadsPage({ searchParams }: PageProps) {
         Provider: <b>{providerLabel}</b> <span className="opacity-60">({provider.slug})</span>
       </div>
 
-      {/* ROI cards (already wired) */}
+      {/* ROI cards */}
       <RoiTrackerClient />
 
-      {/* Search (filters bar redux in next step) */}
-      <form action="/dashboard/leads" method="get" className="flex items-center gap-2">
+      {/* Filters bar (top) */}
+      <form action="/dashboard/leads" method="get" className="flex flex-wrap items-center gap-2">
         <input type="hidden" name="slug" value={provider.slug} />
-        <input name="q" placeholder="Search name, phone, note…" className="px-3 py-2 border rounded w-72" defaultValue={q} />
-        <button className="px-3 py-2 border rounded text-sm">Search</button>
-        <span className="text-xs opacity-60">Showing latest 50</span>
+        <input
+          name="q"
+          placeholder="Search name, phone, note…"
+          className="px-3 py-2 border rounded w-72"
+          defaultValue={q}
+        />
+
+        <select name="status" defaultValue={status} className="px-2 py-2 border rounded text-sm">
+          {STATUS_OPTIONS.map(s => (
+            <option key={s} value={s}>
+              {s === "all" ? "All Statuses" : s}
+            </option>
+          ))}
+        </select>
+
+        <select name="sort" defaultValue={sort} className="px-2 py-2 border rounded text-sm">
+          <option value="newest">Sort: Newest</option>
+          <option value="oldest">Sort: Oldest</option>
+        </select>
+
+        <button className="px-3 py-2 border rounded text-sm">Apply</button>
+
+        <a
+          href={exportHref}
+          className="ml-auto px-3 py-2 border rounded text-sm"
+        >
+          Export CSV
+        </a>
       </form>
 
       {/* Leads table with WhatsApp actions */}
       {lErr ? (
         <div className="text-sm text-red-600">Error loading leads: {String(lErr.message || lErr)}</div>
       ) : !leads || leads.length === 0 ? (
-        <div className="text-sm opacity-80">No leads yet for <b>{provider.slug}</b>. Add one and refresh.</div>
+        <div className="text-sm opacity-80">No leads match your filters.</div>
       ) : (
         <div className="overflow-x-auto rounded border">
           <table className="min-w-full text-sm">
