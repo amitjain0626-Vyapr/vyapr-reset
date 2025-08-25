@@ -7,8 +7,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import RoiTrackerClient from "../../../components/dashboard/RoiTrackerClient";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import LeadActions from "@/components/leads/LeadActions";
 import QuickAddLead from "@/components/leads/QuickAddLead";
+import LeadsClientTable from "@/components/leads/LeadsClientTable";
 
 type PageProps = { searchParams?: Record<string, string | string[]> };
 const getParam = (sp: PageProps["searchParams"], k: string) =>
@@ -123,7 +123,6 @@ export default async function LeadsPage({ searchParams }: PageProps) {
           className="px-3 py-2 border rounded w-72"
           defaultValue={q}
         />
-
         <select name="status" defaultValue={status} className="px-2 py-2 border rounded text-sm">
           {STATUS_OPTIONS.map(s => (
             <option key={s} value={s}>
@@ -131,65 +130,24 @@ export default async function LeadsPage({ searchParams }: PageProps) {
             </option>
           ))}
         </select>
-
         <select name="sort" defaultValue={sort} className="px-2 py-2 border rounded text-sm">
           <option value="newest">Sort: Newest</option>
           <option value="oldest">Sort: Oldest</option>
         </select>
-
         <button className="px-3 py-2 border rounded text-sm">Apply</button>
-
         <a href={exportHref} className="ml-auto px-3 py-2 border rounded text-sm">Export CSV</a>
       </form>
 
-      {/* Leads table with WhatsApp actions */}
+      {/* Leads table + checkboxes + bulk bar */}
       {lErr ? (
         <div className="text-sm text-red-600">Error loading leads: {String(lErr.message || lErr)}</div>
       ) : !leads || leads.length === 0 ? (
         <div className="text-sm opacity-80">No leads match your filters.</div>
       ) : (
-        <div className="overflow-x-auto rounded border">
-          <table className="min-w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-3 py-2 text-left">Lead</th>
-                <th className="px-3 py-2 text-left">Phone</th>
-                <th className="px-3 py-2 text-left">Status</th>
-                <th className="px-3 py-2 text-left">Created</th>
-                <th className="px-3 py-2 text-left">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {leads.map((l) => (
-                <tr key={l.id} className="border-t">
-                  <td className="px-3 py-2">
-                    <div className="font-medium">{l.patient_name || "Unknown"}</div>
-                    {l.note ? <div className="text-xs opacity-70">{l.note}</div> : null}
-                  </td>
-                  <td className="px-3 py-2">{l.phone || "-"}</td>
-                  <td className="px-3 py-2">{l.status || "new"}</td>
-                  <td className="px-3 py-2">
-                    {new Intl.DateTimeFormat("en-IN", {
-                      timeZone: "Asia/Kolkata",
-                      day: "2-digit",
-                      month: "short",
-                      year: "numeric",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                      hour12: true,
-                    }).format(new Date(l.created_at))}
-                  </td>
-                  <td className="px-3 py-2">
-                    <LeadActions
-                      lead={l}
-                      provider={{ id: provider.id, display_name: providerLabel, slug: provider.slug }}
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <LeadsClientTable
+          leads={leads}
+          provider={{ id: provider.id, slug: provider.slug, display_name: providerLabel }}
+        />
       )}
     </div>
   );
