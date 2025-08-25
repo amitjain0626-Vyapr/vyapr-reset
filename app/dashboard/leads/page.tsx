@@ -90,18 +90,40 @@ export default async function LeadsPage({ searchParams }: PageProps) {
 
   if (status && status !== "all") sel = sel.eq("status", status);
   if (q) sel = sel.or(`patient_name.ilike.%${q}%,phone.ilike.%${q}%,note.ilike.%${q}%`);
-
   const { data: leads, error: lErr } = await sel;
 
+  // 6) Compute due nudges count (new ≥ 12h)
+  const cutoffISO = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
+  const { count: dueCount } = await supabase
+    .from("Leads")
+    .select("id", { count: "exact", head: true })
+    .eq("provider_id", provider.id)
+    .eq("status", "new")
+    .lt("created_at", cutoffISO);
+
   const providerLabel = provider.display_name || provider.slug;
-  const exportHref = `/api/leads/export?slug=${encodeURIComponent(provider.slug)}${q ? `&q=${encodeURIComponent(q)}` : ""}${status && status !== "all" ? `&status=${encodeURIComponent(status)}` : ""}&sort=${sort}`;
+  const exportHref = `/api/leads/export?slug=${encodeURIComponent(
+    provider.slug
+  )}${q ? `&q=${encodeURIComponent(q)}` : ""}${status && status !== "all" ? `&status=${encodeURIComponent(status)}` : ""}&sort=${sort}`;
 
   return (
     <div className="p-6 space-y-6">
-      {/* Header + Quick Add */}
+      {/* Header + Quick Add + Nudge Center */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Leads</h1>
         <div className="flex items-center gap-2">
+          <Link
+            href={`/dashboard/nudges?slug=${encodeURIComponent(provider.slug)}`}
+            className="px-3 py-2 border rounded text-sm relative"
+            title="See who to nudge on WhatsApp"
+          >
+            Nudge Center
+            {typeof dueCount === "number" && dueCount > 0 ? (
+              <span className="ml-2 inline-flex items-center justify-center text-xs px-1.5 py-0.5 rounded-full border">
+                {dueCount}
+              </span>
+            ) : null}
+          </Link>
           <QuickAddLead slug={provider.slug} />
         </div>
       </div>
@@ -124,7 +146,7 @@ export default async function LeadsPage({ searchParams }: PageProps) {
           defaultValue={q}
         />
         <select name="status" defaultValue={status} className="px-2 py-2 border rounded text-sm">
-          {STATUS_OPTIONS.map(s => (
+          {STATUS_OPTIONS.map((s) => (
             <option key={s} value={s}>
               {s === "all" ? "All Statuses" : s}
             </option>
@@ -138,7 +160,7 @@ export default async function LeadsPage({ searchParams }: PageProps) {
         <a href={exportHref} className="ml-auto px-3 py-2 border rounded text-sm">Export CSV</a>
       </form>
 
-      {/* Leads table + checkboxes + bulk bar */}
+      {/* Leads table + selection + bulk bar */}
       {lErr ? (
         <div className="text-sm text-red-600">Error loading leads: {String(lErr.message || lErr)}</div>
       ) : !leads || leads.length === 0 ? (
