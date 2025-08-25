@@ -24,7 +24,7 @@ export default async function LeadsPage({ searchParams }: PageProps) {
   const user = auth?.user;
   if (!user) redirect("/login");
 
-  // 2) Resolve provider slug: ?slug=… or first owned
+  // 2) Resolve provider slug: ?slug or first owned
   let slug = String(getParam(searchParams, "slug") || "").trim();
   if (!slug) {
     const { data: firstOwned } = await supabase
@@ -48,7 +48,7 @@ export default async function LeadsPage({ searchParams }: PageProps) {
     );
   }
 
-  // 3) Validate ownership (select ONLY existing cols)
+  // 3) Validate ownership (select only existing cols)
   const { data: provider, error: pErr } = await supabase
     .from("Providers")
     .select("id, slug, owner_id, published, display_name")
@@ -77,17 +77,19 @@ export default async function LeadsPage({ searchParams }: PageProps) {
     );
   }
 
-  // 4) Fetch leads via RLS using your current session
+  // 4) Fetch leads via RLS using your current session (NO appointment_at)
   const q = String(getParam(searchParams, "q") || "").trim();
   let sel = supabase
     .from("Leads")
-    .select("id, patient_name, phone, note, status, appointment_at, created_at")
+    .select("id, patient_name, phone, note, status, created_at")
     .eq("provider_id", provider.id)
     .order("created_at", { ascending: false })
     .limit(50);
+
   if (q) {
     sel = sel.or(`patient_name.ilike.%${q}%,phone.ilike.%${q}%,note.ilike.%${q}%`);
   }
+
   const { data: leads, error: lErr } = await sel;
 
   const providerLabel = provider.display_name || provider.slug;
