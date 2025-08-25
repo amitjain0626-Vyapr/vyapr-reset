@@ -10,11 +10,8 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import LeadActions from "@/components/leads/LeadActions";
 
 type PageProps = { searchParams?: Record<string, string | string[]> };
-
-function getParam(sp: PageProps["searchParams"], key: string) {
-  const v = sp?.[key];
-  return Array.isArray(v) ? (v[0] ?? "") : (v ?? "");
-}
+const getParam = (sp: PageProps["searchParams"], k: string) =>
+  Array.isArray(sp?.[k]) ? (sp?.[k]?.[0] ?? "") : (sp?.[k] ?? "");
 
 export default async function LeadsPage({ searchParams }: PageProps) {
   const supabase = await createSupabaseServerClient();
@@ -24,7 +21,7 @@ export default async function LeadsPage({ searchParams }: PageProps) {
   const user = auth?.user;
   if (!user) redirect("/login");
 
-  // 2) Resolve provider slug: ?slug or first owned
+  // 2) Resolve provider slug: ?slug=… or first owned
   let slug = String(getParam(searchParams, "slug") || "").trim();
   if (!slug) {
     const { data: firstOwned } = await supabase
@@ -38,17 +35,16 @@ export default async function LeadsPage({ searchParams }: PageProps) {
   }
   if (!slug) {
     return (
-      <div className="p-6 space-y-4">
-        <h1 className="text-2xl font-semibold">Vyapr — Dashboard</h1>
+      <div className="p-6 space-y-3">
+        <h1 className="text-2xl font-semibold">Leads</h1>
         <p className="text-sm opacity-80">
-          You don’t have a provider yet. Please finish{" "}
-          <Link href="/onboarding" className="underline">onboarding</Link>.
+          No provider found. Please finish <Link href="/onboarding" className="underline">Onboarding</Link>.
         </p>
       </div>
     );
   }
 
-  // 3) Validate ownership (select only existing cols)
+  // 3) Validate ownership (only existing columns)
   const { data: provider, error: pErr } = await supabase
     .from("Providers")
     .select("id, slug, owner_id, published, display_name")
@@ -68,16 +64,15 @@ export default async function LeadsPage({ searchParams }: PageProps) {
     return (
       <div className="p-6 space-y-2">
         <h1 className="text-xl font-semibold">Leads — {slug}</h1>
-        <p className="text-sm">This slug either doesn’t exist, isn’t published, or isn’t owned by your current login.</p>
+        <p className="text-sm">This slug isn’t owned by your current login, or it isn’t published.</p>
         <p className="text-xs opacity-70">
-          Tip: Log in as the owner and ensure it’s published in{" "}
-          <Link href="/onboarding" className="underline">Onboarding</Link>.
+          Tip: log in as the owner and publish in <Link href="/onboarding" className="underline">Onboarding</Link>.
         </p>
       </div>
     );
   }
 
-  // 4) Fetch leads via RLS using your current session (NO appointment_at)
+  // 4) Fetch leads (RLS, no appointment_at)
   const q = String(getParam(searchParams, "q") || "").trim();
   let sel = supabase
     .from("Leads")
@@ -85,59 +80,43 @@ export default async function LeadsPage({ searchParams }: PageProps) {
     .eq("provider_id", provider.id)
     .order("created_at", { ascending: false })
     .limit(50);
-
-  if (q) {
-    sel = sel.or(`patient_name.ilike.%${q}%,phone.ilike.%${q}%,note.ilike.%${q}%`);
-  }
-
+  if (q) sel = sel.or(`patient_name.ilike.%${q}%,phone.ilike.%${q}%,note.ilike.%${q}%`);
   const { data: leads, error: lErr } = await sel;
 
   const providerLabel = provider.display_name || provider.slug;
 
   return (
     <div className="p-6 space-y-6">
-      {/* Header */}
+      {/* Page title ONLY (top navbar comes from layout, so we avoid duplicate headers) */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Vyapr — Dashboard</h1>
+        <h1 className="text-2xl font-semibold">Leads</h1>
         <div className="flex items-center gap-2">
-          <Link
-            href={`/dashboard/leads?slug=${encodeURIComponent(provider.slug)}`}
-            className="px-3 py-1.5 text-sm border rounded"
-          >
-            Leads
-          </Link>
-          <Link
-            href={`/dashboard/payments?slug=${encodeURIComponent(provider.slug)}`}
-            className="px-3 py-1.5 text-sm border rounded"
-          >
-            Payments
-          </Link>
+          <Link href={`/dashboard/leads?slug=${encodeURIComponent(provider.slug)}`} className="px-3 py-1.5 text-sm border rounded">Leads</Link>
+          <Link href={`/dashboard/payments?slug=${encodeURIComponent(provider.slug)}`} className="px-3 py-1.5 text-sm border rounded">Payments</Link>
         </div>
       </div>
 
-      {/* ROI tracker (unchanged) */}
+      {/* Provider context */}
+      <div className="text-sm opacity-80">
+        Provider: <b>{providerLabel}</b> <span className="opacity-60">({provider.slug})</span>
+      </div>
+
+      {/* ROI cards (client component remains untouched) */}
       <RoiTrackerClient />
 
-      {/* Search */}
+      {/* Simple search (filters overhaul = next step 13.UX1) */}
       <form action="/dashboard/leads" method="get" className="flex items-center gap-2">
         <input type="hidden" name="slug" value={provider.slug} />
-        <input
-          name="q"
-          placeholder="Search name, phone, note…"
-          className="px-3 py-2 border rounded w-72"
-          defaultValue={q}
-        />
+        <input name="q" placeholder="Search name, phone, note…" className="px-3 py-2 border rounded w-72" defaultValue={q} />
         <button className="px-3 py-2 border rounded text-sm">Search</button>
         <span className="text-xs opacity-60">Showing latest 50</span>
       </form>
 
-      {/* Leads table (inline, with WA actions) */}
+      {/* Leads table with WhatsApp actions */}
       {lErr ? (
         <div className="text-sm text-red-600">Error loading leads: {String(lErr.message || lErr)}</div>
       ) : !leads || leads.length === 0 ? (
-        <div className="text-sm opacity-80">
-          No leads yet for <b>{provider.slug}</b>. Add one and refresh.
-        </div>
+        <div className="text-sm opacity-80">No leads yet for <b>{provider.slug}</b>. Add one and refresh.</div>
       ) : (
         <div className="overflow-x-auto rounded border">
           <table className="min-w-full text-sm">
