@@ -14,6 +14,22 @@ type PageProps = { searchParams?: Record<string, string | string[]> };
 const getParam = (sp: PageProps["searchParams"], k: string) =>
   Array.isArray(sp?.[k]) ? (sp?.[k]?.[0] ?? "") : (sp?.[k] ?? "");
 
+// IST day bounds -> UTC ms (for Events.ts which stores ms epoch)
+function istTodayBoundsUtcMs(): { start: number; end: number } {
+  const IST_OFFSET = 330 * 60 * 1000; // +05:30
+  const nowUtc = Date.now();
+  const nowIstMs = nowUtc + IST_OFFSET; // shift to IST
+  const istNow = new Date(nowIstMs);
+  const startIstLocalAsUtc = Date.UTC(
+    istNow.getUTCFullYear(),
+    istNow.getUTCMonth(),
+    istNow.getUTCDate(),
+    0, 0, 0
+  );
+  const startUtcMs = startIstLocalAsUtc - IST_OFFSET; // shift back to UTC ms
+  return { start: startUtcMs, end: startUtcMs + 24 * 60 * 60 * 1000 };
+}
+
 const STATUS_OPTIONS = ["all", "new", "confirmed", "cancelled", "no_show", "won", "lost"] as const;
 
 export default async function LeadsPage({ searchParams }: PageProps) {
@@ -80,7 +96,7 @@ export default async function LeadsPage({ searchParams }: PageProps) {
   const status = (String(getParam(searchParams, "status") || "all").toLowerCase() as (typeof STATUS_OPTIONS)[number]);
   const sort = (String(getParam(searchParams, "sort") || "newest").toLowerCase() === "oldest" ? "oldest" : "newest");
 
-  // 5) Fetch leads via RLS
+  // 5) Fetch leads (RLS)
   let sel = supabase
     .from("Leads")
     .select("id, patient_name, phone, note, status, created_at")
@@ -92,7 +108,19 @@ export default async function LeadsPage({ searchParams }: PageProps) {
   if (q) sel = sel.or(`patient_name.ilike.%${q}%,phone.ilike.%${q}%,note.ilike.%${q}%`);
   const { data: leads, error: lErr } = await sel;
 
-  // 6) Compute due nudges count (new ≥ 12h)
+  // 6) Compute badge count:
+  //    (a) preferred: Events.event='nudge.suggested' for IST-today (from cron)
+  //    (b) fallback: live due = Leads with status=new older than 12h
+  const { start: istStartUtcMs, end: istEndUtcMs } = istTodayBoundsUtcMs();
+
+  const { count: suggestedToday } = await supabase
+    .from("Events")
+    .select("event", { count: "exact", head: true })
+    .eq("provider_id", provider.id)
+    .eq("event", "nudge.suggested")
+    .gte("ts", istStartUtcMs)
+    .lt("ts", istEndUtcMs);
+
   const cutoffISO = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
   const { count: dueCount } = await supabase
     .from("Leads")
@@ -101,6 +129,11 @@ export default async function LeadsPage({ searchParams }: PageProps) {
     .eq("status", "new")
     .lt("created_at", cutoffISO);
 
+  const badgeCount =
+    typeof suggestedToday === "number" && suggestedToday > 0
+      ? suggestedToday
+      : (typeof dueCount === "number" ? dueCount : 0);
+
   const providerLabel = provider.display_name || provider.slug;
   const exportHref = `/api/leads/export?slug=${encodeURIComponent(
     provider.slug
@@ -108,7 +141,7 @@ export default async function LeadsPage({ searchParams }: PageProps) {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Header + Quick Add + Nudge Center */}
+      {/* Header + Nudge Center (with badge) + Quick Add */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Leads</h1>
         <div className="flex items-center gap-2">
@@ -118,9 +151,9 @@ export default async function LeadsPage({ searchParams }: PageProps) {
             title="See who to nudge on WhatsApp"
           >
             Nudge Center
-            {typeof dueCount === "number" && dueCount > 0 ? (
+            {badgeCount > 0 ? (
               <span className="ml-2 inline-flex items-center justify-center text-xs px-1.5 py-0.5 rounded-full border">
-                {dueCount}
+                {badgeCount}
               </span>
             ) : null}
           </Link>
