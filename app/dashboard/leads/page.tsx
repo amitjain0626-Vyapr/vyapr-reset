@@ -5,14 +5,12 @@ export const revalidate = 0;
 
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import RoiTrackerClient from "../../../components/dashboard/RoiTrackerClient"; // keep your existing ROI
-import LeadsTable from "@/components/leads/LeadsTable"; // this one expects a { leads } prop
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { createClient as createSbAdmin } from "@supabase/supabase-js";
+import LeadActions from "@/components/leads/LeadActions";
 
 type PageProps = { searchParams?: Record<string, string | string[]> };
 
-function getParam(sp: PageProps["searchParams"], key: string) {
+function param(sp: PageProps["searchParams"], key: string) {
   const v = sp?.[key];
   return Array.isArray(v) ? (v[0] ?? "") : (v ?? "");
 }
@@ -20,13 +18,13 @@ function getParam(sp: PageProps["searchParams"], key: string) {
 export default async function LeadsPage({ searchParams }: PageProps) {
   const supabase = await createSupabaseServerClient();
 
-  // 1) Require auth
+  // 1) Must be logged in
   const { data: auth } = await supabase.auth.getUser();
   const user = auth?.user;
   if (!user) redirect("/login");
 
-  // 2) Resolve provider slug: use ?slug=… if provided, else first owned
-  let slug = getParam(searchParams, "slug")?.trim();
+  // 2) Resolve slug -> ?slug or first owned
+  let slug = String(param(searchParams, "slug") || "").trim();
   if (!slug) {
     const { data: firstOwned } = await supabase
       .from("Providers")
@@ -40,17 +38,17 @@ export default async function LeadsPage({ searchParams }: PageProps) {
 
   if (!slug) {
     return (
-      <div className="p-6 space-y-4">
-        <h1 className="text-2xl font-semibold">Vyapr — Dashboard</h1>
+      <div className="p-6 space-y-3">
+        <h1 className="text-2xl font-semibold">Vyapr — Leads</h1>
         <p className="text-sm opacity-80">
-          You don’t have a provider yet. Please finish{" "}
+          No provider found for your account. Please finish{" "}
           <Link href="/onboarding" className="underline">onboarding</Link>.
         </p>
       </div>
     );
   }
 
-  // 3) Validate ownership using RLS-bound server client
+  // 3) Validate ownership of this slug (RLS-bound client)
   const { data: provider, error: pErr } = await supabase
     .from("Providers")
     .select("id, slug, owner_id, published, name, display_name")
@@ -62,7 +60,7 @@ export default async function LeadsPage({ searchParams }: PageProps) {
     return (
       <div className="p-6">
         <h1 className="text-xl font-semibold mb-2">Leads — {slug}</h1>
-        <p className="text-sm text-red-600">Error: {String(pErr.message || pErr)}</p>
+        <p className="text-sm text-red-600">Error loading provider: {String(pErr.message || pErr)}</p>
       </div>
     );
   }
@@ -71,24 +69,18 @@ export default async function LeadsPage({ searchParams }: PageProps) {
     return (
       <div className="p-6 space-y-2">
         <h1 className="text-xl font-semibold">Leads — {slug}</h1>
-        <p className="text-sm">This slug either doesn’t exist, isn’t published, or isn’t owned by your current login.</p>
+        <p className="text-sm">This slug isn’t owned by your current login, or it isn’t published.</p>
         <p className="text-xs opacity-70">
-          Tip: Log in as the owner and ensure it’s published in <Link href="/onboarding" className="underline">Onboarding</Link>.
+          Tip: make sure you’re logged in as the owner and the provider is published in{" "}
+          <Link href="/onboarding" className="underline">Onboarding</Link>.
         </p>
       </div>
     );
   }
 
-  // 4) Fetch leads using admin client AFTER ownership check
-  const SUPABASE_URL =
-    process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
-  const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-  const admin = createSbAdmin(SUPABASE_URL, SERVICE_KEY, {
-    auth: { persistSession: false },
-  });
-
-  const q = getParam(searchParams, "q")?.trim();
-  let leadsQuery = admin
+  // 4) Fetch leads via RLS (your session), newest first
+  const q = String(param(searchParams, "q") || "").trim();
+  let sel = supabase
     .from("Leads")
     .select("id, patient_name, phone, note, status, appointment_at, created_at")
     .eq("provider_id", provider.id)
@@ -96,22 +88,18 @@ export default async function LeadsPage({ searchParams }: PageProps) {
     .limit(50);
 
   if (q) {
-    // light search across a few cols
-    leadsQuery = leadsQuery.or(
-      `patient_name.ilike.%${q}%,phone.ilike.%${q}%,note.ilike.%${q}%`
-    );
+    sel = sel.or(`patient_name.ilike.%${q}%,phone.ilike.%${q}%,note.ilike.%${q}%`);
   }
 
-  const { data: leads, error: lErr } = await leadsQuery;
+  const { data: leads, error: lErr } = await sel;
 
-  const providerLabel =
-    provider.display_name || provider.name || provider.slug || "your provider";
+  const providerLabel = provider.display_name || provider.name || provider.slug || "your provider";
 
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Vyapr — Dashboard</h1>
+        <h1 className="text-2xl font-semibold">Vyapr — Leads</h1>
         <div className="flex items-center gap-2">
           <Link
             href={`/dashboard/leads?slug=${encodeURIComponent(provider.slug)}`}
@@ -128,16 +116,12 @@ export default async function LeadsPage({ searchParams }: PageProps) {
         </div>
       </div>
 
-      {/* Provider context */}
+      {/* Context */}
       <div className="text-sm opacity-80">
-        Provider: <b>{providerLabel}</b>{" "}
-        <span className="opacity-60">({provider.slug})</span>
+        Provider: <b>{providerLabel}</b> <span className="opacity-60">({provider.slug})</span>
       </div>
 
-      {/* ROI tracker (client-fetched; your existing component) */}
-      <RoiTrackerClient />
-
-      {/* Simple filters/search */}
+      {/* Simple search (kept minimal; full UX polish later) */}
       <form action="/dashboard/leads" method="get" className="flex items-center gap-2">
         <input type="hidden" name="slug" value={provider.slug} />
         <input
@@ -150,7 +134,7 @@ export default async function LeadsPage({ searchParams }: PageProps) {
         <span className="text-xs opacity-60">Showing latest 50</span>
       </form>
 
-      {/* Leads table */}
+      {/* Leads table (inline) */}
       {lErr ? (
         <div className="text-sm text-red-600">Error loading leads: {String(lErr.message || lErr)}</div>
       ) : !leads || leads.length === 0 ? (
@@ -158,7 +142,48 @@ export default async function LeadsPage({ searchParams }: PageProps) {
           No leads yet for <b>{provider.slug}</b>. Add one and refresh.
         </div>
       ) : (
-        <LeadsTable leads={leads} />
+        <div className="overflow-x-auto rounded border">
+          <table className="min-w-full text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-3 py-2 text-left">Lead</th>
+                <th className="px-3 py-2 text-left">Phone</th>
+                <th className="px-3 py-2 text-left">Status</th>
+                <th className="px-3 py-2 text-left">Created</th>
+                <th className="px-3 py-2 text-left">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {leads.map((l) => (
+                <tr key={l.id} className="border-t">
+                  <td className="px-3 py-2">
+                    <div className="font-medium">{l.patient_name || "Unknown"}</div>
+                    {l.note ? <div className="text-xs opacity-70">{l.note}</div> : null}
+                  </td>
+                  <td className="px-3 py-2">{l.phone || "-"}</td>
+                  <td className="px-3 py-2">{l.status || "new"}</td>
+                  <td className="px-3 py-2">
+                    {new Intl.DateTimeFormat("en-IN", {
+                      timeZone: "Asia/Kolkata",
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      hour12: true,
+                    }).format(new Date(l.created_at))}
+                  </td>
+                  <td className="px-3 py-2">
+                    <LeadActions
+                      lead={l}
+                      provider={{ id: provider.id, display_name: providerLabel, slug: provider.slug }}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
