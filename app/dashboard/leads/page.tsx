@@ -1,81 +1,165 @@
 // @ts-nocheck
-import { createSupabaseServerClient } from "../../../lib/supabase/server";
-import LeadTable from "../../../components/dashboard/LeadTable";
-import LeadsFilterBar from "../../../components/dashboard/LeadsFilterBar";
-import RoiTrackerClient from "../../../components/dashboard/RoiTrackerClient"; // <-- use client ROI
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+import Link from "next/link";
 import { redirect } from "next/navigation";
+import RoiTrackerClient from "../../../components/dashboard/RoiTrackerClient"; // keep your existing ROI
+import LeadsTable from "@/components/leads/LeadsTable"; // this one expects a { leads } prop
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createClient as createSbAdmin } from "@supabase/supabase-js";
 
-// Next 15: searchParams is a Promise
-type SP = Record<string, string | string[] | undefined>;
+type PageProps = { searchParams?: Record<string, string | string[]> };
 
-function getParam(sp: SP, key: string): string | null {
+function getParam(sp: PageProps["searchParams"], key: string) {
   const v = sp?.[key];
-  if (typeof v === "string") return v;
-  if (Array.isArray(v) && v.length) return v[0]!;
-  return null;
+  return Array.isArray(v) ? (v[0] ?? "") : (v ?? "");
 }
 
-function buildFilters(sp: SP) {
-  const filters: { status?: string; rangeDays?: number } = {};
-  const status = getParam(sp, "status");
-  if (status) filters.status = status;
-
-  const range = getParam(sp, "range");
-  if (range && range.endsWith("d")) {
-    const days = parseInt(range.slice(0, -1), 10);
-    if (!isNaN(days)) filters.rangeDays = days;
-  }
-  return filters;
-}
-
-export default async function LeadsPage({
-  searchParams,
-}: {
-  searchParams: Promise<SP>;
-}) {
+export default async function LeadsPage({ searchParams }: PageProps) {
   const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
-  // Redirect unauthenticated users to login (no 404s)
-  if (!user) {
-    redirect("/login?next=/dashboard/leads");
+  // 1) Require auth
+  const { data: auth } = await supabase.auth.getUser();
+  const user = auth?.user;
+  if (!user) redirect("/login");
+
+  // 2) Resolve provider slug: use ?slug=… if provided, else first owned
+  let slug = getParam(searchParams, "slug")?.trim();
+  if (!slug) {
+    const { data: firstOwned } = await supabase
+      .from("Providers")
+      .select("slug")
+      .eq("owner_id", user.id)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (firstOwned?.slug) slug = firstOwned.slug;
   }
 
-  const sp = (await searchParams) || {};
-  const filters = buildFilters(sp);
+  if (!slug) {
+    return (
+      <div className="p-6 space-y-4">
+        <h1 className="text-2xl font-semibold">Vyapr — Dashboard</h1>
+        <p className="text-sm opacity-80">
+          You don’t have a provider yet. Please finish{" "}
+          <Link href="/onboarding" className="underline">onboarding</Link>.
+        </p>
+      </div>
+    );
+  }
 
-  let query = supabase
+  // 3) Validate ownership using RLS-bound server client
+  const { data: provider, error: pErr } = await supabase
+    .from("Providers")
+    .select("id, slug, owner_id, published, name, display_name")
+    .eq("slug", slug)
+    .eq("owner_id", user.id)
+    .maybeSingle();
+
+  if (pErr) {
+    return (
+      <div className="p-6">
+        <h1 className="text-xl font-semibold mb-2">Leads — {slug}</h1>
+        <p className="text-sm text-red-600">Error: {String(pErr.message || pErr)}</p>
+      </div>
+    );
+  }
+
+  if (!provider) {
+    return (
+      <div className="p-6 space-y-2">
+        <h1 className="text-xl font-semibold">Leads — {slug}</h1>
+        <p className="text-sm">This slug either doesn’t exist, isn’t published, or isn’t owned by your current login.</p>
+        <p className="text-xs opacity-70">
+          Tip: Log in as the owner and ensure it’s published in <Link href="/onboarding" className="underline">Onboarding</Link>.
+        </p>
+      </div>
+    );
+  }
+
+  // 4) Fetch leads using admin client AFTER ownership check
+  const SUPABASE_URL =
+    process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "";
+  const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+  const admin = createSbAdmin(SUPABASE_URL, SERVICE_KEY, {
+    auth: { persistSession: false },
+  });
+
+  const q = getParam(searchParams, "q")?.trim();
+  let leadsQuery = admin
     .from("Leads")
-    .select("*")
-    .order("created_at", { ascending: false });
+    .select("id, patient_name, phone, note, status, appointment_at, created_at")
+    .eq("provider_id", provider.id)
+    .order("created_at", { ascending: false })
+    .limit(50);
 
-  if (filters.status) {
-    query = query.eq("status", filters.status);
-  }
-  if (filters.rangeDays) {
-    const since = new Date();
-    since.setDate(since.getDate() - filters.rangeDays);
-    query = query.gte("created_at", since.toISOString());
+  if (q) {
+    // light search across a few cols
+    leadsQuery = leadsQuery.or(
+      `patient_name.ilike.%${q}%,phone.ilike.%${q}%,note.ilike.%${q}%`
+    );
   }
 
-  const { data: leads, error } = await query;
-  if (error) {
-    console.error("Error loading leads:", error);
-    return <div className="p-4 text-red-500">Failed to load leads</div>;
-  }
+  const { data: leads, error: lErr } = await leadsQuery;
+
+  const providerLabel =
+    provider.display_name || provider.name || provider.slug || "your provider";
 
   return (
-    <div className="p-6">
-      <h1 className="text-xl font-semibold mb-4">Leads</h1>
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Vyapr — Dashboard</h1>
+        <div className="flex items-center gap-2">
+          <Link
+            href={`/dashboard/leads?slug=${encodeURIComponent(provider.slug)}`}
+            className="px-3 py-1.5 text-sm border rounded"
+          >
+            Leads
+          </Link>
+          <Link
+            href={`/dashboard/payments?slug=${encodeURIComponent(provider.slug)}`}
+            className="px-3 py-1.5 text-sm border rounded"
+          >
+            Payments
+          </Link>
+        </div>
+      </div>
 
-      {/* ROI tracker (client-fetched; won’t crash server) */}
+      {/* Provider context */}
+      <div className="text-sm opacity-80">
+        Provider: <b>{providerLabel}</b>{" "}
+        <span className="opacity-60">({provider.slug})</span>
+      </div>
+
+      {/* ROI tracker (client-fetched; your existing component) */}
       <RoiTrackerClient />
 
-      {/* Filters + Table */}
-      <LeadsFilterBar />
-      <LeadTable initialData={leads || []} />
+      {/* Simple filters/search */}
+      <form action="/dashboard/leads" method="get" className="flex items-center gap-2">
+        <input type="hidden" name="slug" value={provider.slug} />
+        <input
+          name="q"
+          placeholder="Search name, phone, note…"
+          className="px-3 py-2 border rounded w-72"
+          defaultValue={q}
+        />
+        <button className="px-3 py-2 border rounded text-sm">Search</button>
+        <span className="text-xs opacity-60">Showing latest 50</span>
+      </form>
+
+      {/* Leads table */}
+      {lErr ? (
+        <div className="text-sm text-red-600">Error loading leads: {String(lErr.message || lErr)}</div>
+      ) : !leads || leads.length === 0 ? (
+        <div className="text-sm opacity-80">
+          No leads yet for <b>{provider.slug}</b>. Add one and refresh.
+        </div>
+      ) : (
+        <LeadsTable leads={leads} />
+      )}
     </div>
   );
 }
