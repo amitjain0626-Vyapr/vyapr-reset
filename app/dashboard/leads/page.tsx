@@ -3,10 +3,10 @@ import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import LeadTable from "../../../components/dashboard/LeadTable";
 import LeadsFilterBar from "../../../components/dashboard/LeadsFilterBar";
 import RoiTracker from "../../../components/dashboard/RoiTracker";
-import TrustBadgeCard from "../../../components/dashboard/TrustBadgeCard"; // <-- ADD
-import { notFound } from "next/navigation";
+import TrustBadgeCard from "../../../components/dashboard/TrustBadgeCard";
+import { redirect } from "next/navigation";
 
-// In Next.js 15, searchParams is a Promise; await it before use.
+// Next 15: searchParams is a Promise
 type SP = Record<string, string | string[] | undefined>;
 
 function getParam(sp: SP, key: string): string | null {
@@ -35,19 +35,22 @@ export default async function LeadsPage({
   searchParams: Promise<SP>;
 }) {
   const supabase = await createSupabaseServerClient();
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return notFound();
 
-  // ✅ Await searchParams (Next 15)
+  // ✅ Redirect unauthenticated users to login (no more 404)
+  if (!user) {
+    redirect("/login?next=/dashboard/leads");
+  }
+
   const sp = (await searchParams) || {};
   const filters = buildFilters(sp);
 
   let query = supabase
     .from("Leads")
     .select("*")
-    // RLS scopes rows to the signed-in owner
     .order("created_at", { ascending: false });
 
   if (filters.status) {
@@ -69,7 +72,7 @@ export default async function LeadsPage({
     <div className="p-6">
       <h1 className="text-xl font-semibold mb-4">Leads</h1>
 
-      {/* NEW: Trust badge card */}
+      {/* Trust badge status + upload */}
       <TrustBadgeCard />
 
       {/* ROI tracker row */}
