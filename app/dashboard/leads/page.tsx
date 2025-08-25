@@ -3,6 +3,7 @@ import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import LeadTable from "../../../components/dashboard/LeadTable";
 import LeadsFilterBar from "../../../components/dashboard/LeadsFilterBar";
 import RoiTracker from "../../../components/dashboard/RoiTracker";
+import TrustBadgeCard from "../../../components/dashboard/TrustBadgeCard"; // <-- ADD
 import { notFound } from "next/navigation";
 
 // In Next.js 15, searchParams is a Promise; await it before use.
@@ -67,6 +68,9 @@ export default async function LeadsPage({
   return (
     <div className="p-6">
       <h1 className="text-xl font-semibold mb-4">Leads</h1>
+
+      {/* NEW: Trust badge card */}
+      <TrustBadgeCard />
 
       {/* ROI tracker row */}
       <RoiTracker />
