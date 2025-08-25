@@ -3,7 +3,6 @@ import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import LeadTable from "../../../components/dashboard/LeadTable";
 import LeadsFilterBar from "../../../components/dashboard/LeadsFilterBar";
 import RoiTracker from "../../../components/dashboard/RoiTracker";
-import TrustBadgeCard from "../../../components/dashboard/TrustBadgeCard";
 import { redirect } from "next/navigation";
 
 // Next 15: searchParams is a Promise
@@ -35,12 +34,11 @@ export default async function LeadsPage({
   searchParams: Promise<SP>;
 }) {
   const supabase = await createSupabaseServerClient();
-
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // ✅ Redirect unauthenticated users to login (no more 404)
+  // Redirect unauthenticated users to login (no 404s)
   if (!user) {
     redirect("/login?next=/dashboard/leads");
   }
@@ -72,10 +70,7 @@ export default async function LeadsPage({
     <div className="p-6">
       <h1 className="text-xl font-semibold mb-4">Leads</h1>
 
-      {/* Trust badge status + upload */}
-      <TrustBadgeCard />
-
-      {/* ROI tracker row */}
+      {/* ROI tracker */}
       <RoiTracker />
 
       {/* Filters + Table */}
