@@ -1,8 +1,8 @@
 // @ts-nocheck
-import { createSupabaseServerClient } from "@/lib/supabase/server";
-import LeadsTable from "@/components/dashboard/LeadsTable";
-import LeadsFilterBar from "@/components/dashboard/LeadsFilterBar";
-import RoiTracker from "@/components/dashboard/RoiTracker";
+import { createSupabaseServerClient } from "../../../lib/supabase/server";
+import LeadsTable from "../../../components/dashboard/LeadsTable";
+import LeadsFilterBar from "../../../components/dashboard/LeadsFilterBar";
+import RoiTracker from "../../../components/dashboard/RoiTracker";
 import { notFound } from "next/navigation";
 
 // Utility: parse querystring filters into SQL-safe clauses
@@ -21,7 +21,9 @@ function buildFilters(searchParams: URLSearchParams) {
 
 export default async function LeadsPage({ searchParams }) {
   const supabase = await createSupabaseServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return notFound();
 
   const filters = buildFilters(new URLSearchParams(searchParams));
@@ -29,7 +31,7 @@ export default async function LeadsPage({ searchParams }) {
   let query = supabase
     .from("Leads")
     .select("*")
-    // owner scope enforced by RLS, but we keep explicit filtering for sanity
+    // RLS scopes rows to the signed-in owner; no manual .eq("provider_id", user.id)
     .order("created_at", { ascending: false });
 
   if (filters.status) {
