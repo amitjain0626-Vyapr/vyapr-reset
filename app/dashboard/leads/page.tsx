@@ -2,7 +2,7 @@
 import { createSupabaseServerClient } from "../../../lib/supabase/server";
 import LeadTable from "../../../components/dashboard/LeadTable";
 import LeadsFilterBar from "../../../components/dashboard/LeadsFilterBar";
-import RoiTracker from "../../../components/dashboard/RoiTracker";
+import RoiTrackerClient from "../../../components/dashboard/RoiTrackerClient"; // <-- use client ROI
 import { redirect } from "next/navigation";
 
 // Next 15: searchParams is a Promise
@@ -70,8 +70,8 @@ export default async function LeadsPage({
     <div className="p-6">
       <h1 className="text-xl font-semibold mb-4">Leads</h1>
 
-      {/* ROI tracker */}
-      <RoiTracker />
+      {/* ROI tracker (client-fetched; won’t crash server) */}
+      <RoiTrackerClient />
 
       {/* Filters + Table */}
       <LeadsFilterBar />
