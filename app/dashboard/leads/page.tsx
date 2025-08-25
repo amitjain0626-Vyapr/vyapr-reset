@@ -5,15 +5,17 @@ import LeadsFilterBar from "../../../components/dashboard/LeadsFilterBar";
 import RoiTracker from "../../../components/dashboard/RoiTracker";
 import { notFound } from "next/navigation";
 
-// Parse ?status & ?range from Next's searchParams (object, not URLSearchParams)
-type SearchParams = { [key: string]: string | string[] | undefined };
-function getParam(sp: SearchParams, key: string): string | null {
+// In Next.js 15, searchParams is a Promise; await it before use.
+type SP = Record<string, string | string[] | undefined>;
+
+function getParam(sp: SP, key: string): string | null {
   const v = sp?.[key];
   if (typeof v === "string") return v;
   if (Array.isArray(v) && v.length) return v[0]!;
   return null;
 }
-function buildFilters(sp: SearchParams) {
+
+function buildFilters(sp: SP) {
   const filters: { status?: string; rangeDays?: number } = {};
   const status = getParam(sp, "status");
   if (status) filters.status = status;
@@ -26,14 +28,20 @@ function buildFilters(sp: SearchParams) {
   return filters;
 }
 
-export default async function LeadsPage({ searchParams }: { searchParams: SearchParams }) {
+export default async function LeadsPage({
+  searchParams,
+}: {
+  searchParams: Promise<SP>;
+}) {
   const supabase = await createSupabaseServerClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return notFound();
 
-  const filters = buildFilters(searchParams || {});
+  // ✅ Await searchParams (Next 15)
+  const sp = (await searchParams) || {};
+  const filters = buildFilters(sp);
 
   let query = supabase
     .from("Leads")
