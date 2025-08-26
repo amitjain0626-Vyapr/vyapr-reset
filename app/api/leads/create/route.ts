@@ -5,16 +5,81 @@ export const runtime = 'nodejs';
 
 import { createClient } from '@supabase/supabase-js';
 
+/** ---------- Supabase (service role) ---------- */
 function admin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
+/** ---------- Utils ---------- */
 function sanitizePhone(s: string) {
-  return (s || '').toString().replace(/[^\d+]/g, ''); // keep leading + and digits
+  // keep leading + and digits only (no spaces, dashes, etc.)
+  return (s || '').toString().replace(/[^\d+]/g, '');
 }
 
+// Fallback-safe event logger: tries multiple column shapes so we work with whatever schema exists.
+// Primary preference: { event, ts, provider_id, lead_id, source, meta }
+// Fallbacks tried if columns differ: { type }, { event_name }, { name }, and { occurred_at } for ts, etc.
+async function safeLogEvent(sb: any, payload: {
+  name: string;                 // e.g., 'lead.created'
+  ts?: string | Date | number;  // optional; defaults to now
+  provider_id?: string | null;
+  lead_id?: string | null;
+  source?: any;                 // stored either in source or inside meta.source
+  meta?: any;                   // optional extra metadata
+}) {
+  const isoTs =
+    typeof payload.ts === 'string'
+      ? payload.ts
+      : payload.ts instanceof Date
+        ? payload.ts.toISOString()
+        : new Date().toISOString();
+
+  // Candidate shapes to match unknown DB schemas
+  const base = {
+    lead_id: payload.lead_id ?? null,
+    provider_id: payload.provider_id ?? null,
+  };
+
+  const candidates = [
+    // Preferred (what we intended originally)
+    { ...base, event: payload.name, ts: isoTs, source: payload.source ?? null, meta: payload.meta ?? {} },
+
+    // Common alternates we’ve seen
+    { ...base, type: payload.name, ts: isoTs, source: payload.source ?? null, meta: payload.meta ?? {} },
+    { ...base, event_name: payload.name, ts: isoTs, source: payload.source ?? null, meta: payload.meta ?? {} },
+    { ...base, name: payload.name, ts: isoTs, source: payload.source ?? null, meta: payload.meta ?? {} },
+
+    // Some teams use occurred_at / data instead of ts / source
+    { ...base, event: payload.name, occurred_at: isoTs, data: payload.source ?? null, meta: payload.meta ?? {} },
+    { ...base, type: payload.name, occurred_at: isoTs, data: payload.source ?? null, meta: payload.meta ?? {} },
+    { ...base, event_name: payload.name, occurred_at: isoTs, data: payload.source ?? null, meta: payload.meta ?? {} },
+    { ...base, name: payload.name, occurred_at: isoTs, data: payload.source ?? null, meta: payload.meta ?? {} },
+
+    // If neither source nor data exists, tuck source under meta
+    { ...base, event: payload.name, ts: isoTs, meta: { ...(payload.meta ?? {}), source: payload.source ?? null } },
+    { ...base, type: payload.name, ts: isoTs, meta: { ...(payload.meta ?? {}), source: payload.source ?? null } },
+    { ...base, event_name: payload.name, ts: isoTs, meta: { ...(payload.meta ?? {}), source: payload.source ?? null } },
+    { ...base, name: payload.name, ts: isoTs, meta: { ...(payload.meta ?? {}), source: payload.source ?? null } },
+  ];
+
+  let lastErr = null;
+  for (const row of candidates) {
+    const { error } = await sb.from('Events').insert(row); // use lowercase table name to match Postgres identifiers
+    if (!error) return true; // success on first compatible shape
+    lastErr = error;
+    // Only keep trying when the error is a column-not-found type; otherwise bail
+    // (Postgres invalid column: 42703; Supabase may surface it as a message string)
+    const msg = (error.message || '').toLowerCase();
+    if (!(msg.includes('column') && msg.includes('does not exist'))) break;
+  }
+  // We never fail the API because of telemetry; just surface for debugging
+  console.error('safeLogEvent: could not insert telemetry row. last error =', lastErr);
+  return false;
+}
+
+/** ---------- Handlers ---------- */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -45,11 +110,6 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: 'provider_not_found' }, { status: 404 });
     }
 
-    // Optional: only accept leads for published providers (fail-open if you prefer)
-    // if (!prov.published) {
-    //   return NextResponse.json({ ok: false, error: 'provider_unpublished' }, { status: 403 });
-    // }
-
     // 2) insert into Leads (service role bypasses RLS safely)
     const insertLead = {
       provider_id: prov.id,
@@ -70,20 +130,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: 'lead_insert_failed' }, { status: 500 });
     }
 
-    // 3) telemetry: persist lead.created into Events
-    const eventRow = {
-      event: 'lead.created',
-      ts: Date.now(),
+    // 3) telemetry: persist lead.created into events (schema-agnostic)
+    await safeLogEvent(sb, {
+      name: 'lead.created',
+      ts: new Date().toISOString(),
       provider_id: prov.id,
       lead_id: leadRow.id,
       source: { via: 'api', ...source },
-    };
-
-    const { error: eErr } = await sb.from('Events').insert(eventRow);
-    if (eErr) {
-      // Do not fail the API if telemetry write fails — just log
-      console.error('Events insert failed', eErr);
-    }
+    });
 
     // 4) response: ok + deeplink for quick WA follow-up
     const msg = `Hi${patient_name ? ' ' + patient_name : ''}, thanks for reaching out. We’ll confirm your slot shortly.`;
