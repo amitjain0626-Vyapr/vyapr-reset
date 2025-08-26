@@ -149,68 +149,22 @@ export async function POST(req: Request) {
 
     const count = inserted?.length || rows.length;
 
-    // --- Telemetry: write to Events with fallback + explicit server logs ---
-    const eventRowBase = {
+    // --- Telemetry: write to Events (match existing schema) ---
+    // Your Events rows show: event (text), ts (number ms), provider_id, lead_id, source (jsonb).
+    // We do NOT include 'count' to avoid column mismatch.
+    const eventRow = {
       event: "lead.imported",
-      ts: Date.now(),               // match existing ms timestamp style
+      ts: Date.now(),               // numeric ms like your current rows
       provider_id: prov.id,
       lead_id: null,
-      // count removed to avoid column-mismatch failures
       source: { method: "import:csv" },
     };
 
-    let telemetryOk = false;
-    try {
-      const { error: e1 } = await sb.from("Events").insert(eventRowBase);
-      if (!e1) {
-        telemetryOk = true;
-      } else {
-        console.error("[telemetry] Events insert failed (lead.imported)", e1.message);
-      }
-    } catch (e: any) {
-      console.error("[telemetry] Events insert exception", e?.message || e);
-    }
-
-    if (!telemetryOk) {
-      try {
-        const { error: e2 } = await sb.from("events").insert(eventRowBase);
-        if (!e2) {
-          telemetryOk = true;
-        } else {
-          console.error("[telemetry] events insert failed (fallback)", e2.message);
-        }
-      } catch (e: any) {
-        console.error("[telemetry] events insert exception (fallback)", e?.message || e);
-      }
-    };
-
-    let telemetryOk = false;
-    // 1) Try "Events" (your existing casing with lead.created)
-    try {
-      const { error: e1 } = await sb.from("Events").insert(eventRow);
-      if (e1) {
-        console.error("[telemetry] Events insert failed (lead.imported)", e1.message, e1.details, e1.hint);
-      } else {
-        telemetryOk = true;
-        console.log("[telemetry] Events insert success (lead.imported)", eventRow);
-      }
-    } catch (e: any) {
-      console.error("[telemetry] Events insert exception", e?.message || e);
-    }
-
-    // 2) Fallback to lowercase "events" if the first failed
-    if (!telemetryOk) {
-      try {
-        const { error: e2 } = await sb.from("events").insert(eventRow);
-        if (e2) {
-          console.error("[telemetry] events insert failed (fallback)", e2.message, e2.details, e2.hint);
-        } else {
-          telemetryOk = true;
-          console.log("[telemetry] events insert success (fallback)", eventRow);
-        }
-      } catch (e: any) {
-        console.error("[telemetry] events insert exception (fallback)", e?.message || e);
-      }
+    // Use "Events" (capital E) to match your existing table casing
+    const { error: e1 } = await sb.from("Events").insert(eventRow);
+    if (e1) {
+      // soft-fail telemetry; import has already succeeded
+      console.error("[telemetry] Events insert failed (lead.imported):", e1.message || e1);
     }
     // --- end telemetry ---
 
@@ -225,4 +179,3 @@ export async function POST(req: Request) {
 export async function GET() {
   return json({ ok: true });
 }
-
