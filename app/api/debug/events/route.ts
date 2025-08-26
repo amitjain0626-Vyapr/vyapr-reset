@@ -14,9 +14,31 @@ export async function GET(req: Request) {
   try {
     const sb = admin();
     const url = new URL(req.url);
-    const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "50", 10) || 50, 1), 200);
-    const { data, error } = await sb.from("Events").select("*").limit(limit);
-    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 200 });
+
+    const limit = Math.min(
+      Math.max(parseInt(url.searchParams.get("limit") || "50", 10) || 50, 1),
+      200
+    );
+
+    // Optional filter by event name, e.g. ?event=lead.imported
+    const eventFilter = url.searchParams.get("event");
+
+    let q = sb
+      .from("Events")
+      .select("*")
+      .order("ts", { ascending: false })
+      .limit(limit);
+
+    if (eventFilter) {
+      q = q.eq("event", eventFilter);
+    }
+
+    const { data, error } = await q;
+
+    if (error) {
+      return NextResponse.json({ ok: false, error: error.message }, { status: 200 });
+    }
+
     return NextResponse.json({ ok: true, count: data?.length || 0, rows: data || [] });
   } catch (e: any) {
     console.error("debug/events failure:", e);
