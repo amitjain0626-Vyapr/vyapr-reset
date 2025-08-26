@@ -1,7 +1,11 @@
-"use client";
+// components/leads/LeadsClientTable.tsx
 // @ts-nocheck
-import * as React from "react";
-import LeadActions from "@/components/leads/LeadActions";
+'use client';
+
+import * as React from 'react';
+import { useMemo, useState, useCallback } from 'react';
+import LeadActions from '@/components/leads/LeadActions';
+import { toast } from 'sonner';
 
 type Lead = {
   id: string;
@@ -9,221 +13,172 @@ type Lead = {
   phone?: string | null;
   note?: string | null;
   status?: string | null;
-  created_at?: string;
+  created_at?: string | null;
 };
 
-type ProviderLite = {
-  id: string;
-  slug: string;
-  display_name?: string | null;
-};
+type Provider = { id: string; slug: string; display_name?: string | null };
 
-function sanitizePhone(raw?: string | null) {
-  if (!raw) return "";
-  const digits = raw.replace(/\D/g, "");
-  if (digits.length === 10) return "91" + digits;
-  return digits;
-}
-
-function istDateTime(iso?: string) {
-  if (!iso) return "";
+async function logEvent(payload: {
+  event: 'wa.reminder.sent' | 'wa.rebook.sent';
+  provider_slug?: string;
+  provider_id?: string;
+  lead_id?: string;
+  source: any;
+  ts?: number;
+}) {
   try {
-    return new Intl.DateTimeFormat("en-IN", {
-      timeZone: "Asia/Kolkata",
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: true,
-    }).format(new Date(iso));
-  } catch {
-    return "";
-  }
-}
-
-function buildReminderMessage(providerName: string, lead: Lead) {
-  const when = istDateTime(lead.created_at);
-  const who = lead.patient_name?.trim() || "there";
-  return (
-    `Hi ${who}, this is ${providerName}.\n` +
-    `Reminder for your appointment/enquiry — ${when} (IST).\n` +
-    (lead.note ? `Note: ${lead.note}\n` : "") +
-    `Reply here and I’ll confirm your slot.`
-  );
-}
-
-function buildRebookMessage(providerName: string, lead: Lead) {
-  const who = lead.patient_name?.trim() || "there";
-  return (
-    `Hi ${who}, this is ${providerName}.\n` +
-    `Hope you’re doing well. Would you like to book a fresh slot this week?\n` +
-    `Reply YES and I’ll share available times.`
-  );
-}
-
-async function copy(text: string) {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function sendEvent(name: string, payload: any) {
-  try {
-    await fetch("/api/events/log", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, payload }),
+    await fetch('/api/events/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ts: Date.now(), ...payload }),
     });
-  } catch {}
+  } catch (e) {
+    console.warn('bulk events/log failed', e);
+  }
 }
+
+function buildReminderText(lead: Lead, provider: Provider) {
+  const name = (lead.patient_name || '').trim();
+  const prov = (provider.display_name || provider.slug || 'your provider').trim();
+  return `Hi${name ? ' ' + name : ''}, reminder for your booking with ${prov}. Reply YES to confirm or pick another time: https://vyapr.com/book/${provider.slug}`;
+}
+
+function buildRebookText(lead: Lead, provider: Provider) {
+  const name = (lead.patient_name || '').trim();
+  const prov = (provider.display_name || provider.slug || 'your provider').trim();
+  return `Hi${name ? ' ' + name : ''}, we missed you last time with ${prov}. Want to pick a slot this week? https://vyapr.com/book/${provider.slug}`;
+}
+
+const encode = (s: string) => encodeURIComponent(s);
 
 export default function LeadsClientTable({
-  leads,
+  rows,
   provider,
 }: {
-  leads: Lead[];
-  provider: ProviderLite;
+  rows: Lead[];
+  provider: Provider;
 }) {
-  const [selected, setSelected] = React.useState<Set<string>>(new Set());
-  const allSelected = selected.size === leads.length && leads.length > 0;
-  const toggleAll = () => {
-    if (allSelected) setSelected(new Set());
-    else setSelected(new Set(leads.map((l) => l.id)));
-  };
-  const toggleOne = (id: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const toggle = useCallback((id: string) => {
+    setSelected((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
     });
-  };
+  }, []);
 
-  const providerName = provider.display_name || provider.slug;
-  const envTest = (process.env.NEXT_PUBLIC_WA_TEST_NUMBER || "").trim();
+  const selectedLeads = useMemo(
+    () => rows.filter((r) => r.phone && selected.has(r.id)),
+    [rows, selected]
+  );
 
-  const selectedLeads = leads.filter((l) => selected.has(l.id));
-  const withPhones = selectedLeads.filter((l) => envTest || sanitizePhone(l.phone));
-  const withoutPhones = selectedLeads.length - withPhones.length;
-
-  async function doBulk(kind: "reminder" | "rebook", mode: "copy" | "open") {
-    if (selectedLeads.length === 0) return;
-
-    // Build all messages
-    const entries = selectedLeads.map((l) => {
-      const msg = kind === "reminder" ? buildReminderMessage(providerName, l) : buildRebookMessage(providerName, l);
-      const number = envTest || sanitizePhone(l.phone) || "";
-      return { lead: l, msg, number };
-    });
-
-    if (mode === "copy") {
-      const bundle = entries
-        .map((e, i) => {
-          const head = `#${i + 1} — ${e.lead.patient_name || "Unknown"} ${e.number ? `(+${e.number})` : "(no phone)"}`;
-          return head + "\n" + e.msg;
-        })
-        .join("\n\n-------------------------\n\n");
-      await copy(bundle);
-      alert(`Copied ${entries.length} messages${withoutPhones ? ` (${withoutPhones} without phone)` : ""}.`);
-    } else {
-      // Open chats for those with phone numbers; limit to 6 to avoid popup blockers
-      const toOpen = entries.filter((e) => e.number).slice(0, 6);
-      toOpen.forEach((e) => {
-        const url = "https://wa.me/" + e.number + "?text=" + encodeURIComponent(e.msg);
-        window.open(url, "_blank", "noopener,noreferrer");
-      });
-      if (entries.filter((e) => e.number).length > 6) {
-        alert("Opened first 6 chats (browser popup limit). Use Copy for larger batches.");
-      } else if (toOpen.length === 0) {
-        alert("No valid phone numbers to open. Use Copy instead.");
+  const doBulk = useCallback(
+    async (kind: 'reminder' | 'rebook', action: 'open' | 'copy') => {
+      if (selectedLeads.length === 0) {
+        toast.message('No leads selected', { duration: 1400 });
+        return;
       }
-    }
 
-    // Telemetry (best-effort)
-    await sendEvent(`wa.bulk.${kind}.${mode}`, {
-      provider_slug: provider.slug,
-      selected: selectedLeads.map((l) => l.id),
-      withPhones: withPhones.map((l) => l.id),
-      withoutPhones,
-      count: selectedLeads.length,
-    });
+      // hard cap: avoid popup blocks
+      const batch = selectedLeads.slice(0, 6);
+      let opened = 0;
+      let copied = 0;
 
-    // Also mark each single send for parity
-    await Promise.all(
-      withPhones.map((l) =>
-        sendEvent(kind === "reminder" ? "wa.reminder.sent" : "wa.rebook.sent", {
-          lead_id: l.id,
+      for (const lead of batch) {
+        const rawText =
+          kind === 'reminder'
+            ? buildReminderText(lead, provider)
+            : buildRebookText(lead, provider);
+
+        // always copy first for reliability in bulk mode
+        try {
+          await navigator.clipboard.writeText(rawText);
+          copied++;
+        } catch {}
+
+        const phone = (lead.phone || '').replace(/[^\d+]/g, '');
+        const url =
+          action === 'open'
+            ? `https://web.whatsapp.com/send?phone=${encode(phone)}&text=${encode(
+                rawText
+              )}`
+            : ''; // copy-only mode doesn’t open
+
+        if (action === 'open') {
+          const w = window.open(url, '_blank', 'noopener,noreferrer');
+          if (w) opened++;
+        }
+
+        // per-lead telemetry
+        logEvent({
+          event: kind === 'reminder' ? 'wa.reminder.sent' : 'wa.rebook.sent',
           provider_slug: provider.slug,
-          to: envTest || sanitizePhone(l.phone),
-          bulk: true,
-        })
-      )
-    );
-  }
+          provider_id: provider.id,
+          lead_id: lead.id,
+          source: { via: 'ui', bulk: true, to: batch.length, opened: action === 'open', copied: true },
+        });
+      }
+
+      toast.message(
+        action === 'open'
+          ? `Opened ${opened}/${batch.length}; messages copied.`
+          : `Copied ${copied}/${batch.length} messages.`,
+        { duration: 1800 }
+      );
+    },
+    [selectedLeads, provider]
+  );
 
   return (
     <div className="space-y-3">
-      {/* Bulk bar */}
-      {selectedLeads.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 p-2 border rounded bg-gray-50">
-          <span className="text-sm">
-            Selected: <b>{selectedLeads.length}</b>{" "}
-            {withoutPhones ? <span className="opacity-70">({withoutPhones} without phone)</span> : null}
-          </span>
-          <button
-            type="button"
-            className="px-3 py-1.5 border rounded text-sm"
-            onClick={() => doBulk("reminder", "open")}
-            title="Open WhatsApp chats for selected (up to 6)"
-          >
-            Open WA Reminders
-          </button>
-          <button
-            type="button"
-            className="px-3 py-1.5 border rounded text-sm"
-            onClick={() => doBulk("reminder", "copy")}
-            title="Copy all reminder messages"
-          >
-            Copy Reminders
-          </button>
-          <span className="mx-1 opacity-40">|</span>
-          <button
-            type="button"
-            className="px-3 py-1.5 border rounded text-sm"
-            onClick={() => doBulk("rebook", "open")}
-            title="Open WhatsApp chats for selected (up to 6)"
-          >
-            Open WA Rebooking
-          </button>
-          <button
-            type="button"
-            className="px-3 py-1.5 border rounded text-sm"
-            onClick={() => doBulk("rebook", "copy")}
-            title="Copy all rebooking messages"
-          >
-            Copy Rebooking
-          </button>
-        </div>
-      )}
+      {/* Bulk toolbar */}
+      <div className="flex items-center gap-2">
+        <button
+          className="px-2 py-1 rounded border hover:bg-gray-50"
+          onClick={() => doBulk('reminder', 'open')}
+          disabled={selectedLeads.length === 0}
+          title={selectedLeads.length === 0 ? 'Select rows first' : 'Open WhatsApp Web for selected'}
+        >
+          Bulk ▸ Open Reminders
+        </button>
+        <button
+          className="px-2 py-1 rounded border hover:bg-gray-50"
+          onClick={() => doBulk('rebook', 'open')}
+          disabled={selectedLeads.length === 0}
+          title={selectedLeads.length === 0 ? 'Select rows first' : 'Open WhatsApp Web for selected'}
+        >
+          Bulk ▸ Open Rebooking
+        </button>
+        <button
+          className="px-2 py-1 rounded border hover:bg-gray-50"
+          onClick={() => doBulk('reminder', 'copy')}
+          disabled={selectedLeads.length === 0}
+          title={selectedLeads.length === 0 ? 'Select rows first' : 'Copy messages only'}
+        >
+          Bulk ▸ Copy Reminders
+        </button>
+        <button
+          className="px-2 py-1 rounded border hover:bg-gray-50"
+          onClick={() => doBulk('rebook', 'copy')}
+          disabled={selectedLeads.length === 0}
+          title={selectedLeads.length === 0 ? 'Select rows first' : 'Copy messages only'}
+        >
+          Bulk ▸ Copy Rebooking
+        </button>
+        <span className="text-sm text-gray-500 ml-2">
+          Selected: {selectedLeads.length}
+        </span>
+      </div>
 
       {/* Table */}
-      <div className="overflow-x-auto rounded border">
+      <div className="rounded border overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-3 py-2">
-                <input
-                  aria-label="Select all"
-                  type="checkbox"
-                  checked={allSelected}
-                  onChange={toggleAll}
-                />
-              </th>
-              <th className="px-3 py-2 text-left">Lead</th>
+              <th className="px-3 py-2"></th>
+              <th className="px-3 py-2 text-left">Name</th>
               <th className="px-3 py-2 text-left">Phone</th>
               <th className="px-3 py-2 text-left">Status</th>
               <th className="px-3 py-2 text-left">Created</th>
@@ -231,41 +186,41 @@ export default function LeadsClientTable({
             </tr>
           </thead>
           <tbody>
-            {leads.map((l) => (
-              <tr key={l.id} className="border-t">
+            {rows.map((r) => (
+              <tr key={r.id} className="border-t">
                 <td className="px-3 py-2">
                   <input
-                    aria-label={`Select ${l.patient_name || l.id}`}
                     type="checkbox"
-                    checked={selected.has(l.id)}
-                    onChange={() => toggleOne(l.id)}
+                    checked={selected.has(r.id)}
+                    onChange={() => toggle(r.id)}
+                    disabled={!r.phone}
+                    title={!r.phone ? 'No phone on lead' : 'Select'}
                   />
                 </td>
-                <td className="px-3 py-2">
-                  <div className="font-medium">{l.patient_name || "Unknown"}</div>
-                  {l.note ? <div className="text-xs opacity-70">{l.note}</div> : null}
-                </td>
-                <td className="px-3 py-2">{l.phone || "-"}</td>
-                <td className="px-3 py-2">{l.status || "new"}</td>
-                <td className="px-3 py-2">
-                  {new Intl.DateTimeFormat("en-IN", {
-                    timeZone: "Asia/Kolkata",
-                    day: "2-digit",
-                    month: "short",
-                    year: "numeric",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                    hour12: true,
-                  }).format(new Date(l.created_at!))}
+                <td className="px-3 py-2">{r.patient_name || '-'}</td>
+                <td className="px-3 py-2">{r.phone || '-'}</td>
+                <td className="px-3 py-2">{r.status || 'new'}</td>
+                <td className="px-3 py-2 whitespace-nowrap">
+                  {r.created_at
+                    ? new Intl.DateTimeFormat('en-IN', {
+                        dateStyle: 'short',
+                        timeStyle: 'short',
+                        timeZone: 'Asia/Kolkata',
+                      }).format(new Date(r.created_at))
+                    : '-'}
                 </td>
                 <td className="px-3 py-2">
-                  <LeadActions
-                    lead={l}
-                    provider={provider}
-                  />
+                  <LeadActions lead={r} provider={provider} />
                 </td>
               </tr>
             ))}
+            {rows.length === 0 && (
+              <tr>
+                <td className="px-3 py-6 text-gray-500" colSpan={6}>
+                  No leads.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
