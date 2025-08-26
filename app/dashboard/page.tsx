@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import PaymentsTable from '@/components/payments/PaymentsTable';
+import QuickAddLead from '@/components/leads/QuickAddLead';
 
 export const dynamic = 'force-dynamic';
 
