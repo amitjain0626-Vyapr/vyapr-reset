@@ -1,71 +1,76 @@
 // components/leads/LeadsClientTable.tsx
 // @ts-nocheck
-'use client';
+"use client";
 
-import * as React from 'react';
-import { useMemo, useState, useCallback } from 'react';
-import LeadActions from '@/components/leads/LeadActions';
-import { toast } from 'sonner';
+import * as React from "react";
+import { useMemo, useState, useCallback } from "react";
+import LeadActions from "@/components/leads/LeadActions";
+import { toast } from "sonner";
+import LeadTimeline from "@/components/leads/LeadTimeline";
+import ToasterMount from "@/components/ui/ToasterMount";
 
 type Lead = {
   id: string;
   patient_name?: string | null;
   phone?: string | null;
   note?: string | null;
-  status?: string | null;
+  status?: "new" | "active" | "closed" | string | null;
   created_at?: string | null;
 };
 
-type Provider = { id: string; slug: string; display_name?: string | null };
+type Provider = {
+  id: string;
+  slug: string;
+  display_name?: string | null;
+};
 
-// --- safety helpers ---
-const safeArray = <T,>(v: T[] | undefined | null): T[] => (Array.isArray(v) ? v : []);
+function safeArray<T>(v: T[] | null | undefined): T[] {
+  return Array.isArray(v) ? v : [];
+}
 
-async function logEvent(payload: {
-  event: 'wa.reminder.sent' | 'wa.rebook.sent';
-  provider_slug?: string;
-  provider_id?: string;
-  lead_id?: string;
-  source: any;
+async function fireEvent(payload: {
+  event: string;
+  provider_id?: string | null;
+  lead_id?: string | null;
+  source?: any;
   ts?: number;
 }) {
   try {
-    await fetch('/api/events/log', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    await fetch("/api/events/log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ts: Date.now(), ...payload }),
     });
   } catch (e) {
-    console.warn('bulk events/log failed', e);
+    console.warn("events/log failed", e);
   }
 }
 
 function buildReminderText(lead: Lead, provider: Provider) {
-  const name = (lead.patient_name || '').trim();
-  const prov = (provider.display_name || provider.slug || 'your provider').trim();
-  return `Hi${name ? ' ' + name : ''}, reminder for your booking with ${prov}. Reply YES to confirm or pick another time: https://vyapr.com/book/${provider.slug}`;
+  const name = (lead.patient_name || "").trim();
+  const prov = (provider.display_name || provider.slug || "your provider").trim();
+  return `Hi${name ? " " + name : ""}, reminder for your booking with ${prov}. Reply YES to confirm or pick another time: https://vyapr.com/book/${provider.slug}`;
 }
 
 function buildRebookText(lead: Lead, provider: Provider) {
-  const name = (lead.patient_name || '').trim();
-  const prov = (provider.display_name || provider.slug || 'your provider').trim();
-  return `Hi${name ? ' ' + name : ''}, we missed you last time with ${prov}. Want to pick a slot this week? https://vyapr.com/book/${provider.slug}`;
+  const name = (lead.patient_name || "").trim();
+  const prov = (provider.display_name || provider.slug || "your provider").trim();
+  return `Hi${name ? " " + name : ""}, we missed you last time with ${prov}. Want to pick a slot this week? https://vyapr.com/book/${provider.slug}`;
 }
 
 const encode = (s: string) => encodeURIComponent(s);
+const STATUS_VALUES = ["new", "active", "closed"] as const;
 
 export default function LeadsClientTable({
   rows: rowsProp,
   provider,
 }: {
-  rows?: Lead[]; // make prop optional defensively
+  rows: Lead[];
   provider: Provider;
 }) {
-  // guard against undefined rows during first render/streaming
   const rows = safeArray(rowsProp);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
-
   const toggle = useCallback((id: string) => {
     setSelected((s) => {
       const n = new Set(s);
@@ -80,137 +85,188 @@ export default function LeadsClientTable({
     [rows, selected]
   );
 
+  // Status change state + API call
+  const [statusLocal, setStatusLocal] = useState<Record<string, string>>({});
+  const updateLeadStatus = useCallback(
+    async (leadId: string, to: (typeof STATUS_VALUES)[number]) => {
+      try {
+        const res = await fetch("/api/update-status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ lead_id: leadId, to }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok || !json?.ok) throw new Error(json?.error || "Update failed");
+        setStatusLocal((m) => ({ ...m, [leadId]: to }));
+        toast.success(`Status updated → ${to}`);
+        setHighlightIds((s) => new Set([...s, leadId]));
+setTimeout(() => {
+  setHighlightIds((s) => {
+    const n = new Set(s);
+    n.delete(leadId);
+    return n;
+  });
+}, 1500);
+      } catch (e: any) {
+        toast.error(e?.message || "Could not update status");
+      }
+    },
+    []
+  );
+
+  // Timeline drawer state
+  const [timelineOpen, setTimelineOpen] = useState(false);
+  const [timelineLeadId, setTimelineLeadId] = useState<string | null>(null);
+  const [highlightIds, setHighlightIds] = useState<Set<string>>(new Set());
+
+  // Bulk WA actions (unchanged)
   const doBulk = useCallback(
-    async (kind: 'reminder' | 'rebook', action: 'open' | 'copy') => {
+    async (kind: "reminder" | "rebook", action: "open" | "copy") => {
       if (selectedLeads.length === 0) {
-        toast.message('No leads selected', { duration: 1400 });
+        toast.message("No leads selected", { duration: 1400 });
         return;
       }
-
-      const batch = selectedLeads.slice(0, 6); // popup-safe cap
-      let opened = 0;
-      let copied = 0;
-
+      const batch = selectedLeads.slice(0, 6);
+      let opened = 0,
+        copied = 0;
       for (const lead of batch) {
-        const rawText =
-          kind === 'reminder'
+        const text =
+          kind === "reminder"
             ? buildReminderText(lead, provider)
             : buildRebookText(lead, provider);
-
-        try {
-          await navigator.clipboard.writeText(rawText);
-          copied++;
-        } catch {}
-
-        const phone = (lead.phone || '').replace(/[^\d+]/g, '');
-        const url =
-          action === 'open'
-            ? `https://web.whatsapp.com/send?phone=${encode(phone)}&text=${encode(rawText)}`
-            : '';
-
-        if (action === 'open') {
-          const w = window.open(url, '_blank', 'noopener,noreferrer');
-          if (w) opened++;
+        const phone = (lead.phone || "").replace(/^\+/, "");
+        const href = `https://wa.me/${encodeURIComponent(phone)}?text=${encode(text)}`;
+        if (action === "open") {
+          try {
+            window.open(href, "_blank", "noopener,noreferrer");
+            opened++;
+          } catch {}
+        } else {
+          try {
+            await navigator.clipboard.writeText(text);
+            copied++;
+          } catch {}
         }
-
-        // per-lead telemetry
-        logEvent({
-          event: kind === 'reminder' ? 'wa.reminder.sent' : 'wa.rebook.sent',
-          provider_slug: provider.slug,
-          provider_id: provider.id,
+        fireEvent({
+          event: kind === "reminder" ? "wa.reminder.sent" : "wa.rebook.sent",
           lead_id: lead.id,
-          source: { via: 'ui', bulk: true, to: batch.length, opened: action === 'open', copied: true },
+          source: { via: "ui", bulk: true, to: phone },
         });
       }
-
-      toast.message(
-        action === 'open'
-          ? `Opened ${opened}/${batch.length}; messages copied.`
-          : `Copied ${copied}/${batch.length} messages.`,
-        { duration: 1800 }
-      );
+      if (action === "open") toast.success(`Opened ${opened} ${kind} messages`);
+      else toast.success(`Copied ${copied} ${kind} messages`);
     },
-    [selectedLeads, provider]
+    [provider, selectedLeads]
   );
 
   return (
-    <div className="space-y-3">
+    <div className="w-full">
       {/* Bulk toolbar */}
-      <div className="flex items-center gap-2">
+      <div className="mb-3 flex items-center gap-2">
         <button
-          className="px-2 py-1 rounded border hover:bg-gray-50"
-          onClick={() => doBulk('reminder', 'open')}
+          className="px-2 py-1 rounded border"
+          onClick={() => doBulk("reminder", "open")}
           disabled={selectedLeads.length === 0}
-          title={selectedLeads.length === 0 ? 'Select rows first' : 'Open WhatsApp Web for selected'}
         >
           Bulk ▸ Open Reminders
         </button>
         <button
-          className="px-2 py-1 rounded border hover:bg-gray-50"
-          onClick={() => doBulk('rebook', 'open')}
+          className="px-2 py-1 rounded border"
+          onClick={() => doBulk("rebook", "open")}
           disabled={selectedLeads.length === 0}
-          title={selectedLeads.length === 0 ? 'Select rows first' : 'Open WhatsApp Web for selected'}
         >
           Bulk ▸ Open Rebooking
         </button>
         <button
-          className="px-2 py-1 rounded border hover:bg-gray-50"
-          onClick={() => doBulk('reminder', 'copy')}
+          className="px-2 py-1 rounded border"
+          onClick={() => doBulk("reminder", "copy")}
           disabled={selectedLeads.length === 0}
-          title={selectedLeads.length === 0 ? 'Select rows first' : 'Copy messages only'}
         >
           Bulk ▸ Copy Reminders
         </button>
         <button
-          className="px-2 py-1 rounded border hover:bg-gray-50"
-          onClick={() => doBulk('rebook', 'copy')}
+          className="px-2 py-1 rounded border"
+          onClick={() => doBulk("rebook", "copy")}
           disabled={selectedLeads.length === 0}
-          title={selectedLeads.length === 0 ? 'Select rows first' : 'Copy messages only'}
         >
           Bulk ▸ Copy Rebooking
         </button>
-        <span className="text-sm text-gray-500 ml-2">Selected: {selectedLeads.length}</span>
       </div>
 
       {/* Table */}
-      <div className="rounded border overflow-x-auto">
+      <div className="overflow-x-auto rounded-xl border bg-white">
         <table className="min-w-full text-sm">
-          <thead className="bg-gray-50">
+          <thead className="bg-gray-50 text-gray-600">
             <tr>
-              <th className="px-3 py-2"></th>
+              <th className="px-3 py-2 text-left">Select</th>
               <th className="px-3 py-2 text-left">Name</th>
               <th className="px-3 py-2 text-left">Phone</th>
               <th className="px-3 py-2 text-left">Status</th>
-              <th className="px-3 py-2 text-left">Created</th>
+              <th className="px-3 py-2 text-left whitespace-nowrap">Created (IST)</th>
               <th className="px-3 py-2 text-left">Actions</th>
             </tr>
           </thead>
           <tbody>
             {rows.length > 0 ? (
               rows.map((r) => (
-                <tr key={r.id} className="border-t">
+                <tr key={r.id} className={`border-t transition-colors ${highlightIds.has(r.id) ? "bg-emerald-50" : ""}`}>
                   <td className="px-3 py-2">
                     <input
                       type="checkbox"
+                      className="h-4 w-4"
                       checked={selected.has(r.id)}
                       onChange={() => toggle(r.id)}
                       disabled={!r?.phone}
-                      title={!r?.phone ? 'No phone on lead' : 'Select'}
                     />
                   </td>
-                  <td className="px-3 py-2">{r?.patient_name || '-'}</td>
-                  <td className="px-3 py-2">{r?.phone || '-'}</td>
-                  <td className="px-3 py-2">{r?.status || 'new'}</td>
+                  <td className="px-3 py-2">{r?.patient_name || "-"}</td>
+                  <td className="px-3 py-2">{r?.phone || "-"}</td>
+                  {/* Status (read-only display) */}
+                  <td className="px-3 py-2">
+                    {statusLocal[r.id] || r?.status || "new"}
+                  </td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     {r?.created_at
-                      ? new Intl.DateTimeFormat('en-IN', {
-                          dateStyle: 'short',
-                          timeStyle: 'short',
-                          timeZone: 'Asia/Kolkata',
+                      ? new Intl.DateTimeFormat("en-IN", {
+                          dateStyle: "short",
+                          timeStyle: "short",
+                          timeZone: "Asia/Kolkata",
                         }).format(new Date(r.created_at))
-                      : '-'}
+                      : "-"}
                   </td>
                   <td className="px-3 py-2">
+                    {/* NEW: View Timeline + Status dropdown */}
+                    <div className="mb-2 flex items-center gap-2">
+                      <button
+                        className="px-2 py-1 rounded border text-sm hover:bg-gray-50"
+                        onClick={() => {
+                          setTimelineLeadId(r.id);
+                          setTimelineOpen(true);
+                        }}
+                        title="View timeline"
+                      >
+                        View Timeline
+                      </button>
+                      <label className="text-xs text-gray-500">Status</label>
+                      <select
+                        className="px-2 py-1 rounded border text-sm"
+                        value={statusLocal[r.id] || r?.status || "new"}
+                        onChange={(e) =>
+                          updateLeadStatus(
+                            r.id,
+                            e.target.value as (typeof STATUS_VALUES)[number]
+                          )
+                        }
+                      >
+                        {STATUS_VALUES.map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Existing notes/WA actions component */}
                     <LeadActions lead={r} provider={provider} />
                   </td>
                 </tr>
@@ -225,6 +281,14 @@ export default function LeadsClientTable({
           </tbody>
         </table>
       </div>
+
+      {/* NEW: Lead Timeline drawer */}
+      <LeadTimeline
+        open={timelineOpen}
+        onClose={() => setTimelineOpen(false)}
+        leadId={timelineLeadId}
+      />
+      <ToasterMount />
     </div>
   );
 }
