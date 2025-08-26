@@ -82,7 +82,7 @@ export function LeadActions({ lead, provider, className }: Props) {
   const handleSend = useCallback(
     async (kind: 'reminder' | 'rebook') => {
       if (!lead?.phone) {
-        toast.info('No phone on this lead');
+        toast.message('No phone on lead', { duration: 1500 });
         return;
       }
 
@@ -104,16 +104,16 @@ export function LeadActions({ lead, provider, className }: Props) {
         if (mobile) {
           window.location.href = `https://wa.me/${phone}?text=${textParam}`;
           opened = true;
-          toast.success('Opening WhatsApp… Message copied as backup.');
+          toast.message('Opening WhatsApp…', { duration: 1200 });
         } else {
           const url = `https://web.whatsapp.com/send?phone=${encode(phone)}&text=${textParam}`;
           const win = window.open(url, '_blank', 'noopener,noreferrer');
           opened = !!win;
-          toast.success('Copied message. Opened WhatsApp Web (if available).');
+          // tiny, subtle copy
+          toast.message('Copied. Opening WhatsApp Web…', { duration: 1600 });
         }
-      } catch (e) {
-        console.warn('WA open failed', e);
-        toast.success(copied ? 'Copied message to clipboard.' : 'Tried to copy message.');
+      } catch {
+        toast.message(copied ? 'Copied.' : 'Tried to copy.', { duration: 1400 });
       }
 
       // Telemetry (non-blocking)
@@ -152,5 +152,4 @@ export function LeadActions({ lead, provider, className }: Props) {
   );
 }
 
-// ✅ Default export to satisfy files importing `import LeadActions from '@/components/leads/LeadActions'`
 export default LeadActions;
