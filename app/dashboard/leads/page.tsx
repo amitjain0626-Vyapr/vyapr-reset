@@ -156,42 +156,95 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
 
   return (
     <main className="p-6 space-y-6">
-      <h1 className="text-xl font-semibold">Leads</h1>
-      <div className="text-sm text-gray-600">Provider: <span className="font-mono">{provider.slug}</span></div>
+      {/* Header bar: title left, actions right */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold">Leads</h1>
+          <div className="text-sm text-gray-600">
+            Provider: <span className="font-mono">{provider.slug}</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* + Quick Add (popover) */}
+          <QuickAddLead slug={provider.slug} />
+
+          {/* Nudge Center with badge */}
+          <a
+            href={`/dashboard/nudges?slug=${provider.slug}`}
+            className="px-3 py-2 rounded border hover:bg-gray-50 inline-flex items-center gap-2"
+            title="Open Nudge Center"
+          >
+            Nudge Center
+            {nudgeCount > 0 && (
+              <span className="text-xs bg-black text-white rounded-full px-2 py-0.5">
+                {nudgeCount}
+              </span>
+            )}
+          </a>
+        </div>
+      </div>
 
       {/* ROI cards */}
       <div className="grid grid-cols-5 gap-3">
-        <div className="rounded-lg border p-4"><div className="text-xs text-gray-500">TODAY</div><div className="text-2xl font-bold">{fmtINR(roi.today)}</div></div>
-        <div className="rounded-lg border p-4"><div className="text-xs text-gray-500">7D</div><div className="text-2xl font-bold">{fmtINR(roi.d7)}</div></div>
-        <div className="rounded-lg border p-4"><div className="text-xs text-gray-500">30D</div><div className="text-2xl font-bold">{fmtINR(roi.d30)}</div></div>
-        <div className="rounded-lg border p-4"><div className="text-xs text-gray-500">MTD</div><div className="text-2xl font-bold">{fmtINR(roi.mtd)}</div><div className="text-xs text-gray-400">{deltaText} vs LMTD</div></div>
-        <div className="rounded-lg border p-4"><div className="text-xs text-gray-500">LMTD</div><div className="text-2xl font-bold">{fmtINR(roi.lmtd)}</div></div>
+        <div className="rounded-lg border p-4">
+          <div className="text-xs text-gray-500">TODAY</div>
+          <div className="text-2xl font-bold">{fmtINR(roi.today)}</div>
+          <div className="text-xs text-gray-400">Since midnight IST</div>
+        </div>
+        <div className="rounded-lg border p-4">
+          <div className="text-xs text-gray-500">7D</div>
+          <div className="text-2xl font-bold">{fmtINR(roi.d7)}</div>
+          <div className="text-xs text-gray-400">Last 7 days (rolling)</div>
+        </div>
+        <div className="rounded-lg border p-4">
+          <div className="text-xs text-gray-500">30D</div>
+          <div className="text-2xl font-bold">{fmtINR(roi.d30)}</div>
+          <div className="text-xs text-gray-400">Last 30 days (rolling)</div>
+        </div>
+        <div className="rounded-lg border p-4">
+          <div className="text-xs text-gray-500">MTD</div>
+          <div className="text-2xl font-bold">{fmtINR(roi.mtd)}</div>
+          <div className="text-xs text-gray-400">{deltaText} vs LMTD</div>
+        </div>
+        <div className="rounded-lg border p-4">
+          <div className="text-xs text-gray-500">LMTD</div>
+          <div className="text-2xl font-bold">{fmtINR(roi.lmtd)}</div>
+          <div className="text-xs text-gray-400">Last month to date</div>
+        </div>
       </div>
-
-      {/* Actions */}
-      <div className="flex items-center gap-2">
-        <a href={`/dashboard/nudges?slug=${provider.slug}`} className="px-3 py-2 rounded border hover:bg-gray-50 inline-flex items-center gap-2">Nudge Center
-          {nudgeCount > 0 && <span className="text-xs bg-black text-white rounded-full px-2 py-0.5">{nudgeCount}</span>}
-        </a>
-      </div>
-
-      {/* Inline Quick Add */}
-      <QuickAddLead slug={provider.slug} />
 
       {/* Filters + Export CSV */}
       <form method="GET" action="/dashboard/leads" className="flex flex-wrap items-center gap-2">
         <input type="hidden" name="slug" value={provider.slug} />
-        <input name="q" defaultValue={q || ''} placeholder="Search name, phone…" className="px-3 py-2 rounded border min-w-[260px]" />
+        <input
+          name="q"
+          defaultValue={q || ''}
+          placeholder="Search name, phone…"
+          className="px-3 py-2 rounded border min-w-[260px]"
+        />
         <select name="status" defaultValue={status || 'all'} className="px-3 py-2 rounded border">
-          <option value="all">All Statuses</option><option value="new">new</option><option value="active">active</option><option value="closed">closed</option>
+          <option value="all">All Statuses</option>
+          <option value="new">new</option>
+          <option value="active">active</option>
+          <option value="closed">closed</option>
         </select>
         <select name="sort" defaultValue={sort || 'newest'} className="px-3 py-2 rounded border">
-          <option value="newest">Sort: Newest</option><option value="oldest">Sort: Oldest</option>
+          <option value="newest">Sort: Newest</option>
+          <option value="oldest">Sort: Oldest</option>
         </select>
         <button type="submit" className="px-3 py-2 rounded border hover:bg-gray-50">Apply</button>
-        <a className="ml-auto px-3 py-2 rounded border hover:bg-gray-50"
-           href={`/api/leads/export?slug=${provider.slug}&q=${encodeURIComponent(q || '')}&status=${encodeURIComponent(status || 'all')}&sort=${encodeURIComponent(sort || 'newest')}`}
-           target="_blank" rel="noopener noreferrer">Export CSV</a>
+
+        <a
+          className="ml-auto px-3 py-2 rounded border hover:bg-gray-50"
+          href={`/api/leads/export?slug=${provider.slug}&q=${encodeURIComponent(q || '')}&status=${encodeURIComponent(
+            status || 'all'
+          )}&sort=${encodeURIComponent(sort || 'newest')}`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Export CSV
+        </a>
       </form>
 
       {/* Leads Table */}
