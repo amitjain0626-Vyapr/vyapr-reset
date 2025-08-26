@@ -1,88 +1,93 @@
+// app/api/leads/export/route.ts
 // @ts-nocheck
-import { NextResponse } from "next/server";
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+import { NextRequest, NextResponse } from 'next/server';
+export const runtime = 'nodejs';
 
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createClient } from '@supabase/supabase-js';
 
-function csvesc(v: any) {
-  if (v === null || v === undefined) return "";
-  const s = String(v);
-  if (s.includes(",") || s.includes("\n") || s.includes(`"`)) {
-    return `"${s.replace(/"/g, '""')}"`;
-  }
-  return s;
+function admin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  return createClient(url, key, { auth: { persistSession: false } });
 }
 
-export async function GET(req: Request) {
+type Lead = { id: string; patient_name?: string | null; phone?: string | null; status?: string | null; created_at?: string | null };
+
+function applyFilters(rows: Lead[], q?: string, status?: string, sort?: string): Lead[] {
+  let out = Array.isArray(rows) ? [...rows] : [];
+  const qq = (q || '').trim().toLowerCase();
+  if (qq) {
+    out = out.filter(r =>
+      (r.patient_name || '').toLowerCase().includes(qq) ||
+      (r.phone || '').toLowerCase().includes(qq)
+    );
+  }
+  if (status && status !== 'all') {
+    out = out.filter(r => (r.status || 'new') === status);
+  }
+  if (sort === 'oldest') {
+    out.sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+  } else {
+    out.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+  }
+  return out;
+}
+
+function toCsv(rows: Lead[]) {
+  const header = ['id', 'patient_name', 'phone', 'status', 'created_at'];
+  const esc = (v: any) => {
+    if (v == null) return '';
+    const s = String(v).replace(/"/g, '""');
+    return /[,"\n]/.test(s) ? `"${s}"` : s;
+  };
+  const lines = [header.join(',')];
+  for (const r of rows) {
+    lines.push([
+      esc(r.id),
+      esc(r.patient_name || ''),
+      esc(r.phone || ''),
+      esc(r.status || ''),
+      esc(r.created_at || ''),
+    ].join(','));
+  }
+  return lines.join('\n');
+}
+
+export async function GET(req: NextRequest) {
   try {
-    const url = new URL(req.url);
-    const slug = String(url.searchParams.get("slug") || "").trim();
-    const q = String(url.searchParams.get("q") || "").trim();
-    const status = String(url.searchParams.get("status") || "all").toLowerCase();
-    const sort = String(url.searchParams.get("sort") || "newest").toLowerCase();
+    const { searchParams } = new URL(req.url);
+    const slug = (searchParams.get('slug') || '').trim();
+    const q = searchParams.get('q') || '';
+    const status = searchParams.get('status') || 'all';
+    const sort = searchParams.get('sort') || 'newest';
 
-    const supabase = await createSupabaseServerClient();
+    if (!slug) {
+      return NextResponse.json({ ok: false, error: 'missing_slug' }, { status: 400 });
+    }
 
-    // Require login
-    const { data: auth } = await supabase.auth.getUser();
-    const user = auth?.user;
-    if (!user) return NextResponse.json({ ok: false, error: "not_authenticated" }, { status: 401 });
+    const sb = admin();
+    const { data: prov } = await sb.from('Providers').select('id,slug').eq('slug', slug).single();
+    if (!prov?.id) return NextResponse.json({ ok: false, error: 'provider_not_found' }, { status: 404 });
 
-    if (!slug) return NextResponse.json({ ok: false, error: "missing slug" }, { status: 400 });
+    const { data: rows = [] } = await sb
+      .from('Leads')
+      .select('id, patient_name, phone, status, created_at')
+      .eq('provider_id', prov.id)
+      .order('created_at', { ascending: false })
+      .limit(500);
 
-    // Ownership check
-    const { data: provider } = await supabase
-      .from("Providers")
-      .select("id, slug, owner_id")
-      .eq("slug", slug)
-      .eq("owner_id", user.id)
-      .maybeSingle();
-
-    if (!provider) return NextResponse.json({ ok: false, error: "not_owner_or_not_found" }, { status: 403 });
-
-    // Fetch leads under RLS
-    let sel = supabase
-      .from("Leads")
-      .select("id, patient_name, phone, note, status, created_at")
-      .eq("provider_id", provider.id)
-      .order("created_at", { ascending: sort === "oldest" })
-      .limit(5000);
-
-    if (status && status !== "all") sel = sel.eq("status", status);
-    if (q) sel = sel.or(`patient_name.ilike.%${q}%,phone.ilike.%${q}%,note.ilike.%${q}%`);
-
-    const { data: leads, error: lErr } = await sel;
-    if (lErr) throw lErr;
-
-    const rows = [
-      ["id", "patient_name", "phone", "status", "note", "created_at"],
-      ...(leads || []).map((l) => [
-        l.id,
-        l.patient_name ?? "",
-        l.phone ?? "",
-        l.status ?? "",
-        l.note ?? "",
-        l.created_at ?? "",
-      ]),
-    ];
-
-    const csv = rows.map((r) => r.map(csvesc).join(",")).join("\n");
-    const fileName = `leads_${provider.slug}_${new Date()
-      .toISOString()
-      .slice(0, 19)
-      .replace(/[:T]/g, "-")}.csv`;
+    const filtered = applyFilters(rows, q, status, sort);
+    const csv = toCsv(filtered);
 
     return new NextResponse(csv, {
       status: 200,
       headers: {
-        "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="${fileName}"`,
-        "Cache-Control": "no-store",
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="leads_${slug}.csv"`,
+        'Cache-Control': 'no-store',
       },
     });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
+  } catch (e) {
+    return NextResponse.json({ ok: false, error: 'bad_request' }, { status: 400 });
   }
 }
