@@ -1,10 +1,10 @@
 // app/dashboard/events/page.tsx
 // @ts-nocheck
-import { cookies } from 'next/headers';
+// Next.js 15: searchParams is a Promise → await it.
+export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { createClient } from '@supabase/supabase-js';
-export const runtime = 'nodejs';
 
 function admin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -18,16 +18,30 @@ async function fetchData(slug?: string | null) {
   // resolve provider_id from slug (optional)
   let providerId: string | null = null;
   if (slug) {
-    const { data: prov } = await sb.from('Providers').select('id').eq('slug', slug).single();
+    const { data: prov } = await sb
+      .from('Providers')
+      .select('id')
+      .eq('slug', slug)
+      .single();
     providerId = prov?.id ?? null;
   }
 
-  // today’s counts for wa.* events
-  let q = sb
+  // today window (IST)
+  const now = new Date();
+  const start = new Date(
+    now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })
+  );
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(
+    now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })
+  );
+  end.setHours(23, 59, 59, 999);
+
+  let q = admin()
     .from('Events')
     .select('event, ts, lead_id, source')
-    .gte('ts', Math.floor(new Date(new Date().setHours(0, 0, 0, 0)).getTime()))
-    .lte('ts', Math.floor(new Date(new Date().setHours(23, 59, 59, 999)).getTime()))
+    .gte('ts', start.getTime())
+    .lte('ts', end.getTime())
     .order('ts', { ascending: false })
     .limit(50);
 
@@ -35,20 +49,26 @@ async function fetchData(slug?: string | null) {
 
   const { data: rows = [] } = await q;
 
-  const countReminder = rows.filter(r => r.event === 'wa.reminder.sent').length;
-  const countRebook = rows.filter(r => r.event === 'wa.rebook.sent').length;
-  const countSuggested = rows.filter(r => r.event === 'nudge.suggested').length;
+  const countReminder = rows.filter((r) => r.event === 'wa.reminder.sent').length;
+  const countRebook = rows.filter((r) => r.event === 'wa.rebook.sent').length;
+  const countSuggested = rows.filter((r) => r.event === 'nudge.suggested').length;
 
-  return { rows, countReminder, countRebook, countSuggested, providerId };
+  return { rows, countReminder, countRebook, countSuggested };
 }
 
-export default async function Page({ searchParams }: { searchParams: { slug?: string } }) {
-  const slug = searchParams?.slug ?? null;
-  const { rows, countReminder, countRebook, countSuggested } = await fetchData(slug);
+export default async function Page(props: {
+  searchParams: Promise<{ slug?: string }>;
+}) {
+  const { slug } = await props.searchParams;
+
+  const { rows, countReminder, countRebook, countSuggested } =
+    await fetchData(slug ?? null);
 
   return (
     <main className="p-6 space-y-6">
-      <h1 className="text-xl font-semibold">Events Inspector {slug ? `— ${slug}` : ''}</h1>
+      <h1 className="text-xl font-semibold">
+        Events Inspector {slug ? `— ${slug}` : ''}
+      </h1>
 
       <div className="grid grid-cols-3 gap-4">
         <div className="rounded-lg border p-4">
@@ -79,19 +99,20 @@ export default async function Page({ searchParams }: { searchParams: { slug?: st
             </thead>
             <tbody>
               {rows.map((r, i) => {
-                const d = new Date(r.ts);
                 const ist = new Intl.DateTimeFormat('en-IN', {
                   dateStyle: 'short',
                   timeStyle: 'medium',
                   timeZone: 'Asia/Kolkata',
-                }).format(d);
+                }).format(new Date(r.ts));
                 return (
                   <tr key={i} className="border-t">
                     <td className="px-3 py-2 whitespace-nowrap">{ist}</td>
                     <td className="px-3 py-2">{r.event}</td>
                     <td className="px-3 py-2">{r.lead_id ?? '-'}</td>
                     <td className="px-3 py-2">
-                      <pre className="text-xs whitespace-pre-wrap">{JSON.stringify(r.source ?? {}, null, 0)}</pre>
+                      <pre className="text-xs whitespace-pre-wrap">
+                        {JSON.stringify(r.source ?? {}, null, 0)}
+                      </pre>
                     </td>
                   </tr>
                 );
