@@ -18,6 +18,9 @@ type Lead = {
 
 type Provider = { id: string; slug: string; display_name?: string | null };
 
+// --- safety helpers ---
+const safeArray = <T,>(v: T[] | undefined | null): T[] => (Array.isArray(v) ? v : []);
+
 async function logEvent(payload: {
   event: 'wa.reminder.sent' | 'wa.rebook.sent';
   provider_slug?: string;
@@ -52,12 +55,15 @@ function buildRebookText(lead: Lead, provider: Provider) {
 const encode = (s: string) => encodeURIComponent(s);
 
 export default function LeadsClientTable({
-  rows,
+  rows: rowsProp,
   provider,
 }: {
-  rows: Lead[];
+  rows?: Lead[]; // make prop optional defensively
   provider: Provider;
 }) {
+  // guard against undefined rows during first render/streaming
+  const rows = safeArray(rowsProp);
+
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const toggle = useCallback((id: string) => {
@@ -70,7 +76,7 @@ export default function LeadsClientTable({
   }, []);
 
   const selectedLeads = useMemo(
-    () => rows.filter((r) => r.phone && selected.has(r.id)),
+    () => rows.filter((r) => r?.phone && selected.has(r.id)),
     [rows, selected]
   );
 
@@ -81,8 +87,7 @@ export default function LeadsClientTable({
         return;
       }
 
-      // hard cap: avoid popup blocks
-      const batch = selectedLeads.slice(0, 6);
+      const batch = selectedLeads.slice(0, 6); // popup-safe cap
       let opened = 0;
       let copied = 0;
 
@@ -92,7 +97,6 @@ export default function LeadsClientTable({
             ? buildReminderText(lead, provider)
             : buildRebookText(lead, provider);
 
-        // always copy first for reliability in bulk mode
         try {
           await navigator.clipboard.writeText(rawText);
           copied++;
@@ -101,10 +105,8 @@ export default function LeadsClientTable({
         const phone = (lead.phone || '').replace(/[^\d+]/g, '');
         const url =
           action === 'open'
-            ? `https://web.whatsapp.com/send?phone=${encode(phone)}&text=${encode(
-                rawText
-              )}`
-            : ''; // copy-only mode doesn’t open
+            ? `https://web.whatsapp.com/send?phone=${encode(phone)}&text=${encode(rawText)}`
+            : '';
 
         if (action === 'open') {
           const w = window.open(url, '_blank', 'noopener,noreferrer');
@@ -167,9 +169,7 @@ export default function LeadsClientTable({
         >
           Bulk ▸ Copy Rebooking
         </button>
-        <span className="text-sm text-gray-500 ml-2">
-          Selected: {selectedLeads.length}
-        </span>
+        <span className="text-sm text-gray-500 ml-2">Selected: {selectedLeads.length}</span>
       </div>
 
       {/* Table */}
@@ -186,35 +186,36 @@ export default function LeadsClientTable({
             </tr>
           </thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.id} className="border-t">
-                <td className="px-3 py-2">
-                  <input
-                    type="checkbox"
-                    checked={selected.has(r.id)}
-                    onChange={() => toggle(r.id)}
-                    disabled={!r.phone}
-                    title={!r.phone ? 'No phone on lead' : 'Select'}
-                  />
-                </td>
-                <td className="px-3 py-2">{r.patient_name || '-'}</td>
-                <td className="px-3 py-2">{r.phone || '-'}</td>
-                <td className="px-3 py-2">{r.status || 'new'}</td>
-                <td className="px-3 py-2 whitespace-nowrap">
-                  {r.created_at
-                    ? new Intl.DateTimeFormat('en-IN', {
-                        dateStyle: 'short',
-                        timeStyle: 'short',
-                        timeZone: 'Asia/Kolkata',
-                      }).format(new Date(r.created_at))
-                    : '-'}
-                </td>
-                <td className="px-3 py-2">
-                  <LeadActions lead={r} provider={provider} />
-                </td>
-              </tr>
-            ))}
-            {rows.length === 0 && (
+            {rows.length > 0 ? (
+              rows.map((r) => (
+                <tr key={r.id} className="border-t">
+                  <td className="px-3 py-2">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(r.id)}
+                      onChange={() => toggle(r.id)}
+                      disabled={!r?.phone}
+                      title={!r?.phone ? 'No phone on lead' : 'Select'}
+                    />
+                  </td>
+                  <td className="px-3 py-2">{r?.patient_name || '-'}</td>
+                  <td className="px-3 py-2">{r?.phone || '-'}</td>
+                  <td className="px-3 py-2">{r?.status || 'new'}</td>
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    {r?.created_at
+                      ? new Intl.DateTimeFormat('en-IN', {
+                          dateStyle: 'short',
+                          timeStyle: 'short',
+                          timeZone: 'Asia/Kolkata',
+                        }).format(new Date(r.created_at))
+                      : '-'}
+                  </td>
+                  <td className="px-3 py-2">
+                    <LeadActions lead={r} provider={provider} />
+                  </td>
+                </tr>
+              ))
+            ) : (
               <tr>
                 <td className="px-3 py-6 text-gray-500" colSpan={6}>
                   No leads.
