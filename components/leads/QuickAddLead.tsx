@@ -6,12 +6,14 @@ import { useRouter } from "next/navigation";
 function sanitizePhone(raw?: string) {
   const s = (raw || "").trim();
   if (!s) return "";
-  const digits = s.replace(/\D/g, "");
+  const digits = s.replace(/[^\d]/g, ""); // keep digits only; we'll add +
   if (!digits) return "";
-  if (digits.length === 10) return "+91" + digits;
-  if (digits.startsWith("91")) return "+" + digits;
+  if (digits.length === 10) return "+91" + digits;               // 98765.....
+  if (digits.startsWith("91") && digits.length === 12) return "+" + digits; // 91XXXXXXXXXX
   if (digits.startsWith("0") && digits.length === 11) return "+91" + digits.slice(1);
-  return (digits.startsWith("+") ? "" : "+") + digits;
+  // If user typed with + already (e.g., +9198...), preserve it
+  if (raw!.startsWith("+") && digits.length >= 10) return "+" + digits.replace(/^0+/, "");
+  return "+" + digits;
 }
 
 export default function QuickAddLead({ slug }: { slug: string }) {
@@ -32,14 +34,20 @@ export default function QuickAddLead({ slug }: { slug: string }) {
     setOk(null);
   };
 
-  const submit = async () => {
+  async function submit() {
     setErr(null);
     setOk(null);
-    if (!name.trim()) {
-      setErr("Please enter the patient's name.");
+
+    const phoneNorm = sanitizePhone(phone);
+    if (!phoneNorm) {
+      setErr("Please enter a valid phone number.");
       return;
     }
-    const phoneNorm = sanitizePhone(phone);
+    if (!slug) {
+      setErr("Missing provider slug.");
+      return;
+    }
+
     setLoading(true);
     try {
       const res = await fetch("/api/leads/create", {
@@ -47,27 +55,36 @@ export default function QuickAddLead({ slug }: { slug: string }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           slug,
-          patient_name: name.trim(),
-          phone: phoneNorm || null,
-          note: note?.trim() || null,
-          source: { utm: { source: "dashboard", medium: "quick-add" } },
+          patient_name: name?.trim() || "",
+          phone: phoneNorm,
+          note: note?.trim() || "",
+          source: { via: "ui", utm: { source: "dashboard", medium: "quick-add" } },
         }),
       });
-      const data = await res.json().catch(() => ({}));
+
+      let data: any = {};
+      try { data = await res.json(); } catch {}
+
+      // Debug visibility in case of failure
+      console.log("QuickAddLead POST /api/leads/create =>", res.status, data);
+
       if (!res.ok || !data?.ok) {
-        throw new Error(data?.error || "lead_create_failed");
+        setErr(data?.error || `Failed (${res.status}).`);
+        return;
       }
+
       setOk("Lead added.");
       reset();
       setOpen(false);
       // Refresh server-rendered list
       router.refresh();
     } catch (e: any) {
-      setErr(String(e?.message || e) || "Failed to add lead.");
+      console.error("QuickAddLead error:", e);
+      setErr("Network error. Please try again.");
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   return (
     <div className="relative">
@@ -80,10 +97,10 @@ export default function QuickAddLead({ slug }: { slug: string }) {
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-[320px] rounded-xl border bg-white shadow p-3 z-10">
+        <div className="absolute right-0 mt-2 w-[320px] rounded-xl border bg-white shadow p-3 z-50">
           <div className="text-sm font-medium mb-2">Add lead</div>
 
-          <label className="block text-xs mb-1">Patient name *</label>
+          <label className="block text-xs mb-1">Patient name</label>
           <input
             className="w-full border rounded px-2 py-1.5 mb-2 text-sm"
             placeholder="e.g., Riya Sharma"
@@ -91,7 +108,7 @@ export default function QuickAddLead({ slug }: { slug: string }) {
             onChange={(e) => setName(e.target.value)}
           />
 
-          <label className="block text-xs mb-1">Phone (India)</label>
+          <label className="block text-xs mb-1">Phone (India) *</label>
           <input
             className="w-full border rounded px-2 py-1.5 mb-2 text-sm"
             placeholder="e.g., 98XXXXXXXX"
@@ -115,10 +132,7 @@ export default function QuickAddLead({ slug }: { slug: string }) {
             <button
               type="button"
               className="px-3 py-1.5 text-sm border rounded"
-              onClick={() => {
-                reset();
-                setOpen(false);
-              }}
+              onClick={() => { reset(); setOpen(false); }}
               disabled={loading}
             >
               Cancel
