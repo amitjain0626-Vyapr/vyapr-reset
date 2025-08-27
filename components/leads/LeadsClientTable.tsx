@@ -8,6 +8,7 @@ import LeadActions from "@/components/leads/LeadActions";
 import { toast } from "sonner";
 import LeadTimeline from "@/components/leads/LeadTimeline";
 import ToasterMount from "@/components/ui/ToasterMount";
+import { waReminder, waRebook } from "@/lib/wa/templates";
 
 type Lead = {
   id: string;
@@ -49,13 +50,13 @@ async function fireEvent(payload: {
 function buildReminderText(lead: Lead, provider: Provider) {
   const name = (lead.patient_name || "").trim();
   const prov = (provider.display_name || provider.slug || "your provider").trim();
-  return `Hi${name ? " " + name : ""}, reminder for your booking with ${prov}. Reply YES to confirm or pick another time: https://vyapr.com/book/${provider.slug}`;
+  return waReminder({ name, provider: prov, slug: provider.slug, leadId: lead.id });
 }
 
 function buildRebookText(lead: Lead, provider: Provider) {
   const name = (lead.patient_name || "").trim();
   const prov = (provider.display_name || provider.slug || "your provider").trim();
-  return `Hi${name ? " " + name : ""}, we missed you last time with ${prov}. Want to pick a slot this week? https://vyapr.com/book/${provider.slug}`;
+  return waRebook({ name, provider: prov, slug: provider.slug, leadId: lead.id });
 }
 
 const encode = (s: string) => encodeURIComponent(s);
@@ -100,13 +101,13 @@ export default function LeadsClientTable({
         setStatusLocal((m) => ({ ...m, [leadId]: to }));
         toast.success(`Status updated → ${to}`);
         setHighlightIds((s) => new Set([...s, leadId]));
-setTimeout(() => {
-  setHighlightIds((s) => {
-    const n = new Set(s);
-    n.delete(leadId);
-    return n;
-  });
-}, 1500);
+        setTimeout(() => {
+          setHighlightIds((s) => {
+            const n = new Set(s);
+            n.delete(leadId);
+            return n;
+          });
+        }, 1500);
       } catch (e: any) {
         toast.error(e?.message || "Could not update status");
       }
@@ -119,7 +120,7 @@ setTimeout(() => {
   const [timelineLeadId, setTimelineLeadId] = useState<string | null>(null);
   const [highlightIds, setHighlightIds] = useState<Set<string>>(new Set());
 
-  // Bulk WA actions (unchanged)
+  // Bulk WA actions
   const doBulk = useCallback(
     async (kind: "reminder" | "rebook", action: "open" | "copy") => {
       if (selectedLeads.length === 0) {
@@ -209,7 +210,12 @@ setTimeout(() => {
           <tbody>
             {rows.length > 0 ? (
               rows.map((r) => (
-                <tr key={r.id} className={`border-t transition-colors ${highlightIds.has(r.id) ? "bg-emerald-50" : ""}`}>
+                <tr
+                  key={r.id}
+                  className={`border-t transition-colors ${
+                    highlightIds.has(r.id) ? "bg-emerald-50" : ""
+                  }`}
+                >
                   <td className="px-3 py-2">
                     <input
                       type="checkbox"
@@ -235,7 +241,7 @@ setTimeout(() => {
                       : "-"}
                   </td>
                   <td className="px-3 py-2">
-                    {/* NEW: View Timeline + Status dropdown */}
+                    {/* Timeline + Status dropdown */}
                     <div className="mb-2 flex items-center gap-2">
                       <button
                         className="px-2 py-1 rounded border text-sm hover:bg-gray-50"
@@ -243,9 +249,9 @@ setTimeout(() => {
                           setTimelineLeadId(r.id);
                           setTimelineOpen(true);
                         }}
-                        title="View timeline"
+                        title="Timeline"
                       >
-                        View Timeline
+                        🕒 Timeline
                       </button>
                       <label className="text-xs text-gray-500">Status</label>
                       <select
@@ -267,7 +273,11 @@ setTimeout(() => {
                     </div>
 
                     {/* Existing notes/WA actions component */}
-                    <LeadActions lead={r} provider={provider} />
+                    <LeadActions
+                      className="flex items-center gap-2"
+                      lead={r}
+                      provider={provider}
+                    />
                   </td>
                 </tr>
               ))
@@ -282,7 +292,7 @@ setTimeout(() => {
         </table>
       </div>
 
-      {/* NEW: Lead Timeline drawer */}
+      {/* Lead Timeline drawer */}
       <LeadTimeline
         open={timelineOpen}
         onClose={() => setTimelineOpen(false)}
