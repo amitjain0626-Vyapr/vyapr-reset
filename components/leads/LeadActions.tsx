@@ -5,6 +5,7 @@
 import * as React from 'react';
 import { useCallback } from 'react';
 import { toast } from 'sonner';
+import { waReminder, waRebook, waBookingLink } from '@/lib/wa/templates';
 
 type Lead = { id: string; patient_name?: string | null; phone?: string | null };
 type Provider = { slug: string; id?: string; display_name?: string | null };
@@ -67,21 +68,26 @@ async function logEvent(payload: {
 function buildReminderText(lead: Lead, provider: Provider) {
   const name = (lead.patient_name || '').trim();
   const prov = (provider.display_name || provider.slug || 'your provider').trim();
-  return `Hi${name ? ' ' + name : ''}, reminder for your booking with ${prov}. Reply YES to confirm or pick another time: https://vyapr.com/book/${provider.slug}`;
+  // ✅ use UTM-tagged templates with leadId for attribution
+  return waReminder({ name, provider: prov, slug: provider.slug, leadId: lead.id });
 }
 
 function buildRebookText(lead: Lead, provider: Provider) {
   const name = (lead.patient_name || '').trim();
   const prov = (provider.display_name || provider.slug || 'your provider').trim();
-  return `Hi${name ? ' ' + name : ''}, we missed you last time with ${prov}. Want to pick a slot this week? https://vyapr.com/book/${provider.slug}`;
+  // ✅ use UTM-tagged templates with leadId for attribution
+  return waRebook({ name, provider: prov, slug: provider.slug, leadId: lead.id });
 }
 
 export function LeadActions({ lead, provider, className }: Props) {
-  const disabled = !lead?.phone;
+  const hasPhone = !!(lead?.phone && String(lead.phone).trim());
+  const disabledCls = hasPhone ? 'hover:bg-gray-50' : 'opacity-50 cursor-not-allowed';
+  const reminderTitle = hasPhone ? '💬 Send WhatsApp reminder' : 'No phone on lead';
+  const rebookTitle = hasPhone ? '↩️ Send WhatsApp rebooking' : 'No phone on lead';
 
   const handleSend = useCallback(
     async (kind: 'reminder' | 'rebook') => {
-      if (!lead?.phone) {
+      if (!hasPhone) {
         toast.message('No phone on lead', { duration: 1500 });
         return;
       }
@@ -94,7 +100,7 @@ export function LeadActions({ lead, provider, className }: Props) {
       // Always copy first (fallback)
       const copied = await copyToClipboard(rawText);
 
-      const phone = lead.phone.replace(/[^\d+]/g, ''); // keep + and digits
+      const phone = (lead.phone || '').replace(/[^\d+]/g, ''); // keep + and digits
       const textParam = encode(rawText);
 
       const mobile = isMobile();
@@ -109,7 +115,6 @@ export function LeadActions({ lead, provider, className }: Props) {
           const url = `https://web.whatsapp.com/send?phone=${encode(phone)}&text=${textParam}`;
           const win = window.open(url, '_blank', 'noopener,noreferrer');
           opened = !!win;
-          // tiny, subtle copy
           toast.message('Copied. Opening WhatsApp Web…', { duration: 1600 });
         }
       } catch {
@@ -122,10 +127,10 @@ export function LeadActions({ lead, provider, className }: Props) {
         provider_slug: provider.slug,
         provider_id: provider.id,
         lead_id: lead.id,
-        source: { via: 'ui', bulk: false, to: 1, opened, copied },
+        source: { via: 'ui', bulk: false, to: phone, opened, copied },
       });
     },
-    [lead, provider]
+    [hasPhone, lead, provider]
   );
 
   return (
@@ -133,21 +138,33 @@ export function LeadActions({ lead, provider, className }: Props) {
       <button
         type="button"
         onClick={() => handleSend('reminder')}
-        disabled={disabled}
-        title={disabled ? 'No phone on lead' : 'Send WhatsApp Reminder'}
-        className={`px-2 py-1 rounded border ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}`}
+        disabled={!hasPhone}
+        title={reminderTitle}
+        className={`px-2 py-1 rounded border text-sm ${disabledCls}`}
       >
-        Send WA Reminder
+        💬 WA Reminder
       </button>
       <button
         type="button"
         onClick={() => handleSend('rebook')}
-        disabled={disabled}
-        title={disabled ? 'No phone on lead' : 'Send WhatsApp Rebooking'}
-        className={`ml-2 px-2 py-1 rounded border ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-50'}`}
+        disabled={!hasPhone}
+        title={rebookTitle}
+        className={`ml-2 px-2 py-1 rounded border text-sm ${disabledCls}`}
       >
-        Send Rebooking
+        ↩️ Rebooking
       </button>
+      <button
+  type="button"
+  onClick={async () => {
+    const link = waBookingLink({ slug: provider.slug, leadId: lead.id, campaign: "direct" });
+    const ok = await copyToClipboard(link);
+    toast.success(ok ? "Booking link copied" : "Tried to copy link");
+  }}
+  title="🔗 Copy tracked booking link"
+  className={`ml-2 px-2 py-1 rounded border text-sm hover:bg-gray-50`}
+>
+  🔗 Copy Link
+</button>
     </div>
   );
 }
