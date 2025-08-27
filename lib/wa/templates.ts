@@ -6,14 +6,14 @@ export type WaParams = {
   provider?: string;             // "Dr. Kapoor Clinic"
   slug?: string;                 // "amitjain0626"
   slot?: string;                 // "Tue 4:30 PM"
-  link?: string;                 // optional override
+  link?: string;                 // optional absolute override (e.g., prod domain)
   // Attribution
   leadId?: string;               // used as ?lid=
-  kind?: "reminder" | "rebook";  // used for utm_campaign
-  campaign?: string;             // optional override
+  kind?: "reminder" | "rebook";  // used for utm_campaign (fallback)
+  campaign?: string;             // explicit utm_campaign
 };
 
-// ---- internals (robust UTM builder; no URL ctor) ----
+// ---------- internals (robust UTM builder; no URL ctor) ----------
 function buildQuery(obj: Record<string, any>) {
   return Object.entries(obj)
     .filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== "")
@@ -31,8 +31,21 @@ function appendParams(rawUrl: string, params: Record<string, any>) {
   return qs ? `${base}${sep}${qs}${frag}` : rawUrl;
 }
 
+function getOrigin() {
+  try {
+    if (typeof window !== "undefined" && window?.location?.origin) {
+      return window.location.origin; // e.g., https://vyapr-reset-5rly.vercel.app
+    }
+  } catch {}
+  // server-side fallback (prod canonical)
+  return "https://vyapr.com";
+}
+
 function buildBookingLink(p: WaParams) {
-  const base = p.link || (p.slug ? `https://vyapr.com/book/${p.slug}` : "https://vyapr.com");
+  const origin = getOrigin();
+  const base =
+    p.link ||
+    (p.slug ? `${origin}/book/${p.slug}` : origin); // dev uses current origin; prod can pass link
   const params = {
     utm_source: "whatsapp",
     utm_medium: "message",
@@ -42,7 +55,7 @@ function buildBookingLink(p: WaParams) {
   };
   return appendParams(base, params);
 }
-// ------------------------------------------------------
+// -----------------------------------------------------------------
 
 export function waReminder(p: WaParams) {
   const name = (p.name || "").trim();
