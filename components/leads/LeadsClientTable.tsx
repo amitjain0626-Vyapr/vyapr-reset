@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import LeadTimeline from "@/components/leads/LeadTimeline";
 import ToasterMount from "@/components/ui/ToasterMount";
 import { waReminder, waRebook } from "@/lib/wa/templates";
+import RoiBar from "@/components/leads/RoiBar";
 
 type Lead = {
   id: string;
@@ -149,11 +150,11 @@ export default function LeadsClientTable({
           } catch {}
         }
         fireEvent({
-          event: kind === "reminder" ? "wa.reminder.sent" : "wa.rebook.sent",
-          lead_id: lead.id,
-          source: { via: "ui", bulk: true, to: phone },
-        });
-      }
+  event: kind === "reminder" ? "wa.reminder.sent" : "wa.rebook.sent",
+  provider_id: provider.id,
+  lead_id: lead.id,
+  source: { via: "ui", bulk: true, to: phone },
+});
       if (action === "open") toast.success(`Opened ${opened} ${kind} messages`);
       else toast.success(`Copied ${copied} ${kind} messages`);
     },
@@ -193,6 +194,7 @@ export default function LeadsClientTable({
           Bulk ▸ Copy Rebooking
         </button>
       </div>
+      <RoiBar providerId={provider.id} />
 
       {/* Table */}
       <div className="overflow-x-auto rounded-xl border bg-white">
