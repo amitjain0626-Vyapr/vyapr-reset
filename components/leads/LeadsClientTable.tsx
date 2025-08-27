@@ -48,16 +48,36 @@ async function fireEvent(payload: {
   }
 }
 
-function buildReminderText(lead: Lead, provider: Provider) {
+function buildReminderText(
+  lead: Lead,
+  provider: Provider,
+  campaign?: string
+) {
   const name = (lead.patient_name || "").trim();
   const prov = (provider.display_name || provider.slug || "your provider").trim();
-  return waReminder({ name, provider: prov, slug: provider.slug, leadId: lead.id });
+  return waReminder({
+    name,
+    provider: prov,
+    slug: provider.slug,
+    leadId: lead.id,
+    campaign,
+  });
 }
 
-function buildRebookText(lead: Lead, provider: Provider) {
+function buildRebookText(
+  lead: Lead,
+  provider: Provider,
+  campaign?: string
+) {
   const name = (lead.patient_name || "").trim();
   const prov = (provider.display_name || provider.slug || "your provider").trim();
-  return waRebook({ name, provider: prov, slug: provider.slug, leadId: lead.id });
+  return waRebook({
+    name,
+    provider: prov,
+    slug: provider.slug,
+    leadId: lead.id,
+    campaign,
+  });
 }
 
 const encode = (s: string) => encodeURIComponent(s);
@@ -86,6 +106,12 @@ export default function LeadsClientTable({
     () => rows.filter((r) => r?.phone && selected.has(r.id)),
     [rows, selected]
   );
+
+  // NEW: Bulk campaign selector (drives utm_campaign for Bulk actions)
+  const [bulkCampaign, setBulkCampaign] = useState<
+    "direct" | "whatsapp" | "sms" | "instagram" | "qr" |
+    "confirm" | "noshow" | "reactivation"
+  >("direct");
 
   // Status change state + API call
   const [statusLocal, setStatusLocal] = useState<Record<string, string>>({});
@@ -134,8 +160,8 @@ export default function LeadsClientTable({
       for (const lead of batch) {
         const text =
           kind === "reminder"
-            ? buildReminderText(lead, provider)
-            : buildRebookText(lead, provider);
+            ? buildReminderText(lead, provider, bulkCampaign)
+            : buildRebookText(lead, provider, bulkCampaign);
         const phone = (lead.phone || "").replace(/^\+/, "");
         const href = `https://wa.me/${encodeURIComponent(phone)}?text=${encode(
           text
@@ -155,24 +181,43 @@ export default function LeadsClientTable({
           event: kind === "reminder" ? "wa.reminder.sent" : "wa.rebook.sent",
           provider_id: provider.id,
           lead_id: lead.id,
-          source: { via: "ui", bulk: true, to: phone },
+          source: { via: "ui", bulk: true, to: phone, campaign: bulkCampaign },
         });
       }
 
       if (action === "open") toast.success(`Opened ${opened} ${kind} messages`);
       else toast.success(`Copied ${copied} ${kind} messages`);
     },
-    [provider, selectedLeads]
+    [provider, selectedLeads, bulkCampaign]
   );
 
   return (
     <div className="w-full">
       {/* Bulk toolbar */}
-      <div className="mb-3 flex items-center gap-2">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        {/* NEW: Bulk campaign selector */}
+        <label className="text-xs text-gray-500">Camp.</label>
+        <select
+          value={bulkCampaign}
+          onChange={(e) => setBulkCampaign(e.target.value as any)}
+          className="px-2 py-1 rounded border text-sm"
+          title="Campaign for Bulk actions"
+        >
+          <option value="direct">Direct</option>
+          <option value="whatsapp">WhatsApp</option>
+          <option value="sms">SMS</option>
+          <option value="instagram">Instagram</option>
+          <option value="qr">QR</option>
+          <option value="confirm">confirm</option>
+          <option value="noshow">noshow</option>
+          <option value="reactivation">reactivation</option>
+        </select>
+
         <button
           className="px-2 py-1 rounded border"
           onClick={() => doBulk("reminder", "open")}
           disabled={selectedLeads.length === 0}
+          title="Open WhatsApp tabs with reminder text"
         >
           Bulk ▸ Open Reminders
         </button>
@@ -180,6 +225,7 @@ export default function LeadsClientTable({
           className="px-2 py-1 rounded border"
           onClick={() => doBulk("rebook", "open")}
           disabled={selectedLeads.length === 0}
+          title="Open WhatsApp tabs with rebook text"
         >
           Bulk ▸ Open Rebooking
         </button>
@@ -187,6 +233,7 @@ export default function LeadsClientTable({
           className="px-2 py-1 rounded border"
           onClick={() => doBulk("reminder", "copy")}
           disabled={selectedLeads.length === 0}
+          title="Copy reminder text to clipboard"
         >
           Bulk ▸ Copy Reminders
         </button>
@@ -194,12 +241,13 @@ export default function LeadsClientTable({
           className="px-2 py-1 rounded border"
           onClick={() => doBulk("rebook", "copy")}
           disabled={selectedLeads.length === 0}
+          title="Copy rebook text to clipboard"
         >
           Bulk ▸ Copy Rebooking
         </button>
       </div>
 
-      {/* ROI bar */}
+      {/* ROI strip (simplified) */}
       <RoiBar providerId={provider.id} />
 
       {/* Table */}
@@ -238,7 +286,10 @@ export default function LeadsClientTable({
                   <td className="px-3 py-2">{r?.patient_name || "-"}</td>
                   <td className="px-3 py-2">
                     {r?.phone ? (
-                      <a href={`tel:${r.phone}`} className="text-blue-600 hover:underline">
+                      <a
+                        href={`tel:${r.phone}`}
+                        className="text-blue-600 hover:underline"
+                      >
                         {r.phone}
                       </a>
                     ) : (
@@ -290,7 +341,7 @@ export default function LeadsClientTable({
                       </select>
                     </div>
 
-                    {/* Per-row WhatsApp actions */}
+                    {/* Per-row WhatsApp/SMS/Link/QR actions (already have their own campaign selector) */}
                     <LeadActions
                       className="flex items-center gap-2"
                       lead={r}
