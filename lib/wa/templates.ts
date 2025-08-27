@@ -10,7 +10,7 @@ export type WaParams = {
   // Attribution
   leadId?: string;               // used as ?lid=
   kind?: "reminder" | "rebook";  // used for utm_campaign (fallback)
-  campaign?: string;             // explicit utm_campaign
+  campaign?: string;             // explicit utm_campaign (e.g., confirm, noshow, reactivation, instagram)
 };
 
 // ---------- internals (robust UTM builder; no URL ctor) ----------
@@ -34,7 +34,7 @@ function appendParams(rawUrl: string, params: Record<string, any>) {
 function getOrigin() {
   try {
     if (typeof window !== "undefined" && window?.location?.origin) {
-      return window.location.origin; // e.g., https://vyapr-reset-5rly.vercel.app
+      return window.location.origin; // e.g., https://vyapr-reset-...vercel.app
     }
   } catch {}
   // server-side fallback (prod canonical)
@@ -43,9 +43,7 @@ function getOrigin() {
 
 function buildBookingLink(p: WaParams) {
   const origin = getOrigin();
-  const base =
-    p.link ||
-    (p.slug ? `${origin}/book/${p.slug}` : origin); // dev uses current origin; prod can pass link
+  const base = p.link || (p.slug ? `${origin}/book/${p.slug}` : origin);
   const params = {
     utm_source: "whatsapp",
     utm_medium: "message",
@@ -76,8 +74,13 @@ export function waRebook(p: WaParams) {
   const provider = (p.provider || "your clinic").trim();
   const link = buildBookingLink({ ...p, kind: "rebook" });
 
+  // Slight copy change for preset campaigns
+  const tag = (p.campaign || p.kind || "general").toLowerCase();
   const line1 = `Hi${who}, this is ${provider}.`;
-  const line2 = `We missed you last time — want to rebook for this week?`;
+  const line2 =
+    tag === "reactivation"
+      ? `It’s been a while — want to schedule a visit this week?`
+      : `We missed you last time — want to rebook for this week?`;
   const line3 = link;
   return `${line1} ${line2} ${line3}`;
 }
