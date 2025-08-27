@@ -157,7 +157,7 @@ export default function LeadsClientTable({
           lead_id: lead.id,
           source: { via: "ui", bulk: true, to: phone },
         });
-      } // ← this brace was missing
+      }
 
       if (action === "open") toast.success(`Opened ${opened} ${kind} messages`);
       else toast.success(`Copied ${copied} ${kind} messages`);
@@ -236,7 +236,15 @@ export default function LeadsClientTable({
                     />
                   </td>
                   <td className="px-3 py-2">{r?.patient_name || "-"}</td>
-                  <td className="px-3 py-2">{r?.phone || "-"}</td>
+                  <td className="px-3 py-2">
+                    {r?.phone ? (
+                      <a href={`tel:${r.phone}`} className="text-blue-600 hover:underline">
+                        {r.phone}
+                      </a>
+                    ) : (
+                      "-"
+                    )}
+                  </td>
                   {/* Status (read-only display) */}
                   <td className="px-3 py-2">
                     {statusLocal[r.id] || r?.status || "new"}
@@ -282,7 +290,7 @@ export default function LeadsClientTable({
                       </select>
                     </div>
 
-                    {/* Existing notes/WA actions component */}
+                    {/* Per-row WhatsApp actions */}
                     <LeadActions
                       className="flex items-center gap-2"
                       lead={r}
