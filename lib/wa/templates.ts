@@ -13,7 +13,7 @@ export type WaParams = {
   campaign?: string;             // optional override
 };
 
-// Build query string without relying on global URL parsing
+// ---- internals (robust UTM builder; no URL ctor) ----
 function buildQuery(obj: Record<string, any>) {
   return Object.entries(obj)
     .filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== "")
@@ -21,19 +21,16 @@ function buildQuery(obj: Record<string, any>) {
     .join("&");
 }
 
-// Append params before any #fragment and preserve existing ?query
 function appendParams(rawUrl: string, params: Record<string, any>) {
   const hashIdx = rawUrl.indexOf("#");
   const hasFragment = hashIdx >= 0;
   const base = hasFragment ? rawUrl.slice(0, hashIdx) : rawUrl;
   const frag = hasFragment ? rawUrl.slice(hashIdx) : "";
-
   const sep = base.includes("?") ? "&" : "?";
   const qs = buildQuery(params);
   return qs ? `${base}${sep}${qs}${frag}` : rawUrl;
 }
 
-// Internal: tracked booking link
 function buildBookingLink(p: WaParams) {
   const base = p.link || (p.slug ? `https://vyapr.com/book/${p.slug}` : "https://vyapr.com");
   const params = {
@@ -45,6 +42,7 @@ function buildBookingLink(p: WaParams) {
   };
   return appendParams(base, params);
 }
+// ------------------------------------------------------
 
 export function waReminder(p: WaParams) {
   const name = (p.name || "").trim();
@@ -69,6 +67,11 @@ export function waRebook(p: WaParams) {
   const line2 = `We missed you last time — want to rebook for this week?`;
   const line3 = link;
   return `${line1} ${line2} ${line3}`;
+}
+
+// Public helper: tracked booking link (same UTM rules)
+export function waBookingLink(p: WaParams) {
+  return buildBookingLink(p);
 }
 
 // Extras (kept for GTM library growth)
