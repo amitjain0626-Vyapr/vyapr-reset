@@ -90,7 +90,10 @@ export default function LeadActions({ lead, provider, className }: Props) {
   const rebookTitle = hasPhone ? '↩️ Send WhatsApp rebooking' : 'No phone on lead';
 
   // Campaign selector (drives utm_campaign across all actions)
-  const [campaign, setCampaign] = useState<'direct' | 'whatsapp' | 'sms' | 'instagram' | 'qr'>('direct');
+  const [campaign, setCampaign] = useState<
+    'direct' | 'whatsapp' | 'sms' | 'instagram' | 'qr' |
+    'confirm' | 'noshow' | 'reactivation'
+  >('direct');
 
   const handleSend = useCallback(
     async (kind: 'reminder' | 'rebook') => {
@@ -157,13 +160,10 @@ export default function LeadActions({ lead, provider, className }: Props) {
     } catch {}
   }, [hasPhone, lead, provider, campaign]);
 
-  // NEW: Download QR (PNG) for the tracked booking link (no deps)
+  // Download QR (PNG) for the tracked booking link (no deps)
   const handleQR = useCallback(async () => {
     const tracked = waBookingLink({ slug: provider.slug, leadId: lead.id, campaign });
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=512x512&data=${encode(
-      tracked
-    )}`;
-    // Try to trigger a download; some browsers may open a new tab (acceptable)
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=512x512&data=${encode(tracked)}`;
     const a = document.createElement('a');
     a.href = qrUrl;
     a.download = `vyapr-qr-${(provider.slug || 'link')}-${(lead.id || '').slice(0, 6)}.png`;
@@ -175,6 +175,35 @@ export default function LeadActions({ lead, provider, className }: Props) {
   return (
     // Wrap + gap so row never distorts on small widths
     <div className={`flex flex-wrap items-center gap-2 ${className || ''}`}>
+      {/* Presets: set campaign quickly */}
+      <div className="flex flex-wrap items-center gap-1">
+        <button
+          type="button"
+          onClick={() => { setCampaign('confirm'); toast.message('Preset: Confirm'); }}
+          className="px-2 py-0.5 rounded border text-xs hover:bg-gray-50"
+          title="Use confirm preset"
+        >
+          ✅ Confirm
+        </button>
+        <button
+          type="button"
+          onClick={() => { setCampaign('noshow'); toast.message('Preset: No-show recovery'); }}
+          className="px-2 py-0.5 rounded border text-xs hover:bg-gray-50"
+          title="Use no-show recovery preset"
+        >
+          ⏰ No-show
+        </button>
+        <button
+          type="button"
+          onClick={() => { setCampaign('reactivation'); toast.message('Preset: Reactivation'); }}
+          className="px-2 py-0.5 rounded border text-xs hover:bg-gray-50"
+          title="Use reactivation preset"
+        >
+          🔄 Reactivate
+        </button>
+      </div>
+
+      {/* Campaign selector (shows current tag) */}
       <label className="text-xs text-gray-500">Camp.</label>
       <select
         value={campaign}
@@ -187,6 +216,9 @@ export default function LeadActions({ lead, provider, className }: Props) {
         <option value="sms">SMS</option>
         <option value="instagram">Instagram</option>
         <option value="qr">QR</option>
+        <option value="confirm">confirm</option>
+        <option value="noshow">noshow</option>
+        <option value="reactivation">reactivation</option>
       </select>
 
       <button
@@ -234,7 +266,7 @@ export default function LeadActions({ lead, provider, className }: Props) {
         📩 SMS
       </button>
 
-      {/* NEW: Download QR */}
+      {/* Download QR */}
       <button
         type="button"
         onClick={handleQR}
