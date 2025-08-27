@@ -7,26 +7,43 @@ export type WaParams = {
   slug?: string;                 // "amitjain0626"
   slot?: string;                 // "Tue 4:30 PM"
   link?: string;                 // optional override
-  // Attribution (NEW)
+  // Attribution
   leadId?: string;               // used as ?lid=
   kind?: "reminder" | "rebook";  // used for utm_campaign
-  campaign?: string;             // override campaign name
+  campaign?: string;             // optional override
 };
 
-// Internal: builds a tracked link (unique name to avoid any prior duplicates)
+// Build query string without relying on global URL parsing
+function buildQuery(obj: Record<string, any>) {
+  return Object.entries(obj)
+    .filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== "")
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+    .join("&");
+}
+
+// Append params before any #fragment and preserve existing ?query
+function appendParams(rawUrl: string, params: Record<string, any>) {
+  const hashIdx = rawUrl.indexOf("#");
+  const hasFragment = hashIdx >= 0;
+  const base = hasFragment ? rawUrl.slice(0, hashIdx) : rawUrl;
+  const frag = hasFragment ? rawUrl.slice(hashIdx) : "";
+
+  const sep = base.includes("?") ? "&" : "?";
+  const qs = buildQuery(params);
+  return qs ? `${base}${sep}${qs}${frag}` : rawUrl;
+}
+
+// Internal: tracked booking link
 function buildBookingLink(p: WaParams) {
-  const raw = p.link || (p.slug ? `https://vyapr.com/book/${p.slug}` : "https://vyapr.com");
-  try {
-    const u = new URL(raw);
-    u.searchParams.set("utm_source", "whatsapp");
-    u.searchParams.set("utm_medium", "message");
-    u.searchParams.set("utm_campaign", (p.campaign || p.kind || "general") as string);
-    if (p.leadId) u.searchParams.set("lid", p.leadId);
-    u.searchParams.set("utm_content", "vyapr-default");
-    return u.toString();
-  } catch {
-    return raw; // never throw
-  }
+  const base = p.link || (p.slug ? `https://vyapr.com/book/${p.slug}` : "https://vyapr.com");
+  const params = {
+    utm_source: "whatsapp",
+    utm_medium: "message",
+    utm_campaign: p.campaign || p.kind || "general",
+    utm_content: "vyapr-default",
+    lid: p.leadId || "",
+  };
+  return appendParams(base, params);
 }
 
 export function waReminder(p: WaParams) {
@@ -54,7 +71,7 @@ export function waRebook(p: WaParams) {
   return `${line1} ${line2} ${line3}`;
 }
 
-// Extras (optional, drafted for GTM library)
+// Extras (kept for GTM library growth)
 export function waThankYou(p: WaParams) {
   const name = (p.name || "").trim();
   const who = name ? ` ${name}` : "";
