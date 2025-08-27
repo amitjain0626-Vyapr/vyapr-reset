@@ -3,7 +3,7 @@
 'use client';
 
 import * as React from 'react';
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { toast } from 'sonner';
 import { waReminder, waRebook, waBookingLink } from '@/lib/wa/templates';
 
@@ -28,6 +28,12 @@ const isMobile = () => {
     return /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
   }
   return false;
+};
+
+const isiOS = () => {
+  if (typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  return /iPhone|iPad|iPod/i.test(ua);
 };
 
 const copyToClipboard = async (text: string) => {
@@ -65,25 +71,26 @@ async function logEvent(payload: {
   }
 }
 
-function buildReminderText(lead: Lead, provider: Provider) {
+function buildReminderText(lead: Lead, provider: Provider, campaign?: string) {
   const name = (lead.patient_name || '').trim();
   const prov = (provider.display_name || provider.slug || 'your provider').trim();
-  // ✅ use UTM-tagged templates with leadId for attribution
-  return waReminder({ name, provider: prov, slug: provider.slug, leadId: lead.id });
+  return waReminder({ name, provider: prov, slug: provider.slug, leadId: lead.id, campaign });
 }
 
-function buildRebookText(lead: Lead, provider: Provider) {
+function buildRebookText(lead: Lead, provider: Provider, campaign?: string) {
   const name = (lead.patient_name || '').trim();
   const prov = (provider.display_name || provider.slug || 'your provider').trim();
-  // ✅ use UTM-tagged templates with leadId for attribution
-  return waRebook({ name, provider: prov, slug: provider.slug, leadId: lead.id });
+  return waRebook({ name, provider: prov, slug: provider.slug, leadId: lead.id, campaign });
 }
 
-export function LeadActions({ lead, provider, className }: Props) {
+export default function LeadActions({ lead, provider, className }: Props) {
   const hasPhone = !!(lead?.phone && String(lead.phone).trim());
   const disabledCls = hasPhone ? 'hover:bg-gray-50' : 'opacity-50 cursor-not-allowed';
   const reminderTitle = hasPhone ? '💬 Send WhatsApp reminder' : 'No phone on lead';
   const rebookTitle = hasPhone ? '↩️ Send WhatsApp rebooking' : 'No phone on lead';
+
+  // Campaign selector (drives utm_campaign)
+  const [campaign, setCampaign] = useState<'direct' | 'whatsapp' | 'sms' | 'instagram' | 'qr'>('direct');
 
   const handleSend = useCallback(
     async (kind: 'reminder' | 'rebook') => {
@@ -94,8 +101,8 @@ export function LeadActions({ lead, provider, className }: Props) {
 
       const rawText =
         kind === 'reminder'
-          ? buildReminderText(lead, provider)
-          : buildRebookText(lead, provider);
+          ? buildReminderText(lead, provider, campaign)
+          : buildRebookText(lead, provider, campaign);
 
       // Always copy first (fallback)
       const copied = await copyToClipboard(rawText);
@@ -121,20 +128,53 @@ export function LeadActions({ lead, provider, className }: Props) {
         toast.message(copied ? 'Copied.' : 'Tried to copy.', { duration: 1400 });
       }
 
-      // Telemetry (non-blocking)
+      // Telemetry (non-blocking) — keep within approved events
       logEvent({
         event: kind === 'reminder' ? 'wa.reminder.sent' : 'wa.rebook.sent',
         provider_slug: provider.slug,
         provider_id: provider.id,
         lead_id: lead.id,
-        source: { via: 'ui', bulk: false, to: phone, opened, copied },
+        source: { via: 'ui', bulk: false, to: phone, opened, copied, campaign },
       });
     },
-    [hasPhone, lead, provider]
+    [hasPhone, lead, provider, campaign]
   );
 
+  // NEW: SMS compose (reminder text). We do not log a new event to keep telemetry strict.
+  const handleSms = useCallback(async () => {
+    if (!hasPhone) {
+      toast.message('No phone on lead', { duration: 1500 });
+      return;
+    }
+    const body = buildReminderText(lead, provider, campaign);
+    const phone = (lead.phone || '').replace(/[^\d+]/g, '');
+    const textParam = encode(body);
+    const url = isiOS()
+      ? `sms:${phone}&body=${textParam}`
+      : `sms:${phone}?body=${textParam}`;
+    try {
+      window.location.href = url;
+    } catch {}
+  }, [hasPhone, lead, provider, campaign]);
+
   return (
-    <div className={className}>
+    // Ensure wrapping so the table cell never breaks layout on small screens
+    <div className={`flex flex-wrap items-center gap-2 ${className || ''}`}>
+      {/* Shorter label text to reduce width */}
+      <label className="text-xs text-gray-500">Camp.</label>
+      <select
+        value={campaign}
+        onChange={(e) => setCampaign(e.target.value as any)}
+        className="px-2 py-1 rounded border text-sm"
+        title="Choose campaign tag"
+      >
+        <option value="direct">Direct</option>
+        <option value="whatsapp">WhatsApp</option>
+        <option value="sms">SMS</option>
+        <option value="instagram">Instagram</option>
+        <option value="qr">QR</option>
+      </select>
+
       <button
         type="button"
         onClick={() => handleSend('reminder')}
@@ -144,29 +184,41 @@ export function LeadActions({ lead, provider, className }: Props) {
       >
         💬 WA Reminder
       </button>
+
       <button
         type="button"
         onClick={() => handleSend('rebook')}
         disabled={!hasPhone}
         title={rebookTitle}
-        className={`ml-2 px-2 py-1 rounded border text-sm ${disabledCls}`}
+        className={`px-2 py-1 rounded border text-sm ${disabledCls}`}
       >
         ↩️ Rebooking
       </button>
+
+      {/* Copy tracked booking link (uses selected campaign) */}
       <button
-  type="button"
-  onClick={async () => {
-    const link = waBookingLink({ slug: provider.slug, leadId: lead.id, campaign: "direct" });
-    const ok = await copyToClipboard(link);
-    toast.success(ok ? "Booking link copied" : "Tried to copy link");
-  }}
-  title="🔗 Copy tracked booking link"
-  className={`ml-2 px-2 py-1 rounded border text-sm hover:bg-gray-50`}
->
-  🔗 Copy Link
-</button>
+        type="button"
+        onClick={async () => {
+          const link = waBookingLink({ slug: provider.slug, leadId: lead.id, campaign });
+          const ok = await copyToClipboard(link);
+          toast.success(ok ? 'Booking link copied' : 'Tried to copy link');
+        }}
+        title="🔗 Copy tracked booking link"
+        className="px-2 py-1 rounded border text-sm hover:bg-gray-50"
+      >
+        🔗 Copy Link
+      </button>
+
+      {/* NEW: SMS compose (uses same template + campaign) */}
+      <button
+        type="button"
+        onClick={handleSms}
+        disabled={!hasPhone}
+        title="📩 Open SMS composer"
+        className={`px-2 py-1 rounded border text-sm ${disabledCls}`}
+      >
+        📩 SMS
+      </button>
     </div>
   );
 }
-
-export default LeadActions;
