@@ -3,7 +3,7 @@
 "use client";
 
 import * as React from "react";
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
 import LeadActions from "@/components/leads/LeadActions";
 import { toast } from "sonner";
 import LeadTimeline from "@/components/leads/LeadTimeline";
@@ -48,36 +48,16 @@ async function fireEvent(payload: {
   }
 }
 
-function buildReminderText(
-  lead: Lead,
-  provider: Provider,
-  campaign?: string
-) {
+function buildReminderText(lead: Lead, provider: Provider, campaign?: string) {
   const name = (lead.patient_name || "").trim();
   const prov = (provider.display_name || provider.slug || "your provider").trim();
-  return waReminder({
-    name,
-    provider: prov,
-    slug: provider.slug,
-    leadId: lead.id,
-    campaign,
-  });
+  return waReminder({ name, provider: prov, slug: provider.slug, leadId: lead.id, campaign });
 }
 
-function buildRebookText(
-  lead: Lead,
-  provider: Provider,
-  campaign?: string
-) {
+function buildRebookText(lead: Lead, provider: Provider, campaign?: string) {
   const name = (lead.patient_name || "").trim();
   const prov = (provider.display_name || provider.slug || "your provider").trim();
-  return waRebook({
-    name,
-    provider: prov,
-    slug: provider.slug,
-    leadId: lead.id,
-    campaign,
-  });
+  return waRebook({ name, provider: prov, slug: provider.slug, leadId: lead.id, campaign });
 }
 
 const encode = (s: string) => encodeURIComponent(s);
@@ -107,11 +87,26 @@ export default function LeadsClientTable({
     [rows, selected]
   );
 
-  // NEW: Bulk campaign selector (drives utm_campaign for Bulk actions)
+  // Bulk campaign selector (drives utm_campaign for Bulk actions) — PERSISTED
   const [bulkCampaign, setBulkCampaign] = useState<
     "direct" | "whatsapp" | "sms" | "instagram" | "qr" |
     "confirm" | "noshow" | "reactivation"
   >("direct");
+
+  // Load persisted bulk campaign
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem("vyapr.bulkCampaign");
+      if (v) setBulkCampaign(v as any);
+    } catch {}
+  }, []);
+
+  // Save on change
+  useEffect(() => {
+    try {
+      localStorage.setItem("vyapr.bulkCampaign", bulkCampaign);
+    } catch {}
+  }, [bulkCampaign]);
 
   // Status change state + API call
   const [statusLocal, setStatusLocal] = useState<Record<string, string>>({});
@@ -163,9 +158,7 @@ export default function LeadsClientTable({
             ? buildReminderText(lead, provider, bulkCampaign)
             : buildRebookText(lead, provider, bulkCampaign);
         const phone = (lead.phone || "").replace(/^\+/, "");
-        const href = `https://wa.me/${encodeURIComponent(phone)}?text=${encode(
-          text
-        )}`;
+        const href = `https://wa.me/${encodeURIComponent(phone)}?text=${encode(text)}`;
         if (action === "open") {
           try {
             window.open(href, "_blank", "noopener,noreferrer");
@@ -195,7 +188,7 @@ export default function LeadsClientTable({
     <div className="w-full">
       {/* Bulk toolbar */}
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        {/* NEW: Bulk campaign selector */}
+        {/* Bulk campaign selector (persisted) */}
         <label className="text-xs text-gray-500">Camp.</label>
         <select
           value={bulkCampaign}
@@ -247,7 +240,7 @@ export default function LeadsClientTable({
         </button>
       </div>
 
-      {/* ROI strip (simplified) */}
+      {/* ROI strip */}
       <RoiBar providerId={provider.id} />
 
       {/* Table */}
@@ -259,9 +252,7 @@ export default function LeadsClientTable({
               <th className="px-3 py-2 text-left">Name</th>
               <th className="px-3 py-2 text-left">Phone</th>
               <th className="px-3 py-2 text-left">Status</th>
-              <th className="px-3 py-2 text-left whitespace-nowrap">
-                Created (IST)
-              </th>
+              <th className="px-3 py-2 text-left whitespace-nowrap">Created (IST)</th>
               <th className="px-3 py-2 text-left">Actions</th>
             </tr>
           </thead>
@@ -270,9 +261,7 @@ export default function LeadsClientTable({
               rows.map((r) => (
                 <tr
                   key={r.id}
-                  className={`border-t transition-colors ${
-                    highlightIds.has(r.id) ? "bg-emerald-50" : ""
-                  }`}
+                  className={`border-t transition-colors ${highlightIds.has(r.id) ? "bg-emerald-50" : ""}`}
                 >
                   <td className="px-3 py-2">
                     <input
@@ -286,20 +275,14 @@ export default function LeadsClientTable({
                   <td className="px-3 py-2">{r?.patient_name || "-"}</td>
                   <td className="px-3 py-2">
                     {r?.phone ? (
-                      <a
-                        href={`tel:${r.phone}`}
-                        className="text-blue-600 hover:underline"
-                      >
+                      <a href={`tel:${r.phone}`} className="text-blue-600 hover:underline">
                         {r.phone}
                       </a>
                     ) : (
                       "-"
                     )}
                   </td>
-                  {/* Status (read-only display) */}
-                  <td className="px-3 py-2">
-                    {statusLocal[r.id] || r?.status || "new"}
-                  </td>
+                  <td className="px-3 py-2">{statusLocal[r.id] || r?.status || "new"}</td>
                   <td className="px-3 py-2 whitespace-nowrap">
                     {r?.created_at
                       ? new Intl.DateTimeFormat("en-IN", {
@@ -310,7 +293,6 @@ export default function LeadsClientTable({
                       : "-"}
                   </td>
                   <td className="px-3 py-2">
-                    {/* Timeline + Status dropdown */}
                     <div className="mb-2 flex items-center gap-2">
                       <button
                         className="px-2 py-1 rounded border text-sm hover:bg-gray-50"
@@ -327,10 +309,7 @@ export default function LeadsClientTable({
                         className="px-2 py-1 rounded border text-sm"
                         value={statusLocal[r.id] || r?.status || "new"}
                         onChange={(e) =>
-                          updateLeadStatus(
-                            r.id,
-                            e.target.value as (typeof STATUS_VALUES)[number]
-                          )
+                          updateLeadStatus(r.id, e.target.value as (typeof STATUS_VALUES)[number])
                         }
                       >
                         {STATUS_VALUES.map((s) => (
@@ -341,12 +320,7 @@ export default function LeadsClientTable({
                       </select>
                     </div>
 
-                    {/* Per-row WhatsApp/SMS/Link/QR actions (already have their own campaign selector) */}
-                    <LeadActions
-                      className="flex items-center gap-2"
-                      lead={r}
-                      provider={provider}
-                    />
+                    <LeadActions className="flex items-center gap-2" lead={r} provider={provider} />
                   </td>
                 </tr>
               ))
@@ -361,12 +335,7 @@ export default function LeadsClientTable({
         </table>
       </div>
 
-      {/* Lead Timeline drawer */}
-      <LeadTimeline
-        open={timelineOpen}
-        onClose={() => setTimelineOpen(false)}
-        leadId={timelineLeadId}
-      />
+      <LeadTimeline open={timelineOpen} onClose={() => setTimelineOpen(false)} leadId={timelineLeadId} />
       <ToasterMount />
     </div>
   );

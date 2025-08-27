@@ -3,7 +3,7 @@
 'use client';
 
 import * as React from 'react';
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { waReminder, waRebook, waBookingLink } from '@/lib/wa/templates';
 
@@ -89,11 +89,26 @@ export default function LeadActions({ lead, provider, className }: Props) {
   const reminderTitle = hasPhone ? '💬 Send WhatsApp reminder' : 'No phone on lead';
   const rebookTitle = hasPhone ? '↩️ Send WhatsApp rebooking' : 'No phone on lead';
 
-  // Campaign selector (drives utm_campaign across all actions)
+  // Campaign selector (drives utm_campaign across all actions) — PERSISTED
   const [campaign, setCampaign] = useState<
     'direct' | 'whatsapp' | 'sms' | 'instagram' | 'qr' |
     'confirm' | 'noshow' | 'reactivation'
   >('direct');
+
+  // Load persisted row campaign
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem('vyapr.rowCampaign');
+      if (v) setCampaign(v as any);
+    } catch {}
+  }, []);
+
+  // Save on change
+  useEffect(() => {
+    try {
+      localStorage.setItem('vyapr.rowCampaign', campaign);
+    } catch {}
+  }, [campaign]);
 
   const handleSend = useCallback(
     async (kind: 'reminder' | 'rebook') => {
@@ -131,7 +146,7 @@ export default function LeadActions({ lead, provider, className }: Props) {
         toast.message(copied ? 'Copied.' : 'Tried to copy.', { duration: 1400 });
       }
 
-      // Telemetry (non-blocking) — keep within approved events
+      // Telemetry (non-blocking)
       logEvent({
         event: kind === 'reminder' ? 'wa.reminder.sent' : 'wa.rebook.sent',
         provider_slug: provider.slug,
@@ -142,6 +157,12 @@ export default function LeadActions({ lead, provider, className }: Props) {
     },
     [hasPhone, lead, provider, campaign]
   );
+
+  const isiOS = () => {
+    if (typeof navigator === 'undefined') return false;
+    const ua = navigator.userAgent || '';
+    return /iPhone|iPad|iPod/i.test(ua);
+  };
 
   // SMS compose (reminder text)
   const handleSms = useCallback(async () => {
@@ -160,7 +181,7 @@ export default function LeadActions({ lead, provider, className }: Props) {
     } catch {}
   }, [hasPhone, lead, provider, campaign]);
 
-  // Download QR (PNG) for the tracked booking link (no deps)
+  // Download QR (PNG)
   const handleQR = useCallback(async () => {
     const tracked = waBookingLink({ slug: provider.slug, leadId: lead.id, campaign });
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=512x512&data=${encode(tracked)}`;
@@ -173,9 +194,8 @@ export default function LeadActions({ lead, provider, className }: Props) {
   }, [provider.slug, lead.id, campaign]);
 
   return (
-    // Wrap + gap so row never distorts on small widths
     <div className={`flex flex-wrap items-center gap-2 ${className || ''}`}>
-      {/* Presets: set campaign quickly */}
+      {/* Presets */}
       <div className="flex flex-wrap items-center gap-1">
         <button
           type="button"
@@ -241,7 +261,7 @@ export default function LeadActions({ lead, provider, className }: Props) {
         ↩️ Rebooking
       </button>
 
-      {/* Copy tracked booking link (uses selected campaign) */}
+      {/* Copy link */}
       <button
         type="button"
         onClick={async () => {
@@ -255,7 +275,7 @@ export default function LeadActions({ lead, provider, className }: Props) {
         🔗 Copy Link
       </button>
 
-      {/* SMS compose */}
+      {/* SMS */}
       <button
         type="button"
         onClick={handleSms}
@@ -266,7 +286,7 @@ export default function LeadActions({ lead, provider, className }: Props) {
         📩 SMS
       </button>
 
-      {/* Download QR */}
+      {/* QR */}
       <button
         type="button"
         onClick={handleQR}
