@@ -89,7 +89,7 @@ export default function LeadActions({ lead, provider, className }: Props) {
   const reminderTitle = hasPhone ? '💬 Send WhatsApp reminder' : 'No phone on lead';
   const rebookTitle = hasPhone ? '↩️ Send WhatsApp rebooking' : 'No phone on lead';
 
-  // Campaign selector (drives utm_campaign)
+  // Campaign selector (drives utm_campaign across all actions)
   const [campaign, setCampaign] = useState<'direct' | 'whatsapp' | 'sms' | 'instagram' | 'qr'>('direct');
 
   const handleSend = useCallback(
@@ -140,7 +140,7 @@ export default function LeadActions({ lead, provider, className }: Props) {
     [hasPhone, lead, provider, campaign]
   );
 
-  // NEW: SMS compose (reminder text). We do not log a new event to keep telemetry strict.
+  // SMS compose (reminder text)
   const handleSms = useCallback(async () => {
     if (!hasPhone) {
       toast.message('No phone on lead', { duration: 1500 });
@@ -157,10 +157,24 @@ export default function LeadActions({ lead, provider, className }: Props) {
     } catch {}
   }, [hasPhone, lead, provider, campaign]);
 
+  // NEW: Download QR (PNG) for the tracked booking link (no deps)
+  const handleQR = useCallback(async () => {
+    const tracked = waBookingLink({ slug: provider.slug, leadId: lead.id, campaign });
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=512x512&data=${encode(
+      tracked
+    )}`;
+    // Try to trigger a download; some browsers may open a new tab (acceptable)
+    const a = document.createElement('a');
+    a.href = qrUrl;
+    a.download = `vyapr-qr-${(provider.slug || 'link')}-${(lead.id || '').slice(0, 6)}.png`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }, [provider.slug, lead.id, campaign]);
+
   return (
-    // Ensure wrapping so the table cell never breaks layout on small screens
+    // Wrap + gap so row never distorts on small widths
     <div className={`flex flex-wrap items-center gap-2 ${className || ''}`}>
-      {/* Shorter label text to reduce width */}
       <label className="text-xs text-gray-500">Camp.</label>
       <select
         value={campaign}
@@ -209,7 +223,7 @@ export default function LeadActions({ lead, provider, className }: Props) {
         🔗 Copy Link
       </button>
 
-      {/* NEW: SMS compose (uses same template + campaign) */}
+      {/* SMS compose */}
       <button
         type="button"
         onClick={handleSms}
@@ -218,6 +232,16 @@ export default function LeadActions({ lead, provider, className }: Props) {
         className={`px-2 py-1 rounded border text-sm ${disabledCls}`}
       >
         📩 SMS
+      </button>
+
+      {/* NEW: Download QR */}
+      <button
+        type="button"
+        onClick={handleQR}
+        title="🖨️ Download QR PNG"
+        className="px-2 py-1 rounded border text-sm hover:bg-gray-50"
+      >
+        🖨️ QR
       </button>
     </div>
   );
