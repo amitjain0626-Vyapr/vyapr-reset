@@ -137,7 +137,9 @@ export default function LeadsClientTable({
             ? buildReminderText(lead, provider)
             : buildRebookText(lead, provider);
         const phone = (lead.phone || "").replace(/^\+/, "");
-        const href = `https://wa.me/${encodeURIComponent(phone)}?text=${encode(text)}`;
+        const href = `https://wa.me/${encodeURIComponent(phone)}?text=${encode(
+          text
+        )}`;
         if (action === "open") {
           try {
             window.open(href, "_blank", "noopener,noreferrer");
@@ -149,12 +151,14 @@ export default function LeadsClientTable({
             copied++;
           } catch {}
         }
-        fireEvent({
-  event: kind === "reminder" ? "wa.reminder.sent" : "wa.rebook.sent",
-  provider_id: provider.id,
-  lead_id: lead.id,
-  source: { via: "ui", bulk: true, to: phone },
-});
+        await fireEvent({
+          event: kind === "reminder" ? "wa.reminder.sent" : "wa.rebook.sent",
+          provider_id: provider.id,
+          lead_id: lead.id,
+          source: { via: "ui", bulk: true, to: phone },
+        });
+      } // ← this brace was missing
+
       if (action === "open") toast.success(`Opened ${opened} ${kind} messages`);
       else toast.success(`Copied ${copied} ${kind} messages`);
     },
@@ -194,6 +198,8 @@ export default function LeadsClientTable({
           Bulk ▸ Copy Rebooking
         </button>
       </div>
+
+      {/* ROI bar */}
       <RoiBar providerId={provider.id} />
 
       {/* Table */}
@@ -205,7 +211,9 @@ export default function LeadsClientTable({
               <th className="px-3 py-2 text-left">Name</th>
               <th className="px-3 py-2 text-left">Phone</th>
               <th className="px-3 py-2 text-left">Status</th>
-              <th className="px-3 py-2 text-left whitespace-nowrap">Created (IST)</th>
+              <th className="px-3 py-2 text-left whitespace-nowrap">
+                Created (IST)
+              </th>
               <th className="px-3 py-2 text-left">Actions</th>
             </tr>
           </thead>
