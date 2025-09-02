@@ -48,24 +48,91 @@ function redirectUrl(event: string, kind: TemplateKind, slug: string, pid: strin
   return `/api/events/redirect?${params.toString()}`;
 }
 
+async function logEvent(payload: any) {
+  try {
+    const res = await fetch("/api/events/log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify(payload),
+      keepalive: true,
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 function LanguageToggle({ lang, setLang }: { lang: Lang; setLang: (l: Lang) => void }) {
   return (
     <div className="mb-4 flex items-center gap-2">
       <span className="text-sm text-gray-600">Language:</span>
-      <button
-        className={`btn ${lang === "en" ? "bg-black text-white" : ""}`}
-        onClick={() => setLang("en")}
-      >
+      <button className={`btn ${lang === "en" ? "bg-black text-white" : ""}`} onClick={() => setLang("en")}>
         English
       </button>
-      <button
-        className={`btn ${lang === "hi" ? "bg-black text-white" : ""}`}
-        onClick={() => setLang("hi")}
-      >
+      <button className={`btn ${lang === "hi" ? "bg-black text-white" : ""}`} onClick={() => setLang("hi")}>
         Hinglish
       </button>
     </div>
   );
+}
+
+// Small inline scheduler UI per card
+function Scheduler({
+  onClose,
+  onConfirm,
+  defaultISO,
+}: {
+  onClose: () => void;
+  onConfirm: (iso: string) => void;
+  defaultISO: string;
+}) {
+  const [v, setV] = useState(defaultISO);
+  return (
+    <div className="mt-2 p-3 border rounded-xl bg-gray-50">
+      <label className="text-xs text-gray-600">Pick date & time (IST)</label>
+      <input
+        type="datetime-local"
+        className="mt-1 w-full text-sm border rounded-lg p-2 bg-white"
+        value={v}
+        onChange={(e) => setV(e.target.value)}
+      />
+      <div className="mt-2 flex gap-2">
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button
+          className="btn-primary"
+          onClick={() => {
+            if (!v) return;
+            // Normalize to ISO (assumes v is local IST on user device)
+            try {
+              const iso = new Date(v).toISOString();
+              onConfirm(iso);
+            } catch {
+              onConfirm(new Date().toISOString());
+            }
+          }}
+        >
+          Schedule
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function defaultISTDateTimeLocal(minutesFromNow = 60) {
+  // Build a datetime-local string (yyyy-MM-ddThh:mm) using IST
+  const now = new Date();
+  const istOffsetMin = 330; // IST UTC+5:30
+  const utcMin = now.getUTCMinutes() + now.getUTCHours() * 60 + now.getUTCDate() * 24 * 60;
+  const istNow = new Date(now.getTime() + istOffsetMin * 60 * 1000);
+  const t = new Date(istNow.getTime() + minutesFromNow * 60 * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const y = t.getUTCFullYear();
+  const m = pad(t.getUTCMonth() + 1);
+  const d = pad(t.getUTCDate());
+  const hh = pad(t.getUTCHours());
+  const mm = pad(t.getUTCMinutes());
+  return `${y}-${m}-${d}T${hh}:${mm}`;
 }
 
 export default function TemplatesList({ slug }: { slug?: string }) {
@@ -75,6 +142,7 @@ export default function TemplatesList({ slug }: { slug?: string }) {
     try { return (localStorage.getItem("vyapr.lang") as Lang) || "en"; } catch {}
     return "en";
   });
+  const [openFor, setOpenFor] = useState<string | null>(null); // card id for scheduler
   const effectiveSlug = readSlugFallback(slug);
 
   useEffect(() => {
@@ -113,7 +181,6 @@ export default function TemplatesList({ slug }: { slug?: string }) {
   }, [origin, effectiveSlug, lang]);
 
   const templates = useMemo(() => {
-    // 5 templates total (added new_patient + no_show)
     const items: Array<{id: string; kind: TemplateKind; title: string; blurb: string; text: string}> = [
       { id: "tpl-offer",        kind: "offer",        title: "Limited-time Offer",    blurb: "Simple discount to fill this week’s slots.", text: texts.offer },
       { id: "tpl-rebook",       kind: "rebook_post",  title: "Rebooking Nudge",       blurb: "Win back past leads with a polite nudge.",  text: texts.rebook_post },
@@ -131,6 +198,9 @@ export default function TemplatesList({ slug }: { slug?: string }) {
       <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {templates.map((t) => {
           const go = redirectUrl("template.sent", t.kind, effectiveSlug, providerId, t.text);
+          const datetimeDefault = defaultISTDateTimeLocal(60); // +1h IST
+          const isOpen = openFor === t.id;
+
           return (
             <article key={t.id} className="card p-4">
               <h3 className="font-semibold text-lg">{t.title}</h3>
@@ -140,7 +210,7 @@ export default function TemplatesList({ slug }: { slug?: string }) {
                 className="mt-3 w-full h-32 text-sm border rounded-xl p-3 bg-gray-50"
                 value={t.text}
               />
-              <div className="mt-3 flex items-center gap-2">
+              <div className="mt-3 flex flex-wrap items-center gap-2">
                 <a className="btn-primary" href={go} target="_blank" rel="noopener noreferrer">
                   Send on WhatsApp
                 </a>
@@ -155,7 +225,39 @@ export default function TemplatesList({ slug }: { slug?: string }) {
                 >
                   Copy
                 </button>
+                <button className="btn" onClick={() => setOpenFor(isOpen ? null : t.id)}>
+                  {isOpen ? "Close" : "Schedule for later"}
+                </button>
               </div>
+
+              {isOpen && (
+                <Scheduler
+                  defaultISO={datetimeDefault}
+                  onClose={() => setOpenFor(null)}
+                  onConfirm={async (whenISO) => {
+                    // MVP: log a schedule request; actual delivery handled by ops/cron later
+                    const ok = await logEvent({
+                      event: "template.schedule.requested",
+                      ts: Date.now(),
+                      provider_id: providerId, // can be null-safe if your DB requires; here Events likely allows null except we saw not-null earlier for provider_id
+                      lead_id: null,
+                      source: {
+                        via: "ui",
+                        kind: t.kind,
+                        provider_slug: effectiveSlug || null,
+                        whenISO,
+                      },
+                    });
+                    setOpenFor(null);
+                    if (ok) {
+                      alert("Scheduled request logged ✓");
+                    } else {
+                      alert("Could not log schedule. Please try again.");
+                    }
+                  }}
+                />
+              )}
+
               {!providerId && (
                 <p className="mt-2 text-xs text-amber-700">
                   Resolving provider… first click may not log; try again once resolved.
