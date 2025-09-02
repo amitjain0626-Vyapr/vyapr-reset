@@ -3,7 +3,6 @@
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabaseAdmin"; // use the path you already have
 
 function waUrlFrom(text: string, phone?: string) {
   const enc = encodeURIComponent(text || "");
@@ -17,75 +16,58 @@ function j(msg: any, code = 200) {
   return NextResponse.json(msg, { status: code, headers: { "Cache-Control": "no-store" } });
 }
 
+async function postEventViaInternalApi(req: NextRequest, payload: any) {
+  // Use relative URL so the request stays within the same deployment
+  try {
+    const res = await fetch(new URL("/api/events/log", req.url), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      // keepalive is not needed server-to-server, but harmless
+      cache: "no-store",
+    });
+    const ok = res.ok;
+    let data: any = null;
+    try { data = await res.json(); } catch {}
+    return { ok, data, status: res.status };
+  } catch (e: any) {
+    return { ok: false, data: { error: e?.message || String(e) }, status: 0 };
+  }
+}
+
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
-  const debug = url.searchParams.get("debug") === "1"; // when true, respond JSON instead of redirect
+  const debug = url.searchParams.get("debug") === "1";
 
-  const e = (url.searchParams.get("e") || "").trim() || "template.sent";
-  const kind = (url.searchParams.get("kind") || "").trim() || "offer";
+  const e    = (url.searchParams.get("e")    || "template.sent").trim();
+  const kind = (url.searchParams.get("kind") || "offer").trim();
   const slug = (url.searchParams.get("slug") || "").trim() || null;
   const phone = (url.searchParams.get("phone") || "").trim() || undefined;
   const text = url.searchParams.get("text") || "";
 
-  // 1) Prepare insert payload
-  let provider_id: string | null = null;
-  let resolveErr: string | null = null;
-  let insertErr: string | null = null;
-  let ok = false;
+  const payload = [{
+    event: e,
+    ts: Date.now(),
+    provider_id: null,           // let /api/events/log resolve (or accept null)
+    lead_id: null,
+    source: { via: "ui", kind, provider_slug: slug },
+  }];
 
-  try {
-    const supa = createAdminClient();
+  // 1) Log via internal API (which already has SUPABASE_SERVICE_ROLE configured)
+  const result = await postEventViaInternalApi(req, payload[0]);
 
-    // Soft resolve provider_id from slug (don’t fail if not found)
-    if (slug) {
-      const { data, error } = await supa
-        .from("Dentists")
-        .select("id, created_at")
-        .eq("slug", slug)
-        .order("created_at", { ascending: false })
-        .limit(1);
-      if (error) {
-        resolveErr = error.message || String(error);
-      } else if (data && data.length > 0) {
-        provider_id = data[0].id || null;
-      }
-    }
-
-    // Insert
-    const payload = [
-      {
-        event: e,
-        ts: Date.now(),
-        provider_id: provider_id || null,
-        lead_id: null,
-        source: { via: "ui", kind, provider_slug: slug },
-      },
-    ];
-    const { error: insErr } = await supa.from("Events").insert(payload);
-    if (insErr) {
-      insertErr = insErr.message || String(insErr);
-      ok = false;
-    } else {
-      ok = true;
-    }
-  } catch (ex: any) {
-    insertErr = ex?.message || String(ex);
-    ok = false;
-  }
-
-  // 2) In debug mode, show exactly what happened (no redirect)
+  // 2a) If debugging, return JSON so we can see exactly what happened
   if (debug) {
     return j({
-      ok,
-      event: e,
-      provider_id,
-      resolve_error: resolveErr,
-      insert_error: insertErr,
+      ok: result.ok,
+      forwarded_to: "/api/events/log",
+      status: result.status,
+      response: result.data || null,
       note: "When ok=true you should also see this event in /api/debug/events",
     });
   }
 
-  // 3) Otherwise, redirect to WhatsApp regardless (UX first)
+  // 2b) Otherwise, redirect to WhatsApp regardless (UX-first)
   const dest = waUrlFrom(text, phone);
   return NextResponse.redirect(dest, { status: 302 });
 }
