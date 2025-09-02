@@ -1,254 +1,545 @@
 // app/dashboard/leads/page.tsx
 // @ts-nocheck
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-import LeadsClientTable from '@/components/leads/LeadsClientTable';
-import QuickAddLead from '@/components/leads/QuickAddLead';
-import { createClient } from '@supabase/supabase-js';
+import LeadsClientTable from "@/components/leads/LeadsClientTable";
+import QuickAddLead from "@/components/leads/QuickAddLead";
+import TopCampaigns from "@/components/roi/TopCampaigns";
+import KpiCard from "@/components/ui/KpiCard";
+import VeliPanel from "@/components/copilot/VeliPanel";
+import ReferralCard from "@/components/referral/ReferralCard";
+import { createClient } from "@supabase/supabase-js";
 
-/* ---------- supabase admin ---------- */
+/* ---------- Supabase admin (server) ---------- */
 function admin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-/* ---------- IST helpers ---------- */
-function istStartOfDay(d = new Date()) {
-  const x = new Date(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata' }).format(d));
-  x.setHours(0, 0, 0, 0); return x;
-}
-function istEndOfDay(d = new Date()) {
-  const x = new Date(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata' }).format(d));
-  x.setHours(23, 59, 59, 999); return x;
-}
-function istStartOfMonth(d = new Date()) {
-  const x = istStartOfDay(d); x.setDate(1); return x;
-}
-function istStartOfLastMonth() {
-  const n = new Date(); n.setMonth(n.getMonth() - 1); return istStartOfMonth(n);
-}
-function istEndOfLastMonth() {
-  const x = istStartOfMonth(new Date()); x.setMilliseconds(-1); return x;
-}
+/* ---------- Types ---------- */
+type Provider =
+  | { id: string; slug: string; display_name?: string | null }
+  | null;
+type Lead = {
+  id: string;
+  patient_name?: string | null;
+  phone?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+};
 
-/* ---------- types ---------- */
-type Provider = { id: string; slug: string; display_name?: string | null };
-type Lead = { id: string; patient_name?: string | null; phone?: string | null; status?: string | null; created_at?: string | null };
-
-/* ---------- data fetch ---------- */
-async function fetchProvider(slug: string): Promise<Provider> {
-  const { data, error } = await admin().from('Providers').select('id, slug, display_name').eq('slug', slug).single();
-  if (error || !data?.id) throw new Error('provider_not_found');
-  return { id: data.id, slug: data.slug, display_name: data.display_name };
-}
-
-async function fetchLeads(providerId: string): Promise<Lead[]> {
-  const { data = [] } = await admin()
-    .from('Leads')
-    .select('id, patient_name, phone, status, created_at')
-    .eq('provider_id', providerId)
-    .order('created_at', { ascending: false })
-    .limit(500);
-  return data;
-}
-
-/* ---------- ROI (Payments) ---------- */
-async function sumPayments(providerId: string, start: Date, end: Date): Promise<number> {
-  const sb = admin();
-  const { data = [] } = await sb
-    .from('Payments')
-    .select('amount, ts, created_at')
-    .eq('provider_id', providerId)
-    .gte('ts', start.getTime())
-    .lte('ts', end.getTime());
-  const rows = (Array.isArray(data) && data.length > 0)
-    ? data
-    : (await sb
-        .from('Payments')
-        .select('amount, ts, created_at')
-        .eq('provider_id', providerId)
-        .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString())
-      ).data ?? [];
-  let total = 0;
-  for (const r of rows as any[]) {
-    const amt = Number(r?.amount ?? 0);
-    if (!isNaN(amt)) total += amt;
+/* ---------- Safe helpers (never throw) ---------- */
+async function getProviderBySlugSafe(slug: string): Promise<Provider> {
+  try {
+    if (!slug) return null;
+    const { data, error } = await admin()
+      .from("Providers")
+      .select("id, slug, display_name")
+      .eq("slug", slug)
+      .maybeSingle();
+    if (error || !data?.id) return null;
+    return { id: data.id, slug: data.slug, display_name: data.display_name };
+  } catch {
+    return null;
   }
-  return total;
-}
-async function fetchRoi(providerId: string) {
-  const today0 = istStartOfDay(); const today1 = istEndOfDay();
-  const d7Start = new Date(today0); d7Start.setDate(d7Start.getDate() - 6);
-  const d30Start = new Date(today0); d30Start.setDate(d30Start.getDate() - 29);
-  const mtdStart = istStartOfMonth();
-  const lmStart = istStartOfLastMonth(); const lmEnd = istEndOfLastMonth();
-  const [today, d7, d30, mtd, lmtd] = await Promise.all([
-    sumPayments(providerId, today0, today1),
-    sumPayments(providerId, d7Start, today1),
-    sumPayments(providerId, d30Start, today1),
-    sumPayments(providerId, mtdStart, today1),
-    sumPayments(providerId, lmStart, lmEnd),
-  ]);
-  return { today, d7, d30, mtd, lmtd };
 }
 
-/* ---------- Nudge Center badge ---------- */
-async function fetchNudgeCount(providerId: string) {
-  const sb = admin();
-  const start = istStartOfDay().getTime();
-  const end = istEndOfDay().getTime();
-  const { count } = await sb
-    .from('Events')
-    .select('event', { head: true, count: 'exact' })
-    .eq('provider_id', providerId)
-    .eq('event', 'nudge.suggested')
-    .gte('ts', start)
-    .lte('ts', end);
-  return count ?? 0;
+async function fetchLeadsSafe(providerId: string | null): Promise<Lead[]> {
+  try {
+    if (!providerId) return [];
+    const { data = [] } = await admin()
+      .from("Leads")
+      .select("id, patient_name, phone, status, created_at")
+      .eq("provider_id", providerId)
+      .order("created_at", { ascending: false })
+      .limit(500);
+    return data || [];
+  } catch {
+    return [];
+  }
 }
 
-/* ---------- helpers ---------- */
-function fmtINR(n: number) {
-  return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n || 0);
+/* ---------- ROI + WoW deltas ---------- */
+async function fetchRoiSafe(providerId: string | null) {
+  if (!providerId)
+    return {
+      d7: 0,
+      prev7: 0,
+      delta7Text: "—",
+      mtd: 0,
+      lmtd: 0,
+      deltaMText: "—",
+      bookings: 0,
+      payments: 0,
+      bookings7: 0,
+      prevBookings7: 0,
+      payments7: 0,
+      prevPayments7: 0,
+      paidLeads7: 0,
+      pending7: 0,
+      deltaBookings7Text: "—",
+      deltaPayments7Text: "—",
+    };
+  try {
+    const sb = admin();
+    const now = Date.now(),
+      d7Cut = now - 7 * 24 * 60 * 60 * 1000,
+      d14Cut = now - 14 * 24 * 60 * 60 * 1000;
+    const mtdStart = new Date();
+    mtdStart.setDate(1);
+    mtdStart.setHours(0, 0, 0, 0);
+    const lmStart = new Date();
+    lmStart.setMonth(lmStart.getMonth() - 1);
+    lmStart.setDate(1);
+    lmStart.setHours(0, 0, 0, 0);
+    const lmEnd = new Date(mtdStart.getTime() - 1);
+    const { data: rows = [] } = await sb
+      .from("Events")
+      .select("event, ts, source, lead_id")
+      .eq("provider_id", providerId)
+      .gte("ts", lmStart.getTime());
+    let d7 = 0,
+      prev7 = 0,
+      mtd = 0,
+      lmtd = 0,
+      bookings = 0,
+      payments = 0,
+      bookings7 = 0,
+      prevBookings7 = 0,
+      payments7 = 0,
+      prevPayments7 = 0;
+    const paid7 = new Set<string>();
+    for (const r of rows) {
+      const amt = typeof r?.source?.amount === "number" ? r.source.amount : 0;
+      if (r.event === "payment.success") {
+        payments++;
+        if (r.ts >= d7Cut) {
+          d7 += amt;
+          payments7++;
+          if (r.lead_id) paid7.add(r.lead_id);
+        }
+        if (r.ts >= d14Cut && r.ts < d7Cut) {
+          prev7 += amt;
+          prevPayments7++;
+        }
+        if (r.ts >= mtdStart.getTime()) mtd += amt;
+        if (r.ts >= lmStart.getTime() && r.ts <= lmEnd.getTime()) lmtd += amt;
+      }
+      if (r.event === "booking.confirmed") {
+        bookings++;
+        if (r.ts >= d7Cut) bookings7++;
+        if (r.ts >= d14Cut && r.ts < d7Cut) prevBookings7++;
+      }
+    }
+    const mkDelta = (c: number, p: number) =>
+      p === 0 && c === 0
+        ? "—"
+        : p === 0
+        ? "↑ new"
+        : c === 0
+        ? "↓ 100%"
+        : `${c - p > 0 ? "↑" : "↓"} ${Math.round(
+            Math.abs(((c - p) / p) * 100)
+          )}%`;
+    return {
+      d7,
+      prev7,
+      delta7Text: mkDelta(d7, prev7),
+      mtd,
+      lmtd,
+      deltaMText: mkDelta(mtd, lmtd),
+      bookings,
+      payments,
+      bookings7,
+      prevBookings7,
+      payments7,
+      prevPayments7,
+      deltaBookings7Text: mkDelta(bookings7, prevBookings7),
+      deltaPayments7Text: mkDelta(payments7, prevPayments7),
+      paidLeads7: paid7.size,
+      pending7: Math.max(bookings7 - paidLeads7, 0),
+    };
+  } catch {
+    return {
+      d7: 0,
+      prev7: 0,
+      delta7Text: "—",
+      mtd: 0,
+      lmtd: 0,
+      deltaMText: "—",
+      bookings: 0,
+      payments: 0,
+      bookings7: 0,
+      prevBookings7: 0,
+      payments7: 0,
+      prevPayments7: 0,
+      paidLeads7: 0,
+      pending7: 0,
+      deltaBookings7Text: "—",
+      deltaPayments7Text: "—",
+    };
+  }
 }
-function applyFilters(rows: Lead[], q?: string, status?: string, sort?: string): Lead[] {
-  let out = Array.isArray(rows) ? [...rows] : [];
-  const qq = (q || '').trim().toLowerCase();
-  if (qq) {
-    out = out.filter(r =>
-      (r.patient_name || '').toLowerCase().includes(qq) ||
-      (r.phone || '').toLowerCase().includes(qq)
-    );
+
+/* ---------- Empty-slot signals ---------- */
+async function fetchIdleSignalsSafe(providerId: string | null) {
+  try {
+    if (!providerId)
+      return {
+        hasActivity24h: false,
+        hoursSinceAny: null,
+        lastAnyTs: null,
+        reason: "no-provider",
+      };
+    const sb = admin();
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+    const lookback = now - 14 * dayMs;
+    const { data: rows = [] } = await sb
+      .from("Events")
+      .select("event, ts")
+      .eq("provider_id", providerId)
+      .gte("ts", lookback);
+
+    let lastAnyTs: number | null = null;
+    for (const r of rows) {
+      if (typeof r?.ts === "number") {
+        if (lastAnyTs === null || r.ts > lastAnyTs) lastAnyTs = r.ts;
+      }
+    }
+    const hasActivity24h = !!(lastAnyTs && now - lastAnyTs < dayMs);
+    const hoursSinceAny = lastAnyTs
+      ? Math.floor((now - lastAnyTs) / (60 * 60 * 1000))
+      : null;
+
+    return { hasActivity24h, hoursSinceAny, lastAnyTs, reason: "ok" };
+  } catch {
+    return {
+      hasActivity24h: false,
+      hoursSinceAny: null,
+      lastAnyTs: null,
+      reason: "error",
+    };
   }
-  if (status && status !== 'all') {
-    out = out.filter(r => (r.status || 'new') === status);
+}
+
+/* ---------- Weekly series ---------- */
+async function fetchWeeklySeriesSafe(providerId: string | null) {
+  if (!providerId)
+    return Array.from({ length: 8 }).map((_, i) => ({
+      label: `W${String(i + 1).padStart(2, "0")}`,
+      amount: 0,
+    }));
+  try {
+    const sb = admin();
+    const start = Date.now() - 56 * 24 * 60 * 60 * 1000;
+    const { data: rows = [] } = await sb
+      .from("Events")
+      .select("event, ts, source")
+      .eq("provider_id", providerId)
+      .gte("ts", start)
+      .eq("event", "payment.success");
+    const byWeek = new Map<string, number>();
+    for (const r of rows) {
+      const amt = typeof r?.source?.amount === "number" ? r.source.amount : 0;
+      const d = new Date(r.ts),
+        oneJan = new Date(d.getFullYear(), 0, 1);
+      const week = Math.ceil(
+        ((d.getTime() - oneJan.getTime()) / 86400000 + oneJan.getDay() + 1) /
+          7
+      );
+      const label = `${d.getFullYear()}-W${String(week).padStart(2, "0")}`;
+      byWeek.set(label, (byWeek.get(label) || 0) + amt);
+    }
+    const res: any[] = [];
+    const now = new Date();
+    for (let i = 7; i >= 0; i--) {
+      const ref = new Date(now);
+      ref.setDate(ref.getDate() - i * 7);
+      const oneJan = new Date(ref.getFullYear(), 0, 1);
+      const week = Math.ceil(
+        ((ref.getTime() - oneJan.getTime()) / 86400000 +
+          oneJan.getDay() +
+          1) /
+          7
+      );
+      const label = `${ref.getFullYear()}-W${String(week).padStart(2, "0")}`;
+      res.push({ label, amount: byWeek.get(label) || 0 });
+    }
+    return res;
+  } catch {
+    return Array.from({ length: 8 }).map((_, i) => ({
+      label: `W${String(i + 1).padStart(2, "0")}`,
+      amount: 0,
+    }));
   }
-  if (sort === 'oldest') {
-    out.sort((a, b) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
-  } else {
-    out.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-  }
-  return out;
 }
 
 /* ---------- Page ---------- */
-export default async function Page(props: { searchParams: Promise<{ slug?: string; q?: string; status?: string; sort?: string }> }) {
-  const { slug, q, status, sort } = await props.searchParams;
-  const _slug = (slug || '').trim();
-  if (!_slug) {
-    return <main className="p-6"><h1 className="text-xl font-semibold">Leads</h1><p className="text-sm text-red-600 mt-2">Missing ?slug= in URL.</p></main>;
-  }
+export default async function LeadsPage(props: any) {
+  const spRaw = props?.searchParams;
+  const searchParams =
+    spRaw && typeof spRaw.then === "function" ? await spRaw : spRaw || {};
+  const slug = typeof searchParams?.slug === "string" ? searchParams.slug : "";
+  const provider = await getProviderBySlugSafe(slug);
+  const providerId = provider?.id || null;
 
-  let provider: Provider, rows: Lead[], roi: any, nudgeCount = 0;
-  try {
-    provider = await fetchProvider(_slug);
-    [rows, roi, nudgeCount] = await Promise.all([fetchLeads(provider.id), fetchRoi(provider.id), fetchNudgeCount(provider.id)]);
-  } catch {
-    return <main className="p-6"><h1 className="text-xl font-semibold">Leads</h1><p className="text-sm text-red-600 mt-2">Provider not found for slug “{_slug}”.</p></main>;
-  }
+  const [leads, roi, weekly, idle] = await Promise.all([
+    fetchLeadsSafe(providerId),
+    fetchRoiSafe(providerId),
+    fetchWeeklySeriesSafe(providerId),
+    fetchIdleSignalsSafe(providerId),
+  ]);
 
-  const filtered = applyFilters(rows, q, status, sort);
-  const delta = roi.lmtd > 0 ? Math.round(((roi.mtd - roi.lmtd) / roi.lmtd) * 100) : 0;
-  const deltaText = `${delta >= 0 ? '+' : ''}${delta}%`;
+  const nudgesHref = slug
+    ? `/dashboard/nudges?slug=${encodeURIComponent(slug)}`
+    : "/dashboard/nudges";
+  const upsellHref = slug
+    ? `/upsell?slug=${encodeURIComponent(slug)}`
+    : "/upsell";
+  const templatesHref = slug
+    ? `/templates?slug=${encodeURIComponent(slug)}`
+    : "/templates";
+
+  const showEmptySlots =
+    !idle.hasActivity24h ||
+    ((roi.bookings7 || 0) < 2 && (roi.payments7 || 0) < 2);
+
+  // 🔒 MVP: always show upsell bar (we can add smart gating later)
+  const showUpsellNudge = true;
 
   return (
     <main className="p-6 space-y-6">
-      {/* Header bar: title left, actions right */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">Leads</h1>
-          <div className="text-sm text-gray-600">
-            Provider: <span className="font-mono">{provider.slug}</span>
+        <h1 className="text-xl font-semibold">Leads</h1>
+        <div className="flex items-center gap-2">
+          <VeliPanel
+            slug={slug}
+            provider={provider?.display_name || slug || "your service provider"}
+          />
+          <QuickAddLead slug={slug} />
+        </div>
+      </div>
+
+      {/* Referral card */}
+      <ReferralCard
+        slug={slug}
+        providerName={provider?.display_name || slug || "your service provider"}
+      />
+
+      {/* Upsell nudge bar */}
+      {showUpsellNudge && (
+        <div className="rounded-2xl border p-4 bg-indigo-50 text-indigo-900">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold">
+                ⚡ Grow faster with Vyapr Growth
+              </div>
+              <div className="text-xs">
+                More bookings and fewer no-shows — unlock paid discovery,
+                auto-reminders, and review helpers.
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <a
+                href={upsellHref}
+                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-3 py-1.5 text-white shadow hover:bg-indigo-700 transition text-sm"
+              >
+                🚀 Boost visibility
+              </a>
+              <a
+                href={templatesHref}
+                className="inline-flex items-center gap-2 rounded-xl border border-indigo-600 px-3 py-1.5 text-indigo-700 bg-white hover:bg-indigo-50 transition text-sm"
+              >
+                🧰 Template packs
+              </a>
+            </div>
           </div>
         </div>
+      )}
 
-        <div className="flex items-center gap-2">
-          {/* + Quick Add (popover) */}
-          <QuickAddLead slug={provider.slug} />
+      {/* Empty slot alert banner */}
+      {showEmptySlots && (
+        <div className="rounded-2xl border p-4 bg-amber-50 text-amber-900">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold">Empty slot alert</div>
+              <div className="text-xs">
+                {idle.hasActivity24h
+                  ? "Light week detected — few bookings/payments in the last 7 days."
+                  : idle.hoursSinceAny == null
+                  ? "No recent booking or payment activity. Add your first service to get started."
+                  : `No booking/payment activity in the last ${idle.hoursSinceAny} hours.`}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <a
+                href={nudgesHref}
+                className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-1.5 text-white shadow hover:bg-emerald-700 transition text-sm"
+              >
+                💬 Send reactivation nudges
+              </a>
+              <a
+                href={upsellHref}
+                className="inline-flex items-center gap-2 rounded-xl border border-indigo-600 px-3 py-1.5 text-indigo-700 bg-white hover:bg-indigo-50 transition text-sm"
+              >
+                🚀 Boost visibility
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
 
-          {/* Nudge Center with badge */}
-          <a
-            href={`/dashboard/nudges?slug=${provider.slug}`}
-            className="px-3 py-2 rounded border hover:bg-gray-50 inline-flex items-center gap-2"
-            title="Open Nudge Center"
-          >
-            Nudge Center
-            {nudgeCount > 0 && (
-              <span className="text-xs bg-black text-white rounded-full px-2 py-0.5">
-                {nudgeCount}
-              </span>
-            )}
-          </a>
-        </div>
-      </div>
-
-      {/* ROI cards */}
-      <div className="grid grid-cols-5 gap-3">
-        <div className="rounded-lg border p-4">
-          <div className="text-xs text-gray-500">TODAY</div>
-          <div className="text-2xl font-bold">{fmtINR(roi.today)}</div>
-          <div className="text-xs text-gray-400">Since midnight IST</div>
-        </div>
-        <div className="rounded-lg border p-4">
-          <div className="text-xs text-gray-500">7D</div>
-          <div className="text-2xl font-bold">{fmtINR(roi.d7)}</div>
-          <div className="text-xs text-gray-400">Last 7 days (rolling)</div>
-        </div>
-        <div className="rounded-lg border p-4">
-          <div className="text-xs text-gray-500">30D</div>
-          <div className="text-2xl font-bold">{fmtINR(roi.d30)}</div>
-          <div className="text-xs text-gray-400">Last 30 days (rolling)</div>
-        </div>
-        <div className="rounded-lg border p-4">
-          <div className="text-xs text-gray-500">MTD</div>
-          <div className="text-2xl font-bold">{fmtINR(roi.mtd)}</div>
-          <div className="text-xs text-gray-400">{deltaText} vs LMTD</div>
-        </div>
-        <div className="rounded-lg border p-4">
-          <div className="text-xs text-gray-500">LMTD</div>
-          <div className="text-2xl font-bold">{fmtINR(roi.lmtd)}</div>
-          <div className="text-xs text-gray-400">Last month to date</div>
-        </div>
-      </div>
-
-      {/* Filters + Export CSV */}
-      <form method="GET" action="/dashboard/leads" className="flex flex-wrap items-center gap-2">
-        <input type="hidden" name="slug" value={provider.slug} />
-        <input
-          name="q"
-          defaultValue={q || ''}
-          placeholder="Search name, phone…"
-          className="px-3 py-2 rounded border min-w-[260px]"
+      {/* KPI cards with WoW deltas */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiCard
+          label="₹ in last 7 days"
+          value={roi.d7 > 0 ? `₹${Math.round(roi.d7)}` : "₹0 (start by adding leads)"}
+          deltaText={roi.delta7Text}
+          help="Sum of payment.success in the last 7 days. Delta vs the 7 days before that."
+          tone={
+            roi.d7 > (roi.prev7 || 0)
+              ? "success"
+              : roi.d7 < (roi.prev7 || 0)
+              ? "warn"
+              : "neutral"
+          }
         />
-        <select name="status" defaultValue={status || 'all'} className="px-3 py-2 rounded border">
-          <option value="all">All Statuses</option>
-          <option value="new">new</option>
-          <option value="active">active</option>
-          <option value="closed">closed</option>
-        </select>
-        <select name="sort" defaultValue={sort || 'newest'} className="px-3 py-2 rounded border">
-          <option value="newest">Sort: Newest</option>
-          <option value="oldest">Sort: Oldest</option>
-        </select>
-        <button type="submit" className="px-3 py-2 rounded border hover:bg-gray-50">Apply</button>
+        <KpiCard
+          label="MTD revenue"
+          value={roi.mtd > 0 ? `₹${Math.round(roi.mtd)}` : "₹0 (no payments yet)"}
+          deltaText={roi.deltaMText}
+          help="Month-to-date vs last month-to-date. Based on payment.success amounts."
+          tone={
+            roi.mtd > (roi.lmtd || 0)
+              ? "success"
+              : roi.mtd < (roi.lmtd || 0)
+              ? "warn"
+              : "neutral"
+          }
+        />
+        <KpiCard
+          label="Bookings (7d)"
+          value={roi.bookings7 > 0 ? roi.bookings7 : "0 (none yet)"}
+          deltaText={roi.deltaBookings7Text}
+          help="booking.confirmed in last 7 days vs previous 7 days."
+          tone={
+            roi.bookings7 > (roi.prevBookings7 || 0)
+              ? "success"
+              : roi.bookings7 < (roi.prevBookings7 || 0)
+              ? "warn"
+              : "neutral"
+          }
+        />
+        <KpiCard
+          label="Payments (7d)"
+          value={roi.payments7 > 0 ? roi.payments7 : "0 (none yet)"}
+          deltaText={roi.deltaPayments7Text}
+          help="payment.success in last 7 days vs previous 7 days."
+          tone={
+            roi.payments7 > (roi.prevPayments7 || 0)
+              ? "success"
+              : roi.payments7 < (roi.prevPayments7 || 0)
+              ? "warn"
+              : "neutral"
+          }
+        />
+      </div>
 
-        <a
-          className="ml-auto px-3 py-2 rounded border hover:bg-gray-50"
-          href={`/api/leads/export?slug=${provider.slug}&q=${encodeURIComponent(q || '')}&status=${encodeURIComponent(
-            status || 'all'
-          )}&sort=${encodeURIComponent(sort || 'newest')}`}
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Export CSV
-        </a>
-      </form>
+      {/* Weekly trend line */}
+      <div className="rounded-2xl border p-4">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-base font-semibold">Weekly growth (last 8 weeks)</h2>
+          <div className="text-xs text-gray-500">
+            Source: Events.payment.success
+          </div>
+        </div>
+        <LineChart series={weekly} />
+      </div>
 
-      {/* Leads Table */}
-      <LeadsClientTable rows={filtered} provider={provider} />
+      <TopCampaigns slug={slug} />
+
+      {provider ? (
+        leads.length > 0 ? (
+          <LeadsClientTable rows={leads} provider={provider} />
+        ) : (
+          <div className="rounded-xl border p-4 bg-gray-50 text-gray-600 text-sm">
+            No leads yet — add your first lead using the “Quick Add” button above.
+          </div>
+        )
+      ) : (
+        <div className="rounded-xl border p-4 bg-amber-50 text-amber-900 text-sm">
+          Provider not found for slug <code>{slug || "(empty)"}</code>.
+        </div>
+      )}
     </main>
+  );
+}
+
+/* ---------- LineChart (unchanged) ---------- */
+function LineChart({
+  series,
+}: {
+  series: Array<{ label: string; amount: number }>;
+}) {
+  const w = 560,
+    h = 160,
+    pad = 24,
+    xs = (i: number) => pad + (i * (w - pad * 2)) / Math.max(series.length - 1, 1);
+  const max = Math.max(1, ...series.map((s) => s.amount)),
+    ys = (v: number) => h - pad - (v * (h - pad * 2)) / max;
+  const path = series
+    .map((s, i) => `${i === 0 ? "M" : "L"} ${xs(i)} ${ys(s.amount)}`)
+    .join(" ");
+  const labels = series.map((s) =>
+    s.label.includes("-W") ? s.label.split("-W")[1] : s.label
+  );
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-40">
+      <rect x="0" y="0" width={w} height={h} fill="transparent" />
+      <line
+        x1={pad}
+        y1={h - pad}
+        x2={w - pad}
+        y2={h - pad}
+        stroke="currentColor"
+        opacity="0.2"
+      />
+      <line
+        x1={pad}
+        y1={pad}
+        x2={pad}
+        y2={h - pad}
+        stroke="currentColor"
+        opacity="0.2"
+      />
+      <path d={path} fill="none" stroke="currentColor" strokeWidth="2" />
+      {series.map((s, i) => (
+        <circle key={i} cx={xs(i)} cy={ys(s.amount)} r="2.5" fill="currentColor" />
+      ))}
+      {series.map((s, i) => (
+        <text
+          key={i}
+          x={xs(i)}
+          y={h - 6}
+          fontSize="10"
+          textAnchor="middle"
+          opacity="0.6"
+        >
+          {labels[i]}
+        </text>
+      ))}
+      <text
+        x={w - pad}
+        y={pad + 10}
+        fontSize="10"
+        textAnchor="end"
+        opacity="0.6"
+      >
+        ₹{Math.round(max)}
+      </text>
+    </svg>
   );
 }
