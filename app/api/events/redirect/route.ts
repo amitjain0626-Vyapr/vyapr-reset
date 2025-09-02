@@ -17,13 +17,11 @@ function j(msg: any, code = 200) {
 }
 
 async function postEventViaInternalApi(req: NextRequest, payload: any) {
-  // Use relative URL so the request stays within the same deployment
   try {
     const res = await fetch(new URL("/api/events/log", req.url), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
-      // keepalive is not needed server-to-server, but harmless
       cache: "no-store",
     });
     const ok = res.ok;
@@ -39,24 +37,23 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const debug = url.searchParams.get("debug") === "1";
 
-  const e    = (url.searchParams.get("e")    || "template.sent").trim();
-  const kind = (url.searchParams.get("kind") || "offer").trim();
-  const slug = (url.searchParams.get("slug") || "").trim() || null;
+  const e     = (url.searchParams.get("e")    || "template.sent").trim();
+  const kind  = (url.searchParams.get("kind") || "offer").trim();
+  const slug  = (url.searchParams.get("slug") || "").trim() || null;
+  const pid   = (url.searchParams.get("pid")  || "").trim() || null; // NEW: provider_id coming from client
   const phone = (url.searchParams.get("phone") || "").trim() || undefined;
-  const text = url.searchParams.get("text") || "";
+  const text  = url.searchParams.get("text") || "";
 
-  const payload = [{
+  const payload = {
     event: e,
     ts: Date.now(),
-    provider_id: null,           // let /api/events/log resolve (or accept null)
+    provider_id: pid || null,  // MUST be non-null to satisfy NOT NULL
     lead_id: null,
     source: { via: "ui", kind, provider_slug: slug },
-  }];
+  };
 
-  // 1) Log via internal API (which already has SUPABASE_SERVICE_ROLE configured)
-  const result = await postEventViaInternalApi(req, payload[0]);
+  const result = await postEventViaInternalApi(req, payload);
 
-  // 2a) If debugging, return JSON so we can see exactly what happened
   if (debug) {
     return j({
       ok: result.ok,
@@ -67,7 +64,6 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // 2b) Otherwise, redirect to WhatsApp regardless (UX-first)
   const dest = waUrlFrom(text, phone);
   return NextResponse.redirect(dest, { status: 302 });
 }
