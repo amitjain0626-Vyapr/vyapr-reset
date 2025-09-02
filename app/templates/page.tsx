@@ -3,7 +3,7 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export default function TemplatesPage(props: any) {
+export default async function TemplatesPage(props: any) {
   const spRaw = props?.searchParams;
   const searchParams =
     spRaw && typeof spRaw.then === "function" ? await spRaw : spRaw || {};
