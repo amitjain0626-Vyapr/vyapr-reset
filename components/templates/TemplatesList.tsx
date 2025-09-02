@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 
 type TemplateKind = "offer" | "rebook_post" | "thankyou_post" | "new_patient" | "no_show";
 type Lang = "en" | "hi";
+type Audience = "all" | "new" | "repeat";
 
 function buildBookingLink(origin: string, slug: string) {
   const base = origin || (typeof window !== "undefined" ? window.location.origin : "");
@@ -27,7 +28,7 @@ function readSlugFallback(slugProp?: string) {
 
 async function resolveProviderIdFromEvents(): Promise<string | null> {
   try {
-    const res = await fetch(`/api/debug/events?limit=20`, { cache: "no-store" });
+    const res = await fetch(`/api/debug/events?limit=50`, { cache: "no-store" });
     const j = await res.json();
     if (j?.rows && Array.isArray(j.rows)) {
       for (const r of j.rows) {
@@ -38,32 +39,43 @@ async function resolveProviderIdFromEvents(): Promise<string | null> {
   return null;
 }
 
-function redirectUrl(event: string, kind: TemplateKind, slug: string, pid: string | null, text: string) {
+function redirectUrl(
+  event: string,
+  kind: TemplateKind,
+  slug: string,
+  pid: string | null,
+  text: string,
+  audience: Audience,
+  mediaUrl?: string | null
+) {
   const params = new URLSearchParams();
   params.set("e", event);
   params.set("kind", kind);
   if (slug) params.set("slug", slug);
   if (pid) params.set("pid", pid);
+  params.set("aud", audience);
+  if (mediaUrl) params.set("media", mediaUrl);
   params.set("text", text);
   return `/api/events/redirect?${params.toString()}`;
 }
 
-async function logEvent(payload: any) {
+async function fetchRecentEvents(): Promise<any[]> {
   try {
-    const res = await fetch("/api/events/log", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify(payload),
-      keepalive: true,
-    });
-    return res.ok;
+    const res = await fetch(`/api/debug/events?limit=200`, { cache: "no-store" });
+    const j = await res.json();
+    return Array.isArray(j?.rows) ? j.rows : [];
   } catch {
-    return false;
+    return [];
   }
 }
 
-function LanguageToggle({ lang, setLang }: { lang: Lang; setLang: (l: Lang) => void }) {
+function within7d(tsMs: number) {
+  const now = Date.now();
+  const sevenDays = 7 * 24 * 60 * 60 * 1000;
+  return now - tsMs <= sevenDays;
+}
+
+function LangToggle({ lang, setLang }: { lang: Lang; setLang: (l: Lang) => void }) {
   return (
     <div className="mb-4 flex items-center gap-2">
       <span className="text-sm text-gray-600">Language:</span>
@@ -77,44 +89,22 @@ function LanguageToggle({ lang, setLang }: { lang: Lang; setLang: (l: Lang) => v
   );
 }
 
-// Small inline scheduler UI per card
-function Scheduler({
-  onClose,
-  onConfirm,
-  defaultISO,
-}: {
-  onClose: () => void;
-  onConfirm: (iso: string) => void;
-  defaultISO: string;
-}) {
-  const [v, setV] = useState(defaultISO);
+function AudienceChips({ aud, setAud }: { aud: Audience; setAud: (a: Audience) => void }) {
+  const Chip = ({ v, label }: { v: Audience; label: string }) => (
+    <button
+      className={`btn ${aud === v ? "bg-black text-white" : ""}`}
+      onClick={() => setAud(v)}
+      aria-pressed={aud === v}
+    >
+      {label}
+    </button>
+  );
   return (
-    <div className="mt-2 p-3 border rounded-xl bg-gray-50">
-      <label className="text-xs text-gray-600">Pick date & time (IST)</label>
-      <input
-        type="datetime-local"
-        className="mt-1 w-full text-sm border rounded-lg p-2 bg-white"
-        value={v}
-        onChange={(e) => setV(e.target.value)}
-      />
-      <div className="mt-2 flex gap-2">
-        <button className="btn" onClick={onClose}>Cancel</button>
-        <button
-          className="btn-primary"
-          onClick={() => {
-            if (!v) return;
-            // Normalize to ISO (assumes v is local IST on user device)
-            try {
-              const iso = new Date(v).toISOString();
-              onConfirm(iso);
-            } catch {
-              onConfirm(new Date().toISOString());
-            }
-          }}
-        >
-          Schedule
-        </button>
-      </div>
+    <div className="mb-4 flex items-center gap-2">
+      <span className="text-sm text-gray-600">Audience:</span>
+      <Chip v="all" label="All" />
+      <Chip v="new" label="New" />
+      <Chip v="repeat" label="Repeat" />
     </div>
   );
 }
@@ -123,9 +113,7 @@ function defaultISTDateTimeLocal(minutesFromNow = 60) {
   // Build a datetime-local string (yyyy-MM-ddThh:mm) using IST
   const now = new Date();
   const istOffsetMin = 330; // IST UTC+5:30
-  const utcMin = now.getUTCMinutes() + now.getUTCHours() * 60 + now.getUTCDate() * 24 * 60;
-  const istNow = new Date(now.getTime() + istOffsetMin * 60 * 1000);
-  const t = new Date(istNow.getTime() + minutesFromNow * 60 * 1000);
+  const t = new Date(now.getTime() + (istOffsetMin * 60 + minutesFromNow) * 60 * 1000);
   const pad = (n: number) => String(n).padStart(2, "0");
   const y = t.getUTCFullYear();
   const m = pad(t.getUTCMonth() + 1);
@@ -142,9 +130,14 @@ export default function TemplatesList({ slug }: { slug?: string }) {
     try { return (localStorage.getItem("vyapr.lang") as Lang) || "en"; } catch {}
     return "en";
   });
-  const [openFor, setOpenFor] = useState<string | null>(null); // card id for scheduler
+  const [aud, setAud] = useState<Audience>(() => {
+    try { return (localStorage.getItem("vyapr.audience") as Audience) || "all"; } catch {}
+    return "all";
+  });
+  const [analytics, setAnalytics] = useState<Record<string, { sent7d: number; opens7d: number }>>({});
   const effectiveSlug = readSlugFallback(slug);
 
+  // Resolve providerId
   useEffect(() => {
     let on = true;
     (async () => {
@@ -154,62 +147,202 @@ export default function TemplatesList({ slug }: { slug?: string }) {
     return () => { on = false; };
   }, []);
 
+  // Persist UI prefs
   useEffect(() => {
     try { localStorage.setItem("vyapr.lang", lang); } catch {}
   }, [lang]);
+  useEffect(() => {
+    try { localStorage.setItem("vyapr.audience", aud); } catch {}
+  }, [aud]);
 
-  const texts = useMemo(() => {
+  // Prepare base text dictionaries (with placeholders)
+  const baseText = useMemo(() => {
     const link = buildBookingLink(origin, effectiveSlug || "");
 
     const en = {
-      offer: `Hello! 😊 This week only — ₹200 off for the first 10 bookings. Pick your slot here: ${link}`,
-      rebook_post: `Hi! Loved having you last time. This week’s slots are filling fast — pick a convenient time: ${link}`,
-      thankyou_post: `Thank you for choosing us! 🙏 If you found this helpful, please share with a friend. To rebook, use this link: ${link}`,
-      new_patient: `New here? Welcome! 🎉 Book your first appointment and get a special ₹150 welcome credit. Choose your time: ${link}`,
-      no_show: `We missed you last time. It happens! 😊 Rebook quickly here — we’ll hold a priority slot for you: ${link}`,
+      offer: (amount = 200, count = 10, expiryISO?: string) => {
+        const expiry = expiryISO ? new Date(expiryISO).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }) : undefined;
+        return `Hello! 😊 This week only — ₹${amount} off for the first ${count} bookings${expiry ? ` (till ${expiry})` : ""}. Pick your slot here: ${link}`;
+      },
+      rebook_post: () => `Hi! Loved having you last time. This week’s slots are filling fast — pick a convenient time: ${link}`,
+      thankyou_post: () => `Thank you for choosing us! 🙏 If you found this helpful, please share with a friend. To rebook, use this link: ${link}`,
+      new_patient: () => `New here? Welcome! 🎉 Book your first appointment and get a special ₹150 welcome credit. Choose your time: ${link}`,
+      no_show: () => `We missed you last time. It happens! 😊 Rebook quickly here — we’ll hold a priority slot for you: ${link}`,
     };
 
     const hi = {
-      offer: `Hello! 😊 Sirf is week — pehli 10 bookings par ₹200 off. Slot yahan choose karein: ${link}`,
-      rebook_post: `Hi! Pichhli baar aap aaye the, bahut accha laga. Is week ke slots fast fill ho rahe hain — apna time choose karein: ${link}`,
-      thankyou_post: `Thank you! 🙏 Agar experience accha laga ho to ek dost ke saath share karein. Rebook ke liye yeh link use karein: ${link}`,
-      new_patient: `Naye hain? Swagat hai! 🎉 Pehli appointment par ₹150 welcome credit. Time choose karein: ${link}`,
-      no_show: `Pichhli baar miss ho gaya — koi baat nahi! 😊 Yahan se jaldi rebook karein, hum aapke liye priority slot hold karenge: ${link}`,
+      offer: (amount = 200, count = 10, expiryISO?: string) => {
+        const expiry = expiryISO ? new Date(expiryISO).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }) : undefined;
+        return `Hello! 😊 Sirf is week — pehli ${count} bookings par ₹${amount} off${expiry ? ` (till ${expiry})` : ""}. Slot yahan choose karein: ${link}`;
+      },
+      rebook_post: () => `Hi! Pichhli baar aap aaye the, bahut accha laga. Is week ke slots fast fill ho rahe hain — apna time choose karein: ${link}`,
+      thankyou_post: () => `Thank you! 🙏 Agar experience accha laga ho to ek dost ke saath share karein. Rebook ke liye yeh link use karein: ${link}`,
+      new_patient: () => `Naye hain? Swagat hai! 🎉 Pehli appointment par ₹150 welcome credit. Time choose karein: ${link}`,
+      no_show: () => `Pichhli baar miss ho gaya — koi baat nahi! 😊 Yahan se jaldi rebook karein, hum aapke liye priority slot hold karenge: ${link}`,
     };
 
-    return lang === "en" ? en : hi;
-  }, [origin, effectiveSlug, lang]);
+    return { en, hi };
+  }, [origin, effectiveSlug]);
+
+  // Template list + per-card local state (placeholders + media)
+  const [state, setState] = useState<Record<string, any>>({
+    "tpl-offer":      { amount: 200, count: 10, expiry: defaultISTDateTimeLocal(24 * 60).slice(0, 10), media: "" },
+    "tpl-rebook":     { media: "" },
+    "tpl-thanks":     { media: "" },
+    "tpl-newpatient": { media: "" },
+    "tpl-noshow":     { media: "" },
+  });
 
   const templates = useMemo(() => {
-    const items: Array<{id: string; kind: TemplateKind; title: string; blurb: string; text: string}> = [
-      { id: "tpl-offer",        kind: "offer",        title: "Limited-time Offer",    blurb: "Simple discount to fill this week’s slots.", text: texts.offer },
-      { id: "tpl-rebook",       kind: "rebook_post",  title: "Rebooking Nudge",       blurb: "Win back past leads with a polite nudge.",  text: texts.rebook_post },
-      { id: "tpl-thanks",       kind: "thankyou_post",title: "Thank You + Share",     blurb: "Post-visit thank-you + gentle share ask.",   text: texts.thankyou_post },
-      { id: "tpl-newpatient",   kind: "new_patient",  title: "New Patient Welcome",   blurb: "Cold-start for first-time visitors.",        text: texts.new_patient },
-      { id: "tpl-noshow",       kind: "no_show",      title: "No-Show Recovery",      blurb: "Turn a miss into a rebooking.",              text: texts.no_show },
+    const items: Array<{id: string; kind: TemplateKind; title: string; blurb: string; computeText: () => string}> = [
+      {
+        id: "tpl-offer",
+        kind: "offer",
+        title: "Limited-time Offer",
+        blurb: "Simple discount to fill this week’s slots.",
+        computeText: () => {
+          const s = state["tpl-offer"] || {};
+          const fn = (lang === "en" ? baseText.en.offer : baseText.hi.offer);
+          return fn(Number(s.amount || 200), Number(s.count || 10), s.expiry ? new Date(s.expiry).toISOString() : undefined);
+        },
+      },
+      {
+        id: "tpl-rebook",
+        kind: "rebook_post",
+        title: "Rebooking Nudge",
+        blurb: "Win back past leads with a polite nudge.",
+        computeText: () => (lang === "en" ? baseText.en.rebook_post() : baseText.hi.rebook_post()),
+      },
+      {
+        id: "tpl-thanks",
+        kind: "thankyou_post",
+        title: "Thank You + Share",
+        blurb: "Post-visit thank-you + gentle share ask.",
+        computeText: () => (lang === "en" ? baseText.en.thankyou_post() : baseText.hi.thankyou_post()),
+      },
+      {
+        id: "tpl-newpatient",
+        kind: "new_patient",
+        title: "New Patient Welcome",
+        blurb: "Cold-start for first-time visitors.",
+        computeText: () => (lang === "en" ? baseText.en.new_patient() : baseText.hi.new_patient()),
+      },
+      {
+        id: "tpl-noshow",
+        kind: "no_show",
+        title: "No-Show Recovery",
+        blurb: "Turn a miss into a rebooking.",
+        computeText: () => (lang === "en" ? baseText.en.no_show() : baseText.hi.no_show()),
+      },
     ];
     return items;
-  }, [texts]);
+  }, [baseText, lang, state]);
+
+  // Fetch analytics (7d) and compute per-kind sent/open proxy
+  useEffect(() => {
+    let on = true;
+    (async () => {
+      const rows = await fetchRecentEvents();
+      const sent: Record<string, number> = {};
+      const opens: Record<string, number> = {};
+      for (const r of rows) {
+        if (!within7d(Number(r.ts))) continue;
+        if (r.event === "template.sent") {
+          const k = r?.source?.kind || "unknown";
+          sent[k] = (sent[k] || 0) + 1;
+        }
+        if (r.event === "booking.landing.opened" && (r?.source?.campaign === "template-pack" || r?.source?.utm_source === "whatsapp")) {
+          // proxy for clicks/opens from messages
+          opens["total"] = (opens["total"] || 0) + 1;
+        }
+      }
+      const merged: Record<string, { sent7d: number; opens7d: number }> = {};
+      for (const t of templates) {
+        merged[t.kind] = {
+          sent7d: sent[t.kind] || 0,
+          opens7d: opens["total"] || 0, // simple proxy shared across
+        };
+      }
+      if (on) setAnalytics(merged);
+    })();
+    return () => { on = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lang, aud]); // re-run when UI context changes (cheap enough)
 
   return (
     <div>
-      <LanguageToggle lang={lang} setLang={setLang} />
+      <LangToggle lang={lang} setLang={setLang} />
+      <AudienceChips aud={aud} setAud={setAud} />
 
       <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {templates.map((t) => {
-          const go = redirectUrl("template.sent", t.kind, effectiveSlug, providerId, t.text);
-          const datetimeDefault = defaultISTDateTimeLocal(60); // +1h IST
-          const isOpen = openFor === t.id;
+          const s = state[t.id] || {};
+          // Compose final text with optional media URL appended (as many WA clients just treat it as a link)
+          const base = t.computeText();
+          const finalText = s.media ? `${base}\n\nImage: ${s.media}` : base;
+
+          const go = redirectUrl("template.sent", t.kind, effectiveSlug, providerId, finalText, aud, s.media || "");
+
+          const a = analytics[t.kind] || { sent7d: 0, opens7d: 0 };
 
           return (
             <article key={t.id} className="card p-4">
               <h3 className="font-semibold text-lg">{t.title}</h3>
               <p className="text-sm text-gray-600 mt-1">{t.blurb}</p>
+
+              {/* Inline placeholders */}
+              {t.kind === "offer" && (
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="text-xs text-gray-600">₹ Amount</label>
+                    <input
+                      type="number"
+                      className="w-full border rounded-lg p-2 text-sm"
+                      value={s.amount ?? 200}
+                      onChange={(e) => setState((prev) => ({ ...prev, [t.id]: { ...s, amount: Number(e.target.value || 0) } }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-600">Count</label>
+                    <input
+                      type="number"
+                      className="w-full border rounded-lg p-2 text-sm"
+                      value={s.count ?? 10}
+                      onChange={(e) => setState((prev) => ({ ...prev, [t.id]: { ...s, count: Number(e.target.value || 0) } }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-600">Expiry</label>
+                    <input
+                      type="date"
+                      className="w-full border rounded-lg p-2 text-sm"
+                      value={s.expiry || defaultISTDateTimeLocal(24 * 60).slice(0, 10)}
+                      onChange={(e) => setState((prev) => ({ ...prev, [t.id]: { ...s, expiry: e.target.value } }))}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Media URL (optional) */}
+              <div className="mt-3">
+                <label className="text-xs text-gray-600">Image URL (optional)</label>
+                <input
+                  type="url"
+                  placeholder="https://…"
+                  className="mt-1 w-full border rounded-lg p-2 text-sm"
+                  value={s.media || ""}
+                  onChange={(e) => setState((prev) => ({ ...prev, [t.id]: { ...s, media: e.target.value.trim() } }))}
+                />
+              </div>
+
+              {/* Preview text */}
               <textarea
                 readOnly
-                className="mt-3 w-full h-32 text-sm border rounded-xl p-3 bg-gray-50"
-                value={t.text}
+                className="mt-3 w-full h-36 text-sm border rounded-xl p-3 bg-gray-50"
+                value={finalText}
               />
+
+              {/* Actions */}
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <a className="btn-primary" href={go} target="_blank" rel="noopener noreferrer">
                   Send on WhatsApp
@@ -217,52 +350,55 @@ export default function TemplatesList({ slug }: { slug?: string }) {
                 <button
                   className="btn"
                   onClick={async () => {
-                    try { await navigator.clipboard.writeText(t.text); } catch {}
-                    const url = redirectUrl("template.copied", t.kind, effectiveSlug, providerId, t.text);
+                    try { await navigator.clipboard.writeText(finalText); } catch {}
+                    // Fire a copy log (via redirect endpoint so it tags audience/media)
+                    const url = redirectUrl("template.copied", t.kind, effectiveSlug, providerId, finalText, aud, s.media || "");
                     fetch(url + "&debug=0", { method: "GET", keepalive: true });
                     alert("Copied to clipboard ✓");
                   }}
                 >
                   Copy
                 </button>
-                <button className="btn" onClick={() => setOpenFor(isOpen ? null : t.id)}>
-                  {isOpen ? "Close" : "Schedule for later"}
+                {/* minimal “Schedule for later” stays (logged via /api/events/log directly) */}
+                <button
+                  className="btn"
+                  onClick={async () => {
+                    const when = prompt("Schedule when? (ISO or 'YYYY-MM-DDTHH:mm')", defaultISTDateTimeLocal(60));
+                    if (!when) return;
+                    try {
+                      await fetch("/api/events/log", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          event: "template.schedule.requested",
+                          ts: Date.now(),
+                          provider_id: providerId,
+                          lead_id: null,
+                          source: { via: "ui", kind: t.kind, provider_slug: effectiveSlug || null, whenISO: new Date(when).toISOString(), audience: aud, media_url: s.media || null },
+                        }),
+                      });
+                      alert("Scheduled request logged ✓");
+                    } catch {
+                      alert("Could not log schedule, please try again.");
+                    }
+                  }}
+                >
+                  Schedule for later
                 </button>
               </div>
 
-              {isOpen && (
-                <Scheduler
-                  defaultISO={datetimeDefault}
-                  onClose={() => setOpenFor(null)}
-                  onConfirm={async (whenISO) => {
-                    // MVP: log a schedule request; actual delivery handled by ops/cron later
-                    const ok = await logEvent({
-                      event: "template.schedule.requested",
-                      ts: Date.now(),
-                      provider_id: providerId, // can be null-safe if your DB requires; here Events likely allows null except we saw not-null earlier for provider_id
-                      lead_id: null,
-                      source: {
-                        via: "ui",
-                        kind: t.kind,
-                        provider_slug: effectiveSlug || null,
-                        whenISO,
-                      },
-                    });
-                    setOpenFor(null);
-                    if (ok) {
-                      alert("Scheduled request logged ✓");
-                    } else {
-                      alert("Could not log schedule. Please try again.");
-                    }
-                  }}
-                />
-              )}
-
-              {!providerId && (
-                <p className="mt-2 text-xs text-amber-700">
-                  Resolving provider… first click may not log; try again once resolved.
-                </p>
-              )}
+              {/* Mini analytics */}
+              <div className="mt-3 text-xs text-gray-600">
+                <div className="flex items-center gap-3">
+                  <span className="rounded-lg border px-2 py-1 bg-white">7d Sends: <b>{a.sent7d}</b></span>
+                  <span className="rounded-lg border px-2 py-1 bg-white">7d Opens (proxy): <b>{a.opens7d}</b></span>
+                </div>
+                {!providerId && (
+                  <p className="mt-2 text-amber-700">
+                    Resolving provider… first click may not log; try again once resolved.
+                  </p>
+                )}
+              </div>
             </article>
           );
         })}
