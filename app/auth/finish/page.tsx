@@ -30,7 +30,6 @@ async function safeLog(event: string, source: any = {}) {
 
 function pickSlugLike(obj: any): string | null {
   if (!obj || typeof obj !== "object") return null;
-  // Try common shapes without schema drift
   if (typeof obj.slug === "string" && obj.slug) return obj.slug;
   if (typeof obj.provider_slug === "string" && obj.provider_slug) return obj.provider_slug;
   if (obj.data && typeof obj.data.slug === "string" && obj.data.slug) return obj.data.slug;
@@ -40,19 +39,19 @@ function pickSlugLike(obj: any): string | null {
 
 async function resolveProviderSlug(): Promise<string> {
   // 1) If URL already has ?slug=..., respect it.
-  const url = new URL(window.location.href);
-  const urlSlug = url.searchParams.get("slug");
-  if (urlSlug) return urlSlug;
+  try {
+    const url = new URL(window.location.href);
+    const urlSlug = url.searchParams.get("slug");
+    if (urlSlug) return urlSlug;
+  } catch {}
 
-  // 2) Try /api/dentists/me (present in repo per folder index)
+  // 2) Try API hints (no schema drift)
   try {
     const r = await fetch("/api/dentists/me", { cache: "no-store" });
     const j = await r.json().catch(() => ({}));
     const s = pickSlugLike(j) || pickSlugLike(j?.dentist) || pickSlugLike(j?.me);
     if (s) return s;
   } catch {}
-
-  // 3) Try /api/debug/me as a fallback
   try {
     const r2 = await fetch("/api/debug/me", { cache: "no-store" });
     const j2 = await r2.json().catch(() => ({}));
@@ -60,12 +59,13 @@ async function resolveProviderSlug(): Promise<string> {
     if (s2) return s2;
   } catch {}
 
-  // 4) Last resort: localStorage hint or default
+  // 3) LocalStorage hint
   try {
     const ls = localStorage.getItem("vyapr:lastSlug");
     if (ls) return ls;
   } catch {}
 
+  // 4) Fallback
   return DEFAULT_FALLBACK_SLUG;
 }
 
@@ -81,27 +81,43 @@ export default function AuthFinishPage() {
         const { data, error } = await supabase.auth.getSession();
         if (error) throw error;
 
-        // 2) Telemetry (updated scope list)
+        // 2) Capture Google provider token → persist via secure cookie for server routes
+        try {
+          const tok =
+            (data?.session as any)?.provider_token ||
+            (data?.session as any)?.provider_access_token ||
+            null;
+          if (tok) {
+            await fetch("/api/google-calendar/token", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ token: tok }),
+              keepalive: true,
+            });
+          }
+        } catch {}
+
+        // 3) Telemetry
         await safeLog("auth.google.success", {
           via: "supabase",
           scopes: ["contacts.readonly", "calendar.events"],
         });
 
-        // 3) Best-effort stub imports (contract placeholder)
+        // 4) Best-effort stub events (placeholder)
         const now = Date.now();
         for (const i of [0, 1, 2]) {
-          // fire-and-forget
-          safeLog("lead.imported", {
-            from: "gmail",
-            confidence: "stub",
-            ts_hint: now + i,
-          });
+          safeLog("lead.imported", { from: "gmail", confidence: "stub", ts_hint: now + i });
         }
 
-        // 4) Resolve provider slug and redirect to dashboard with slug guardrail
+        // 5) Resolve slug, remember locally for future, and redirect
         const slug = await resolveProviderSlug();
+        try {
+          localStorage.setItem("vyapr:lastSlug", slug);
+        } catch {}
+
         setMsg("Signed in. Taking you to dashboard…");
-        window.location.replace(`/dashboard?slug=${encodeURIComponent(slug)}`);
+        // Important: go straight to the Leads page with the slug
+        window.location.replace(`/dashboard/leads?slug=${encodeURIComponent(slug)}`);
       } catch (e: any) {
         setMsg("Could not finalize sign-in. Redirecting to login…");
         setTimeout(() => window.location.replace("/login?e=finish"), 500);
