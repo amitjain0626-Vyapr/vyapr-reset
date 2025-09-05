@@ -12,8 +12,8 @@ export const dynamic = "force-dynamic";
  * - Preserves legacy response keys: { ok, preview_length, sample }.
  *
  * Query params:
- *   slug: string (provider slug)
- *   template: string (template identifier) OR tid (legacy)
+ *   slug: string (provider slug)  [used to resolve provider_id + default booking link]
+ *   template | tid: optional (legacy)
  *   lead_id?: string
  *   slotISO?: string (optional override)
  *   a?: string (audience)
@@ -23,8 +23,9 @@ export const dynamic = "force-dynamic";
  *   msg?: string (raw template text with placeholders)
  *   lang?: "en" | "hinglish" | "hi"  (default = "en")
  *   kind?: "no_show_followup" | "reactivation_nudge" | "pre_booking_reminder"
- *   name?: string (customer name override)
- *   profession?: string (NEW — provider profession, e.g., "Dentist", "Astrologer")
+ *   name?: string        (customer name override)
+ *   profession?: string  (provider profession, e.g., "Dentist")
+ *   provider?: string    (NEW — provider display name override)
  */
 
 const PROVIDER_ID_FALLBACKS: Record<string, string> = {
@@ -87,16 +88,18 @@ export async function GET(req: NextRequest) {
   const lang = (q.get("lang") || "en").toLowerCase();
   const kind = q.get("kind");
   const nameOverride = (q.get("name") || "").trim();
-  const profession = (q.get("profession") || "").trim(); // NEW
+  const profession = (q.get("profession") || "").trim();
+  const providerOverride = (q.get("provider") || "").trim(); // NEW
 
-  /* ---- provider resolve ---- */
+  /* ---- provider resolve (id + default display) ---- */
   const providerResolved =
     (await getJSON<{ ok: boolean; id?: string; slug?: string; display_name?: string }>(
       new URL(`/api/providers/resolve?slug=${encodeURIComponent(slug)}`, url.origin).toString()
     )) || null;
 
   const provider_id = providerResolved?.id || (slug && PROVIDER_ID_FALLBACKS[slug]) || null;
-  const provider_name = providerResolved?.display_name || slug || "your service provider";
+  const provider_name_default = providerResolved?.display_name || slug || "your service provider";
+  const provider_name = providerOverride || provider_name_default; // prefer explicit override
 
   /* ---- lead lookup ---- */
   let lead: any = null;
@@ -134,7 +137,7 @@ export async function GET(req: NextRequest) {
     customer_name,
     customer_phone,
     provider_name,
-    provider_profession: profession || "", // NEW
+    provider_profession: profession || "",
     slot_date: dateText,
     slot_time: timeText,
     amount: amt,
@@ -143,8 +146,7 @@ export async function GET(req: NextRequest) {
     booking_link: new URL(`/book/${encodeURIComponent(slug || "")}`, url.origin).toString(),
   };
 
-  /* ---- defaults ---- */
-  // If profession is present, we add: ", your {provider_profession}"
+  /* ---- copy ---- */
   const whoSuffix = previewVars.provider_profession ? `, your {provider_profession}` : "";
 
   const defaultsByLang: Record<string, string> = {
@@ -175,23 +177,18 @@ export async function GET(req: NextRequest) {
   const text = fillPlaceholders(baseText, previewVars);
 
   /* ---- telemetry ---- */
-  const telemetry = {
-    event: "template.preview.requested",
-    ts: Date.now(),
-    provider_id,
-    lead_id,
-    source: {
-      provider_slug: slug || null,
-      template_id: template || null,
-      audience,
-      placeholders: previewVars,
-      lang,
-      kind,
-      nameOverride: nameOverride || null,
-    },
-  };
   try {
-    await fetch(new URL("/api/events/log", url.origin), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(telemetry) });
+    await fetch(new URL("/api/events/log", url.origin), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event: "template.preview.requested",
+        ts: Date.now(),
+        provider_id,
+        lead_id,
+        source: { provider_slug: slug || null, template_id: template || null, audience, placeholders: previewVars, lang, kind, nameOverride, providerOverride },
+      }),
+    });
   } catch {}
 
   /* ---- wa deeplink ---- */
