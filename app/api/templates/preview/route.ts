@@ -71,6 +71,8 @@ function fillPlaceholders(text: string, vars: Record<string, string | number | n
   return out;
 }
 
+// Map categories/professions to nicer, customer-facing labels function normalizeProfession(raw?: string | null): string | null { if (!raw) return null; const s = String(raw).trim().toLowerCase(); const map: Record<string, string> = { dentist: "Dentist", dental: "Dentist", astro: "Astrologer", astrologer: "Astrologer", dance: "Dance Instructor", dancer: "Dance Instructor", physio: "Physiotherapist", physiotherapist: "Physiotherapist", tuition: "Tutor", tutor: "Tutor", salon: "Stylist", fitness: "Fitness Coach", yoga: "Yoga Instructor", }; return map[s] || raw.charAt(0).toUpperCase() + raw.slice(1); } ``` 2 lines after: ```ts export async function GET(req: NextRequest) { const url = new URL(req.url);
+
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const q = url.searchParams;
