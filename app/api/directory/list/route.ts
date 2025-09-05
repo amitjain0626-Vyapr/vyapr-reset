@@ -40,9 +40,9 @@ export async function GET(req: Request) {
 
   const boostedIds = new Set<string>((boosts.data || []).map((b: any) => b.provider_id));
 
-  // ---- NEW: compute verification flag from Events (no schema drift) ----
-  // We treat any of these events as "verified":
+  // ---- VERIFIED FLAG (derive from Events; aligns with /api/verification/status) ----
   const VERIFIED_EVENTS = [
+    "provider.verified",              // <- added to match your status route + data
     "verification.verified",
     "verification.approved",
     "verification.badge.granted",
@@ -56,7 +56,7 @@ export async function GET(req: Request) {
     .in("event", VERIFIED_EVENTS);
 
   const verifiedIds = new Set<string>((verifs.data || []).map((v: any) => v.provider_id));
-  // ---------------------------------------------------------------------
+  // -------------------------------------------------------------------------------
 
   // 4) Fetch details for boosted providers (published) that may be outside current filters
   let boostedProviders: any[] = [];
@@ -79,9 +79,7 @@ export async function GET(req: Request) {
 
   for (const p of filteredProviders) {
     const existing = map.get(p.id);
-    const merged = existing
-      ? { ...existing, ...p }
-      : { ...p };
+    const merged = existing ? { ...existing, ...p } : { ...p };
 
     merged.boosted = !!(merged.boosted || boostedIds.has(p.id));
     merged.verified = !!(merged.verified || verifiedIds.has(p.id));
