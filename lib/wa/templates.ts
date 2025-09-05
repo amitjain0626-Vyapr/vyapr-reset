@@ -1,105 +1,108 @@
 // lib/wa/templates.ts
-// @ts-nocheck
+// WhatsApp/SMS templates — English-first, generic across all categories (Dentist, Dance, Astro, etc.)
+// Voice: professional, short, no category-specific words like "clinic".
+// Link is appended by the caller (LeadActions / ROI CTA).
 
-export type WaParams = {
-  name?: string;                 // "Aisha"
-  provider?: string;             // "Dr. Kapoor Clinic"
-  slug?: string;                 // "amitjain0626"
-  slot?: string;                 // "Tue 4:30 PM"
-  link?: string;                 // optional absolute override (e.g., prod domain)
-  // Attribution
-  leadId?: string;               // used as ?lid=
-  kind?: "reminder" | "rebook";  // used for utm_campaign (fallback)
-  campaign?: string;             // explicit utm_campaign (e.g., confirm, noshow, reactivation, instagram)
+import { pickServicePhrase } from "@/lib/copy/tg";
+
+export type WaLang = "en" | "hi"; // default English; Hinglish only when explicitly requested
+
+type WaOpts = {
+  name?: string;        // customer name (optional)
+  provider?: string;    // provider display name (optional) e.g., "Amit Jain"
+  refCode?: string;     // optional reference code to show at the end
+  amountINR?: number;   // optional amount to mention
+
+  // INSERTS (optional, no DB/schema drift):
+  category?: string | null;   // e.g., "dentist", "physio", "salon", etc.
+  topService?: string | null; // provider’s own top/primary service name, if any
 };
 
-// ---------- internals (robust UTM builder; no URL ctor) ----------
-function buildQuery(obj: Record<string, any>) {
-  return Object.entries(obj)
-    .filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== "")
-    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
-    .join("&");
+function firstName(name?: string | null) {
+  if (!name) return "";
+  return name.trim().split(/\s+/)[0];
 }
 
-function appendParams(rawUrl: string, params: Record<string, any>) {
-  const hashIdx = rawUrl.indexOf("#");
-  const hasFragment = hashIdx >= 0;
-  const base = hasFragment ? rawUrl.slice(0, hashIdx) : rawUrl;
-  const frag = hasFragment ? rawUrl.slice(hashIdx) : "";
-  const sep = base.includes("?") ? "&" : "?";
-  const qs = buildQuery(params);
-  return qs ? `${base}${sep}${qs}${frag}` : rawUrl;
+function teamLine(opts: WaOpts, lang: WaLang) {
+  if (opts?.provider && opts.provider.trim()) {
+    return lang === "hi"
+      ? `yeh ${opts.provider} ki team hai.`
+      : `this is ${opts.provider}'s team.`;
+  }
+  return lang === "hi"
+    ? "yeh aapke service provider ki team hai."
+    : "this is your service provider’s team.";
 }
 
-function getOrigin() {
-  try {
-    if (typeof window !== "undefined" && window?.location?.origin) {
-      return window.location.origin; // e.g., https://vyapr-reset-...vercel.app
-    }
-  } catch {}
-  // server-side fallback (prod canonical)
-  return "https://vyapr.com";
+// Helper: pick a friendly service phrase (category/topService-aware)
+function serviceCore(opts: WaOpts): string {
+  return pickServicePhrase({
+    category: (opts.category || undefined) ?? undefined,
+    topService: (opts.topService || undefined) ?? undefined,
+  }).trim();
 }
 
-function buildBookingLink(p: WaParams) {
-  const origin = getOrigin();
-  const base = p.link || (p.slug ? `${origin}/book/${p.slug}` : origin);
-  const params = {
-    utm_source: "whatsapp",
-    utm_medium: "message",
-    utm_campaign: p.campaign || p.kind || "general",
-    utm_content: "vyapr-default",
-    lid: p.leadId || "",
-  };
-  return appendParams(base, params);
-}
-// -----------------------------------------------------------------
-
-export function waReminder(p: WaParams) {
-  const name = (p.name || "").trim();
-  const who = name ? ` ${name}` : "";
-  const provider = (p.provider || "your clinic").trim();
-  const slot = (p.slot || "").trim();
-  const link = buildBookingLink({ ...p, kind: "reminder" });
-
-  const line1 = `Hi${who}, quick reminder from ${provider}.`;
-  const line2 = slot ? `Can we confirm your ${slot} appointment?` : `Can we confirm your appointment?`;
-  const line3 = `Reply YES to confirm or pick another time: ${link}`;
-  return `${line1} ${line2} ${line3}`;
+function serviceSuffix(opts: WaOpts, lang: WaLang): string {
+  const phrase = serviceCore(opts);
+  if (!phrase || phrase.toLowerCase() === "appointment / slots") return "";
+  return lang === "hi" ? ` — ${phrase} ke liye` : ` for ${phrase}`;
 }
 
-export function waRebook(p: WaParams) {
-  const name = (p.name || "").trim();
-  const who = name ? ` ${name}` : "";
-  const provider = (p.provider || "your clinic").trim();
-  const link = buildBookingLink({ ...p, kind: "rebook" });
-
-  // Slight copy change for preset campaigns
-  const tag = (p.campaign || p.kind || "general").toLowerCase();
-  const line1 = `Hi${who}, this is ${provider}.`;
-  const line2 =
-    tag === "reactivation"
-      ? `It’s been a while — want to schedule a visit this week?`
-      : `We missed you last time — want to rebook for this week?`;
-  const line3 = link;
-  return `${line1} ${line2} ${line3}`;
+function amountLine(amountINR?: number, lang: WaLang = "en") {
+  const valid =
+    typeof amountINR === "number" && isFinite(amountINR) && amountINR > 0;
+  if (!valid) return "";
+  const amt = `₹${Math.round(amountINR).toLocaleString("en-IN")}`;
+  return lang === "hi" ? ` ${amt}` : ` ${amt}`;
 }
 
-// Public helper: tracked booking link (same UTM rules)
-export function waBookingLink(p: WaParams) {
-  return buildBookingLink(p);
+function greeting(name?: string, lang: WaLang = "en") {
+  const n = firstName(name);
+  return n ? (lang === "hi" ? `Hi ${n},` : `Hi ${n},`) : "Hi,";
 }
 
-// Extras (kept for GTM library growth)
-export function waThankYou(p: WaParams) {
-  const name = (p.name || "").trim();
-  const who = name ? ` ${name}` : "";
-  const provider = (p.provider || "our clinic").trim();
-  return `Thanks${who} for visiting ${provider} today. If anything felt off, just reply here — we’ll make it right.`;
+// ---- Primary templates (English default; Hinglish optional) ----
+export function waReminder(opts: WaOpts, lang: WaLang = "en"): string {
+  const who = teamLine(opts, lang);
+  const svc = serviceSuffix(opts, lang);
+  const amt = amountLine(opts.amountINR, lang);
+  const ref = opts.refCode ? `\nRef: ${opts.refCode}` : "";
+
+  if (lang === "hi") {
+    return [
+      greeting(opts.name, "hi"),
+      `${who} Chhota reminder — aapka payment pending hai${amt}${svc}.`,
+      "Payment yahin safe tareeke se kar sakte hain:",
+      ref,
+    ].join(" ");
+  }
+
+  // English (default)
+  return [
+    greeting(opts.name, "en"),
+    `${who} A quick reminder — you have a pending payment${amt}${svc}.`,
+    "You can complete it securely here:",
+    ref,
+  ].join(" ");
 }
 
-export function waReviewNudge(p: WaParams) {
-  const provider = (p.provider || "our clinic").trim();
-  const link = buildBookingLink(p);
-  return `It'd mean a lot if you could rate ${provider}. It helps others discover us: ${link}`;
+export function waRebook(opts: WaOpts, lang: WaLang = "en"): string {
+  const who = teamLine(opts, lang);
+  const svc = serviceSuffix(opts, lang);
+  const ref = opts.refCode ? `\nRef: ${opts.refCode}` : "";
+
+  if (lang === "hi") {
+    return [
+      greeting(opts.name, "hi"),
+      `${who} Pichhli baar aap nahi aa paaye — naya slot choose kar sakte hain${svc} yahan:`,
+      ref,
+    ].join(" ");
+  }
+
+  // English (default)
+  return [
+    greeting(opts.name, "en"),
+    `${who} We missed you last time — you can pick a new slot${svc} here:`,
+    ref,
+  ].join(" ");
 }
