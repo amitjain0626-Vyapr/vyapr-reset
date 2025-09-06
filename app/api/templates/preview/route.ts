@@ -7,12 +7,12 @@ export const dynamic = "force-dynamic";
 
 /**
  * Contract notes:
- * - Telemetry stays strict: {event, ts(ms), provider_id, lead_id, source}.
- * - No schema/name drift. Only adds fields safely.
- * - Preserves legacy response keys: { ok, preview_length, sample }.
+ * - Telemetry strict: {event, ts(ms), provider_id, lead_id, source}.
+ * - No schema/name drift.
+ * - Legacy response keys preserved: { ok, preview_length, sample }.
  *
  * Query params:
- *   slug: string (provider slug)  [used to resolve provider_id + default booking link]
+ *   slug: string (provider slug)  [resolve provider_id + default booking link]
  *   template | tid: optional (legacy)
  *   lead_id?: string
  *   slotISO?: string (optional override)
@@ -25,7 +25,7 @@ export const dynamic = "force-dynamic";
  *   kind?: "no_show_followup" | "reactivation_nudge" | "pre_booking_reminder"
  *   name?: string        (customer name override)
  *   profession?: string  (provider profession, e.g., "Dentist")
- *   provider?: string    (NEW — provider display name override)
+ *   provider?: string    (provider display name override)
  */
 
 const PROVIDER_ID_FALLBACKS: Record<string, string> = {
@@ -202,7 +202,7 @@ export async function GET(req: NextRequest) {
     booking_link: new URL(`/book/${encodeURIComponent(slug || "")}`, url.origin).toString(),
   };
 
-  /* ---- copy ---- */
+  /* ---- copy (Veli tone) ---- */
   const whoSuffix = previewVars.provider_profession ? `, your {provider_profession}` : "";
 
   const defaultsByLang: Record<Lang, string> = {
@@ -218,14 +218,12 @@ export async function GET(req: NextRequest) {
 
   const cannedByKind: Record<string, string> = {
     no_show_followup:
-      `Hi {customer_name}, this is {provider_name}${whoSuffix}. We missed you on {slot_date} at {slot_time}. Pick a new slot: {booking_link}`,
+      `Hey {customer_name}! We missed you today. Want to pick a new time with {provider_name}${whoSuffix}? Quick reschedule here: {booking_link}`,
     reactivation_nudge:
-      `Hi {customer_name}, it’s {provider_name}${whoSuffix}. It’s been a while — book a quick visit: {booking_link}`,
+      `Hey {customer_name}, long time no see! Need a quick session with {provider_name}${whoSuffix}? Grab a slot in 10 seconds: {booking_link}`,
     pre_booking_reminder:
-      `Hi {customer_name}, this is {provider_name}${whoSuffix}. Your slot is {slot_date}, {slot_time}. Reply YES to confirm or tap: {booking_link}`,
+      `Hi {customer_name}! Quick nudge from {provider_name}${whoSuffix} — your slot is {slot_date}, {slot_time}. Reply YES to confirm, or tap to confirm: {booking_link}`,
   };
-
-  ts // Veli tone — friendly, crisp, English default const cannedByKind: Record<string, string> = { no_show_followup: `Hey {customer_name}! We missed you today. Want to pick a new time with {provider_name}{whoSuffix}? Quick reschedule here: {booking_link}`, reactivation_nudge: `Hey {customer_name}, long time no see! Need a quick session with {provider_name}{whoSuffix}? Grab a slot in 10 seconds: {booking_link}`, pre_booking_reminder: `Hi {customer_name}! Quick nudge from {provider_name}{whoSuffix} — your slot is {slot_date}, {slot_time}. Reply YES to confirm, or tap to confirm: {booking_link}`, }; ``` …2 lines after ```ts const baseText = (kind && cannedByKind[kind]) ||
 
   const baseText =
     (kind && cannedByKind[kind]) ||
@@ -248,16 +246,15 @@ export async function GET(req: NextRequest) {
           template_id: template || null,
           audience,
           placeholders: previewVars,
-          lang, // record chosen language (inside source as allowed)
+          lang,         // allowed inside source
           kind,
+          tone: "veli", // tag tone (inside source only)
           nameOverride,
           providerOverride,
         },
       }),
     });
   } catch {}
-
-  ts // Tag tone for analytics; stays inside `source` (no schema drift) try { await fetch(new URL("/api/events/log", url.origin), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event: "template.preview.requested", ts: Date.now(), provider_id, lead_id, source: { provider_slug: slug || null, template_id: template || null, audience, placeholders: previewVars, lang, kind, tone: "veli", // <— NEW (inside source only) nameOverride, providerOverride, }, }), }); } catch {} ``` …2 lines after ```ts /* ---- wa deeplink ---- */
 
   /* ---- wa deeplink ---- */
   const phoneDigits = (customer_phone || "").toString().replace(/[^\d]/g, "");
@@ -272,7 +269,7 @@ export async function GET(req: NextRequest) {
     preview_length: (text || "").length,
     sample: (text || "").slice(0, 64),
     text,
-    language: lang, // <— echo for verification
+    language: lang,
     template,
     provider: { id: provider_id, slug, name: provider_name },
     lead: lead_id ? { id: lead_id, name: customer_name, phone: customer_phone } : null,
