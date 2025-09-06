@@ -32,16 +32,51 @@ const PROVIDER_ID_FALLBACKS: Record<string, string> = {
   amitjain0626: "c56d7dac-c9ed-4828-9c52-56a445fce7b3",
 };
 
+/* --------------------------- language helpers --------------------------- */
+type Lang = "en" | "hi";
+function normLang(v?: string | null): Lang | null {
+  const t = (v || "").toLowerCase().trim();
+  if (t === "en") return "en";
+  if (t === "hi" || t === "hinglish") return "hi";
+  return null;
+}
+function parseCookie(header?: string | null) {
+  const out: Record<string, string> = {};
+  if (!header) return out;
+  header.split(";").forEach((p) => {
+    const [k, ...rest] = p.split("=");
+    if (!k) return;
+    out[k.trim()] = decodeURIComponent((rest.join("=") || "").trim());
+  });
+  return out;
+}
+async function resolveProviderLangPref(origin: string, slug: string): Promise<Lang | null> {
+  if (!slug) return null;
+  try {
+    const res = await fetch(`${origin}/api/providers/${encodeURIComponent(slug)}`, { cache: "no-store" });
+    if (!res.ok) return null;
+    const json = await res.json().catch(() => ({}));
+    return normLang(json?.lang_pref || json?.provider?.lang_pref) || null;
+  } catch { return null; }
+}
+async function resolveLang(req: NextRequest, slug: string): Promise<Lang> {
+  const url = new URL(req.url);
+  const qLang = normLang(url.searchParams.get("lang"));
+  if (qLang) return qLang;
+  const cLang = normLang(parseCookie(req.headers.get("cookie"))["vyapr.lang"]);
+  if (cLang) return cLang;
+  const pref = await resolveProviderLangPref(url.origin, slug);
+  return pref || "en";
+}
+
+/* ------------------------------ utils ----------------------------------- */
 async function getJSON<T = any>(href: string, init?: RequestInit): Promise<T | null> {
   try {
     const r = await fetch(href, { ...init, cache: "no-store" });
     if (!r.ok) return null;
     return (await r.json()) as T;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
-
 function toISTParts(iso?: string | null) {
   if (!iso) return { dateText: null, timeText: null };
   const d = new Date(iso);
@@ -50,7 +85,6 @@ function toISTParts(iso?: string | null) {
     timeText: d.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" }),
   };
 }
-
 function pickFallbackSlotISO() {
   const now = new Date();
   const istNow = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
@@ -62,17 +96,35 @@ function pickFallbackSlotISO() {
   }
   return new Date(istNow.toLocaleString("en-US", { timeZone: "UTC" })).toISOString();
 }
-
 function fillPlaceholders(text: string, vars: Record<string, string | number | null | undefined>) {
   let out = text || "";
-  for (const [k, v] of Object.entries(vars)) {
-    out = out.replaceAll(`{${k}}`, v == null ? "" : String(v));
-  }
+  for (const [k, v] of Object.entries(vars)) out = out.replaceAll(`{${k}}`, v == null ? "" : String(v));
   return out;
 }
 
-// Map categories/professions to nicer, customer-facing labels function normalizeProfession(raw?: string | null): string | null { if (!raw) return null; const s = String(raw).trim().toLowerCase(); const map: Record<string, string> = { dentist: "Dentist", dental: "Dentist", astro: "Astrologer", astrologer: "Astrologer", dance: "Dance Instructor", dancer: "Dance Instructor", physio: "Physiotherapist", physiotherapist: "Physiotherapist", tuition: "Tutor", tutor: "Tutor", salon: "Stylist", fitness: "Fitness Coach", yoga: "Yoga Instructor", }; return map[s] || raw.charAt(0).toUpperCase() + raw.slice(1); } ``` 2 lines after: ```ts export async function GET(req: NextRequest) { const url = new URL(req.url);
+/* ---- friendly profession label (customer-facing) ---- */
+function normalizeProfession(raw?: string | null): string | null {
+  if (!raw) return null;
+  const s = String(raw).trim().toLowerCase();
+  const map: Record<string, string> = {
+    dentist: "Dentist",
+    dental: "Dentist",
+    astro: "Astrologer",
+    astrologer: "Astrologer",
+    dance: "Dance Instructor",
+    dancer: "Dance Instructor",
+    physio: "Physiotherapist",
+    physiotherapist: "Physiotherapist",
+    tuition: "Tutor",
+    tutor: "Tutor",
+    salon: "Stylist",
+    fitness: "Fitness Coach",
+    yoga: "Yoga Instructor",
+  };
+  return map[s] || raw.charAt(0).toUpperCase() + raw.slice(1);
+}
 
+/* -------------------------------- GET ----------------------------------- */
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const q = url.searchParams;
@@ -87,11 +139,13 @@ export async function GET(req: NextRequest) {
   const exp = q.get("exp");
   const msg = q.get("msg") || "";
   const slotOverrideISO = q.get("slotISO");
-  const lang = (q.get("lang") || "en").toLowerCase();
   const kind = q.get("kind");
   const nameOverride = (q.get("name") || "").trim();
-  const profession = (q.get("profession") || "").trim();
-  const providerOverride = (q.get("provider") || "").trim(); // NEW
+  const profession = normalizeProfession(q.get("profession"));
+  const providerOverride = (q.get("provider") || "").trim();
+
+  /* ---- decide language: query → cookie → provider pref → default en ---- */
+  const lang: Lang = await resolveLang(req, slug);
 
   /* ---- provider resolve (id + default display) ---- */
   const providerResolved =
@@ -101,7 +155,7 @@ export async function GET(req: NextRequest) {
 
   const provider_id = providerResolved?.id || (slug && PROVIDER_ID_FALLBACKS[slug]) || null;
   const provider_name_default = providerResolved?.display_name || slug || "your service provider";
-  const provider_name = providerOverride || provider_name_default; // prefer explicit override
+  const provider_name = providerOverride || provider_name_default;
 
   /* ---- lead lookup ---- */
   let lead: any = null;
@@ -151,15 +205,11 @@ export async function GET(req: NextRequest) {
   /* ---- copy ---- */
   const whoSuffix = previewVars.provider_profession ? `, your {provider_profession}` : "";
 
-  const defaultsByLang: Record<string, string> = {
+  const defaultsByLang: Record<Lang, string> = {
     en:
       `Hello {customer_name}, this is {provider_name}${whoSuffix}. Your preferred slot is {slot_date}, {slot_time}. ` +
       (amt ? "Approx. fee ₹{amount}. " : "") +
       "Please reply to confirm.",
-    hinglish:
-      `Namaste {customer_name}, {provider_name}${whoSuffix} here. Aapka slot {slot_date}, {slot_time} ka hai. ` +
-      (amt ? "Fees approx ₹{amount}. " : "") +
-      "Reply karein to confirm.",
     hi:
       `नमस्ते {customer_name}, {provider_name}${whoSuffix} की ओर से। आपका स्लॉट {slot_date}, {slot_time} है। ` +
       (amt ? "अनुमानित शुल्क ₹{amount}। " : "") +
@@ -175,7 +225,12 @@ export async function GET(req: NextRequest) {
       `Hi {customer_name}, this is {provider_name}${whoSuffix}. Your slot is {slot_date}, {slot_time}. Reply YES to confirm or tap: {booking_link}`,
   };
 
-  const baseText = kind && cannedByKind[kind] ? cannedByKind[kind] : msg || defaultsByLang[lang] || defaultsByLang["en"];
+  ts // Veli tone — friendly, crisp, English default const cannedByKind: Record<string, string> = { no_show_followup: `Hey {customer_name}! We missed you today. Want to pick a new time with {provider_name}{whoSuffix}? Quick reschedule here: {booking_link}`, reactivation_nudge: `Hey {customer_name}, long time no see! Need a quick session with {provider_name}{whoSuffix}? Grab a slot in 10 seconds: {booking_link}`, pre_booking_reminder: `Hi {customer_name}! Quick nudge from {provider_name}{whoSuffix} — your slot is {slot_date}, {slot_time}. Reply YES to confirm, or tap to confirm: {booking_link}`, }; ``` …2 lines after ```ts const baseText = (kind && cannedByKind[kind]) ||
+
+  const baseText =
+    (kind && cannedByKind[kind]) ||
+    (msg && msg.length ? msg : defaultsByLang[lang] || defaultsByLang["en"]);
+
   const text = fillPlaceholders(baseText, previewVars);
 
   /* ---- telemetry ---- */
@@ -188,10 +243,21 @@ export async function GET(req: NextRequest) {
         ts: Date.now(),
         provider_id,
         lead_id,
-        source: { provider_slug: slug || null, template_id: template || null, audience, placeholders: previewVars, lang, kind, nameOverride, providerOverride },
+        source: {
+          provider_slug: slug || null,
+          template_id: template || null,
+          audience,
+          placeholders: previewVars,
+          lang, // record chosen language (inside source as allowed)
+          kind,
+          nameOverride,
+          providerOverride,
+        },
       }),
     });
   } catch {}
+
+  ts // Tag tone for analytics; stays inside `source` (no schema drift) try { await fetch(new URL("/api/events/log", url.origin), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event: "template.preview.requested", ts: Date.now(), provider_id, lead_id, source: { provider_slug: slug || null, template_id: template || null, audience, placeholders: previewVars, lang, kind, tone: "veli", // <— NEW (inside source only) nameOverride, providerOverride, }, }), }); } catch {} ``` …2 lines after ```ts /* ---- wa deeplink ---- */
 
   /* ---- wa deeplink ---- */
   const phoneDigits = (customer_phone || "").toString().replace(/[^\d]/g, "");
@@ -206,7 +272,7 @@ export async function GET(req: NextRequest) {
     preview_length: (text || "").length,
     sample: (text || "").slice(0, 64),
     text,
-    language: lang,
+    language: lang, // <— echo for verification
     template,
     provider: { id: provider_id, slug, name: provider_name },
     lead: lead_id ? { id: lead_id, name: customer_name, phone: customer_phone } : null,
