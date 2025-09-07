@@ -4,9 +4,8 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 import { createClient } from '@supabase/supabase-js';
-
 // === VYAPR: Batch Send (22.15) START ===
-import Script from "next/script";
+import Script from 'next/script';
 // === VYAPR: Batch Send (22.15) END ===
 
 /* -------- supabase admin -------- */
@@ -81,10 +80,7 @@ async function fetchRecentNudges(providerId: string, sinceTs: number): Promise<N
 
 async function fetchLeadNames(leadIds: string[]) {
   if (!leadIds.length) return {};
-  const { data = [] } = await admin()
-    .from('Leads')
-    .select('id, patient_name')
-    .in('id', leadIds);
+  const { data = [] } = await admin().from('Leads').select('id, patient_name').in('id', leadIds);
   const map: Record<string, string> = {};
   for (const r of data) map[r.id] = (r.patient_name || '').toString();
   return map;
@@ -170,7 +166,7 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
 
   // Load nudges in the requested window
   const nudges = await fetchRecentNudges(provider.id, win.since);
-  const leadIds = Array.from(new Set(nudges.map(n => n.lead_id).filter(Boolean))) as string[];
+  const leadIds = Array.from(new Set(nudges.map((n) => n.lead_id).filter(Boolean))) as string[];
   const nameMap = await fetchLeadNames(leadIds);
 
   const providerName = (provider.display_name || provider.slug || 'your provider').toString();
@@ -192,7 +188,13 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
     `/dashboard/nudges?slug=${encodeURIComponent(provider.slug)}&window=${key}`;
 
   return (
-    <main className="p-6 space-y-4" data-test="nudge-center-root">
+    // === VYAPR: add provider UUID for telemetry (22.15) START ===
+    <main
+      className="p-6 space-y-4"
+      data-test="nudge-center-root"
+      data-provider-id={provider.id}
+    >
+      {/* === VYAPR: add provider UUID for telemetry (22.15) END === */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold">Nudge Center</h1>
@@ -201,10 +203,7 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
           </div>
           <div className="text-xs text-gray-500">Showing: {win.label}</div>
         </div>
-        <a
-          href={`/dashboard/leads?slug=${provider.slug}`}
-          className="text-emerald-700 underline"
-        >
+        <a href={`/dashboard/leads?slug=${provider.slug}`} className="text-emerald-700 underline">
           ← Back to Leads
         </a>
       </div>
@@ -233,9 +232,7 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
 
       {/* Schedule & limits summary */}
       <section
-        className={`rounded-lg border p-4 ${
-          allowedNow ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'
-        }`}
+        className={`rounded-lg border p-4 ${allowedNow ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}
         data-test="nudge-config"
       >
         <div className="text-sm font-medium">Schedule & limits</div>
@@ -251,9 +248,7 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
       </section>
 
       <div className="rounded-lg border p-4 bg-white">
-        <div className="text-sm text-gray-600">
-          Suggested WhatsApp reminders from {win.label}.
-        </div>
+        <div className="text-sm text-gray-600">Suggested WhatsApp reminders from {win.label}.</div>
       </div>
 
       {/* Batch send summary (quiet-hours + cap aware) */}
@@ -280,9 +275,7 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
             type="button"
             disabled={isQuiet || remaining <= 0 || nudges.length === 0}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium border ${
-              isQuiet || remaining <= 0 || nudges.length === 0
-                ? 'opacity-50 cursor-not-allowed'
-                : 'hover:shadow-sm'
+              isQuiet || remaining <= 0 || nudges.length === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:shadow-sm'
             }`}
             title={
               isQuiet
@@ -302,11 +295,11 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
         <section className="rounded-xl border p-4 bg-white">
           <div className="text-sm font-semibold mb-2">Quick actions</div>
           <div className="flex flex-wrap gap-2">
-            {fallback.map(n => {
+            {fallback.map((n) => {
               const to = n.action_url || '#';
-              const tracked = `/api/events/redirect?event=${encodeURIComponent('upsell.nudge.clicked')}&slug=${encodeURIComponent(
-                provider.slug
-              )}&key=${encodeURIComponent(n.key)}&to=${encodeURIComponent(to)}`;
+              const tracked = `/api/events/redirect?event=${encodeURIComponent(
+                'upsell.nudge.clicked'
+              )}&slug=${encodeURIComponent(provider.slug)}&key=${encodeURIComponent(n.key)}&to=${encodeURIComponent(to)}`;
               return (
                 <a
                   key={n.key}
@@ -341,19 +334,11 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
           });
 
           return (
-            <div
-              key={idx}
-              className="rounded-xl border p-3 bg-white"
-              data-test="nudge-item"
-            >
+            <div key={idx} className="rounded-xl border p-3 bg-white" data-test="nudge-item">
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-sm font-medium">
-                    {leadName ? leadName : 'Lead'} — {maskDigits(phone)}
-                  </div>
-                  <div className="text-xs text-gray-500">
-                    Suggested at {new Date(n.ts).toLocaleString('en-IN')}
-                  </div>
+                  <div className="text-sm font-medium">{leadName ? leadName : 'Lead'} — {maskDigits(phone)}</div>
+                  <div className="text-xs text-gray-500">Suggested at {new Date(n.ts).toLocaleString('en-IN')}</div>
                 </div>
                 <div className="flex items-center gap-2">
                   <a
@@ -381,9 +366,10 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
           );
         })}
       </div>
+
       {/* === VYAPR: Batch Send (22.15) START === */}
-<Script id="vyapr-batch-send" strategy="afterInteractive">
-{`
+      <Script id="vyapr-batch-send" strategy="afterInteractive">
+        {`
 (function(){
   try {
     const section = document.querySelector('[data-test="nudge-batch-ui"]');
@@ -391,6 +377,10 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
     const btn = section.querySelector('button');
     if(!btn) return;
     btn.id = 'vy-batch-btn';
+
+    // read provider UUID from the root
+    const rootEl = document.querySelector('[data-test="nudge-center-root"]');
+    const providerId = rootEl ? rootEl.getAttribute('data-provider-id') : null;
 
     const total = Number(section.getAttribute('data-total')||'0');
     const remaining = Number(section.getAttribute('data-remaining')||'0');
@@ -408,7 +398,7 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
           body: JSON.stringify({
             event: 'nudge.batch.sent',
             ts: Date.now(),
-            provider_id: (document.querySelector('[data-test="nudge-center-root"] .font-mono')||{}).textContent || null,
+            provider_id: providerId,
             lead_id: null,
             source: { via: 'ui', count, window: (document.querySelector('[data-test="win-h24"].bg-black') ? 'h24' : 'd30') }
           })
@@ -437,9 +427,9 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
     }, { once: true });
   } catch(e){}
 })();
-`}
-</Script>
-{/* === VYAPR: Batch Send (22.15) END === */}
+        `}
+      </Script>
+      {/* === VYAPR: Batch Send (22.15) END === */}
     </main>
   );
 }
