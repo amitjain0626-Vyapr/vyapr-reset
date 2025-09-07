@@ -77,6 +77,15 @@ export async function GET(req: NextRequest) {
 
   const whatsapp_url = waUrlFor(phone, text);
 
+  // (new) if a payment/booking link is provided, append it to the text
+  const link = (url.searchParams.get("link") || "").trim();
+  if (link) {
+    // ensure a space/newline before the link so it’s clickable in WA
+    text = `${text} ${link}`;
+  }
+
+  const whatsapp_url = waUrlFor(phone, text);
+
   return NextResponse.json({
     ok: true,
     slug,
