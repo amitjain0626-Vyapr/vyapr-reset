@@ -1,280 +1,87 @@
-// app/api/templates/preview/route.ts
 // @ts-nocheck
 import { NextRequest, NextResponse } from "next/server";
+import { waReminder, waRebook } from "@/lib/wa/templates";
 
+/**
+ * Lightweight WhatsApp text preview builder.
+ * No DB writes. Uses lib/wa/templates and returns a WA deeplink.
+ *
+ * Examples:
+ *  /api/templates/preview?slug=amitjain0626&template=collect_pending&amt=1200&lang=en
+ *  /api/templates/preview?slug=amitjain0626&template=rebook&category=dentist&service=scaling%20%26%20polishing&lang=hi
+ */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/**
- * Contract notes:
- * - Telemetry strict: {event, ts(ms), provider_id, lead_id, source}.
- * - No schema/name drift.
- * - Legacy response keys preserved: { ok, preview_length, sample }.
- *
- * Query params:
- *   slug: string (provider slug)  [resolve provider_id + default booking link]
- *   template | tid: optional (legacy)
- *   lead_id?: string
- *   slotISO?: string (optional override)
- *   a?: string (audience)
- *   amt?: string/number
- *   cnt?: string/number
- *   exp?: string/number (days)
- *   msg?: string (raw template text with placeholders)
- *   lang?: "en" | "hinglish" | "hi"  (default = "en")
- *   kind?: "no_show_followup" | "reactivation_nudge" | "pre_booking_reminder"
- *   name?: string        (customer name override)
- *   profession?: string  (provider profession, e.g., "Dentist")
- *   provider?: string    (provider display name override)
- */
+function waUrlFor(phone: string, text: string) {
+  const digits = (phone || "").replace(/[^\d]/g, "");
+  const msg = encodeURIComponent(text || "");
+  if (!digits) return `https://api.whatsapp.com/send/?text=${msg}&type=phone_number&app_absent=0`;
+  return `https://api.whatsapp.com/send/?phone=${digits}&text=${msg}&type=phone_number&app_absent=0`;
+}
 
-const PROVIDER_ID_FALLBACKS: Record<string, string> = {
-  amitjain0626: "c56d7dac-c9ed-4828-9c52-56a445fce7b3",
-};
-
-/* --------------------------- language helpers --------------------------- */
-type Lang = "en" | "hi";
-function normLang(v?: string | null): Lang | null {
+type Lang = "en" | "hi" | "hinglish";
+function normLang(v?: string | null): Lang {
   const t = (v || "").toLowerCase().trim();
-  if (t === "en") return "en";
-  if (t === "hi" || t === "hinglish") return "hi";
-  return null;
-}
-function parseCookie(header?: string | null) {
-  const out: Record<string, string> = {};
-  if (!header) return out;
-  header.split(";").forEach((p) => {
-    const [k, ...rest] = p.split("=");
-    if (!k) return;
-    out[k.trim()] = decodeURIComponent((rest.join("=") || "").trim());
-  });
-  return out;
-}
-async function resolveProviderLangPref(origin: string, slug: string): Promise<Lang | null> {
-  if (!slug) return null;
-  try {
-    const res = await fetch(`${origin}/api/providers/${encodeURIComponent(slug)}`, { cache: "no-store" });
-    if (!res.ok) return null;
-    const json = await res.json().catch(() => ({}));
-    return normLang(json?.lang_pref || json?.provider?.lang_pref) || null;
-  } catch { return null; }
-}
-async function resolveLang(req: NextRequest, slug: string): Promise<Lang> {
-  const url = new URL(req.url);
-  const qLang = normLang(url.searchParams.get("lang"));
-  if (qLang) return qLang;
-  const cLang = normLang(parseCookie(req.headers.get("cookie"))["vyapr.lang"]);
-  if (cLang) return cLang;
-  const pref = await resolveProviderLangPref(url.origin, slug);
-  return pref || "en";
+  if (t === "hi") return "hi";
+  if (t === "hinglish") return "hinglish";
+  return "en";
 }
 
-/* ------------------------------ utils ----------------------------------- */
-async function getJSON<T = any>(href: string, init?: RequestInit): Promise<T | null> {
-  try {
-    const r = await fetch(href, { ...init, cache: "no-store" });
-    if (!r.ok) return null;
-    return (await r.json()) as T;
-  } catch { return null; }
-}
-function toISTParts(iso?: string | null) {
-  if (!iso) return { dateText: null, timeText: null };
-  const d = new Date(iso);
-  return {
-    dateText: d.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", year: "numeric" }),
-    timeText: d.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" }),
-  };
-}
-function pickFallbackSlotISO() {
-  const now = new Date();
-  const istNow = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-  istNow.setHours(18, 0, 0, 0);
-  const past = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-  if (past > istNow) {
-    istNow.setDate(istNow.getDate() + 1);
-    istNow.setHours(11, 0, 0, 0);
-  }
-  return new Date(istNow.toLocaleString("en-US", { timeZone: "UTC" })).toISOString();
-}
-function fillPlaceholders(text: string, vars: Record<string, string | number | null | undefined>) {
-  let out = text || "";
-  for (const [k, v] of Object.entries(vars)) out = out.replaceAll(`{${k}}`, v == null ? "" : String(v));
-  return out;
-}
-
-/* ---- friendly profession label (customer-facing) ---- */
-function normalizeProfession(raw?: string | null): string | null {
-  if (!raw) return null;
-  const s = String(raw).trim().toLowerCase();
-  const map: Record<string, string> = {
-    dentist: "Dentist",
-    dental: "Dentist",
-    astro: "Astrologer",
-    astrologer: "Astrologer",
-    dance: "Dance Instructor",
-    dancer: "Dance Instructor",
-    physio: "Physiotherapist",
-    physiotherapist: "Physiotherapist",
-    tuition: "Tutor",
-    tutor: "Tutor",
-    salon: "Stylist",
-    fitness: "Fitness Coach",
-    yoga: "Yoga Instructor",
-  };
-  return map[s] || raw.charAt(0).toUpperCase() + raw.slice(1);
-}
-
-/* -------------------------------- GET ----------------------------------- */
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
-  const q = url.searchParams;
 
-  const slug = q.get("slug") || "";
-  const template = q.get("template") || q.get("tid") || "";
-  const lead_id = q.get("lead_id") || null;
-  const audience = q.get("a") || null;
+  const slug = (url.searchParams.get("slug") || "").trim(); // optional, for analytics later
+  const template = (url.searchParams.get("template") || "collect_pending").trim().toLowerCase();
 
-  const amt = q.get("amt");
-  const cnt = q.get("cnt");
-  const exp = q.get("exp");
-  const msg = q.get("msg") || "";
-  const slotOverrideISO = q.get("slotISO");
-  const kind = q.get("kind");
-  const nameOverride = (q.get("name") || "").trim();
-  const profession = normalizeProfession(q.get("profession"));
-  const providerOverride = (q.get("provider") || "").trim();
+  // optional context (safe defaults)
+  const lang = normLang(url.searchParams.get("lang"));
+  const name = url.searchParams.get("name") || "there";
+  const provider = url.searchParams.get("provider") || ""; // show only if caller passes
+  const phone = url.searchParams.get("phone") || "";
+  const category = url.searchParams.get("category") || ""; // e.g., dentist
+  const service = url.searchParams.get("service") || "";   // e.g., scaling & polishing
+  const ref = url.searchParams.get("ref") || "";
+  const amt = Number(url.searchParams.get("amt") || "0") || undefined;
 
-  /* ---- decide language: query → cookie → provider pref → default en ---- */
-  const lang: Lang = await resolveLang(req, slug);
+  let text = "";
 
-  /* ---- provider resolve (id + default display) ---- */
-  const providerResolved =
-    (await getJSON<{ ok: boolean; id?: string; slug?: string; display_name?: string }>(
-      new URL(`/api/providers/resolve?slug=${encodeURIComponent(slug)}`, url.origin).toString()
-    )) || null;
-
-  const provider_id = providerResolved?.id || (slug && PROVIDER_ID_FALLBACKS[slug]) || null;
-  const provider_name_default = providerResolved?.display_name || slug || "your service provider";
-  const provider_name = providerOverride || provider_name_default;
-
-  /* ---- lead lookup ---- */
-  let lead: any = null;
-  if (lead_id) {
-    const byId = await getJSON<{ ok: boolean; row?: any }>(
-      new URL(`/api/leads/by-id?id=${encodeURIComponent(lead_id)}&provider_slug=${encodeURIComponent(slug)}`, url.origin).toString()
+  if (template === "collect_pending" || template === "collect" || template === "payment") {
+    text = waReminder(
+      {
+        name,
+        provider,
+        refCode: ref,
+        amountINR: amt,
+        category,
+        topService: service,
+      },
+      lang
     );
-    lead = byId?.row || null;
+  } else if (template === "rebook" || template === "reactivate") {
+    text = waRebook(
+      {
+        name,
+        provider,
+        refCode: ref,
+        amountINR: undefined,
+        category,
+        topService: service,
+      },
+      lang
+    );
+  } else {
+    // Fallback to collect-pending if unknown template key
+    text = waReminder({ name, provider, refCode: ref, amountINR: amt, category, topService: service }, lang);
   }
 
-  const derived_name = lead?.patient_name || lead?.name || "valued customer";
-  const customer_name = nameOverride || derived_name;
-  const customer_phone = lead?.phone || lead?.customer_phone || null;
+  const whatsapp_url = waUrlFor(phone, text);
 
-  /* ---- slot ---- */
-  let slotISO: string | null = slotOverrideISO || null;
-  if (!slotISO && lead_id) {
-    const hist = await getJSON<{ ok: boolean; events?: Array<any> }>(
-      new URL(`/api/leads/history?id=${encodeURIComponent(lead_id)}&provider_slug=${encodeURIComponent(slug)}`, url.origin).toString()
-    );
-    const recentBooking = (hist?.events || []).filter((e) => e?.event === "booking.confirmed").sort((a, b) => (b?.ts || 0) - (a?.ts || 0))[0];
-    slotISO = recentBooking?.source?.slotISO || null;
-  }
-  if (!slotISO) slotISO = pickFallbackSlotISO();
-  const { dateText, timeText } = toISTParts(slotISO);
-
-  /* ---- CTAs ---- */
-  const cta_collect_url = lead_id
-    ? new URL(`/api/track/wa-collect?leadId=${encodeURIComponent(lead_id)}&slug=${encodeURIComponent(slug)}`, url.origin).toString()
-    : null;
-  const cta_boost_url = new URL(`/api/track/upsell-wa?slug=${encodeURIComponent(slug)}`, url.origin).toString();
-
-  /* ---- placeholders ---- */
-  const previewVars = {
-    customer_name,
-    customer_phone,
-    provider_name,
-    provider_profession: profession || "",
-    slot_date: dateText,
-    slot_time: timeText,
-    amount: amt,
-    count: cnt,
-    expiryDays: exp,
-    booking_link: new URL(`/book/${encodeURIComponent(slug || "")}`, url.origin).toString(),
-  };
-
-  /* ---- copy (Veli tone) ---- */
-  const whoSuffix = previewVars.provider_profession ? `, your {provider_profession}` : "";
-
-  const defaultsByLang: Record<Lang, string> = {
-    en:
-      `Hello {customer_name}, this is {provider_name}${whoSuffix}. Your preferred slot is {slot_date}, {slot_time}. ` +
-      (amt ? "Approx. fee ₹{amount}. " : "") +
-      "Please reply to confirm.",
-    hi:
-      `नमस्ते {customer_name}, {provider_name}${whoSuffix} की ओर से। आपका स्लॉट {slot_date}, {slot_time} है। ` +
-      (amt ? "अनुमानित शुल्क ₹{amount}। " : "") +
-      "कृपया पुष्टि के लिए उत्तर दें।",
-  };
-
-  const cannedByKind: Record<string, string> = {
-    no_show_followup:
-      `Hey {customer_name}! We missed you today. Want to pick a new time with {provider_name}${whoSuffix}? Quick reschedule here: {booking_link}`,
-    reactivation_nudge:
-      `Hey {customer_name}, long time no see! Need a quick session with {provider_name}${whoSuffix}? Grab a slot in 10 seconds: {booking_link}`,
-    pre_booking_reminder:
-      `Hi {customer_name}! Quick nudge from {provider_name}${whoSuffix} — your slot is {slot_date}, {slot_time}. Reply YES to confirm, or tap to confirm: {booking_link}`,
-  };
-
-  const baseText =
-    (kind && cannedByKind[kind]) ||
-    (msg && msg.length ? msg : defaultsByLang[lang] || defaultsByLang["en"]);
-
-  const text = fillPlaceholders(baseText, previewVars);
-
-  /* ---- telemetry ---- */
-  try {
-    await fetch(new URL("/api/events/log", url.origin), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        event: "template.preview.requested",
-        ts: Date.now(),
-        provider_id,
-        lead_id,
-        source: {
-          provider_slug: slug || null,
-          template_id: template || null,
-          audience,
-          placeholders: previewVars,
-          lang,         // allowed inside source
-          kind,
-          tone: "veli", // tag tone (inside source only)
-          nameOverride,
-          providerOverride,
-        },
-      }),
-    });
-  } catch {}
-
-  /* ---- wa deeplink ---- */
-  const phoneDigits = (customer_phone || "").toString().replace(/[^\d]/g, "");
-  const wa_deeplink = phoneDigits
-    ? `https://wa.me/${phoneDigits}?text=${encodeURIComponent(text)}`
-    : `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
-
-  /* ---- response ---- */
   return NextResponse.json({
     ok: true,
-    wa_deeplink,
-    preview_length: (text || "").length,
-    sample: (text || "").slice(0, 64),
-    text,
-    language: lang,
+    slug,
     template,
-    provider: { id: provider_id, slug, name: provider_name },
-    lead: lead_id ? { id: lead_id, name: customer_name, phone: customer_phone } : null,
-    slot: { iso: slotISO, dateText, timeText, tz: "Asia/Kolkata" },
-    ctas: { collect: cta_collect_url, boost: cta_boost_url },
-    placeholders_resolved: previewVars,
+    language: lang,
+    preview: { text, whatsapp_url },
   });
 }
