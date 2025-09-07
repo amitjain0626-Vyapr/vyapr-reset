@@ -70,9 +70,35 @@ export async function POST(req: Request) {
         { provider_id, about, services, updated_at: new Date().toISOString() },
         { onConflict: "provider_id" }
       );
+// === VYAPR: fallback to Providers if Microsite table missing (22.15) START ===
+    if (error) {
+      // Try writing directly to Providers: bio = about, services, published = true
+      const { error: pfErr } = await sb
+        .from("Providers")
+        .update({ bio: about, services, published: true, updated_at: new Date().toISOString() })
+        .eq("id", provider_id);
+
+      if (!pfErr) {
+        // best-effort telemetry
+        const base2 = process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
+        fetch(`${base2}/api/events/log`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            event: "microsite.published",
+            provider_id,
+            source: { via: "providers_fallback" }
+          }),
+          keepalive: true,
+        }).catch(() => {});
+
+        return NextResponse.json({ ok: true, provider_id, about, services, via: "providers_fallback" });
+      }
+      // If fallback also failed, continue to the existing error return below
+    }
+    // === VYAPR: fallback to Providers if Microsite table missing (22.15) END ===
+      
         if (error) return NextResponse.json({ ok: false, error: debug ? dbg('microsite_upsert', error, { provider_id }) : (error.message || "microsite_upsert_failed") }, { status: 400 });    // telemetry (best effort)
-
-
 
         // === VYAPR: publish flag (22.15) START ===
     const { error: pErr } = await sb
