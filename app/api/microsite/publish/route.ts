@@ -13,6 +13,20 @@ function admin() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
+// === VYAPR: debug helper (22.15) START ===
+function dbg(tag: string, e: any, extra?: any) {
+  const o = e || {};
+  return {
+    tag,
+    code: o.code ?? null,
+    message: o.message ?? null,
+    details: o.details ?? null,
+    hint: o.hint ?? null,
+    extra: extra ?? null,
+  };
+}
+// === VYAPR: debug helper (22.15) END ===
+
 export async function POST(req: Request) {
   try {
     // === VYAPR: debug flag (22.15) START ===
@@ -44,7 +58,7 @@ export async function POST(req: Request) {
         .select("id")
         .eq("slug", provider_slug)
         .maybeSingle();
-            if (e1) return NextResponse.json({ ok: false, error: debug ? JSON.stringify(e1) : (e1.message || "provider_lookup_failed") }, { status: 400 });
+            if (e1) return NextResponse.json({ ok: false, error: debug ? dbg('provider_lookup', e1, { provider_slug }) : (e1.message || "provider_lookup_failed") }, { status: 400 });
       if (!row?.id) return NextResponse.json({ ok: false, error: "provider_not_found" }, { status: 404 });
       provider_id = row.id;
       sb = admin();
@@ -56,7 +70,8 @@ export async function POST(req: Request) {
         { provider_id, about, services, updated_at: new Date().toISOString() },
         { onConflict: "provider_id" }
       );
-        if (error) return NextResponse.json({ ok: false, error: debug ? JSON.stringify(error) : (error.message || "microsite_upsert_failed") }, { status: 400 });
+        if (error) return NextResponse.json({ ok: false, error: debug ? dbg('microsite_upsert', error, { provider_id }) : (error.message || "microsite_upsert_failed") }, { status: 400 });    // telemetry (best effort)
+
 
 
         // === VYAPR: publish flag (22.15) START ===
@@ -64,7 +79,7 @@ export async function POST(req: Request) {
       .from("Providers")
       .update({ published: true, updated_at: new Date().toISOString() })
       .eq("id", provider_id);
-        if (pErr) return NextResponse.json({ ok: false, error: debug ? JSON.stringify(pErr) : (pErr.message || "publish_update_failed") }, { status: 400 });
+        if (pErr) return NextResponse.json({ ok: false, error: debug ? dbg('publish_update', pErr, { provider_id }) : (pErr.message || "publish_update_failed") }, { status: 400 });
 
     // === VYAPR: publish flag (22.15) END ===
 
