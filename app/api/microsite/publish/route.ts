@@ -81,6 +81,13 @@ export async function POST(req: Request) {
       if (!pfErr) {
         // best-effort telemetry
         const base2 = process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
+        // If fallback also failed, expose why (so we stop guessing)
+      if (pfErr) {
+        return NextResponse.json(
+          { ok: false, error: debug ? dbg('providers_fallback', pfErr, { provider_id }) : (pfErr.message || 'providers_fallback_failed') },
+          { status: 400 }
+        );
+      }
         fetch(`${base2}/api/events/log`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
