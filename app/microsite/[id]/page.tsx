@@ -46,7 +46,14 @@ export async function generateMetadata(props: any) {
   const title = `${p?.display_name || p?.slug} — ${p?.category || "Services"}${p?.location ? " in " + p.location : ""}`;
   const description = p?.bio || "Book and pay easily with Vyapr.";
   const url = `${SITE}/microsite/${slug}`;
-  const images = p?.image ? [p.image] : undefined;
+  // V2.3 context — 2 lines above
+  // const url = `${SITE}/microsite/${slug}`;
+  // const images = p?.image ? [p.image] : undefined;
+  // <<insert>>
+  /* === INSERT START (22.16: default OG image fallback) === */
+  const defaultOg = `${SITE}/og/default-provider.png`;
+  const images = [p?.image || defaultOg];
+  /* === INSERT END === */
 
   return {
     title,
@@ -98,6 +105,24 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
     : [];
 
   const ogUrl = `${SITE}/microsite/${slug}`;
+  // V2.3 context — 2 lines above
+  // const jsonLd = {
+  //   "@context": "https://schema.org",
+  //   "@type": "LocalBusiness",
+  //   name: p?.display_name || p?.slug,
+  //   description: p?.bio || undefined,
+  //   telephone: p?.phone || p?.whatsapp || undefined,
+  //   url: ogUrl,
+  //   image: p?.image || undefined,
+  //   address: p?.location ? { "@type": "PostalAddress", addressLocality: p.location } : undefined,
+  //   sameAs: waUrl ? [waUrl] : undefined,
+  //   potentialAction: {
+  //     "@type": "ReserveAction",
+  //     target: { "@type": "EntryPoint", urlTemplate: `${SITE}/book/${slug}` },
+  //   },
+  // };
+  // <<insert>>
+  /* === INSERT START (22.16: default image in JSON-LD) === */
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "LocalBusiness",
@@ -105,7 +130,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
     description: p?.bio || undefined,
     telephone: p?.phone || p?.whatsapp || undefined,
     url: ogUrl,
-    image: p?.image || undefined,
+    image: p?.image || `${SITE}/og/default-provider.png`,
     address: p?.location ? { "@type": "PostalAddress", addressLocality: p.location } : undefined,
     sameAs: waUrl ? [waUrl] : undefined,
     potentialAction: {
@@ -113,6 +138,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
       target: { "@type": "EntryPoint", urlTemplate: `${SITE}/book/${slug}` },
     },
   };
+  /* === INSERT END === */
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-10 space-y-8">
