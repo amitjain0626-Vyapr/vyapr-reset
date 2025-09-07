@@ -76,7 +76,7 @@ const [notice, setNotice] = useState<string | null>(null);
           // Important: scopes + consent to get refresh/grant for contacts.readonly
           scopes:
   provider === "google"
-    ? "openid email profile https://www.googleapis.com/auth/contacts.readonly https://www.googleapis.com/auth/calendar.events"
+    ? "openid email profile https://www.googleapis.com/auth/contacts.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly"
     : undefined,
           queryParams:
             provider === "google"

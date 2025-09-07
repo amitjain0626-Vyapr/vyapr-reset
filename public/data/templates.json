@@ -1,0 +1,64 @@
+{
+  "categories": {
+    "dentist": [
+      {
+        "id": "dent-checkup-offer",
+        "title": "Dental Checkup Offer",
+        "base": "Hi 👋 Full dental checkup + scaling this week: save ₹{amount}. Limited to {count} patients. Valid {expiryDays} days.",
+        "audienceHint": ["All"]
+      },
+      {
+        "id": "dent-rct-reactivate",
+        "title": "RCT Follow-up Reminder",
+        "base": "We recommend a follow-up on your RCT. Book in {expiryDays} days and get ₹{amount} off. Reply YES to confirm.",
+        "audienceHint": ["Repeat"]
+      },
+      {
+        "id": "dent-first-visit",
+        "title": "First Visit Welcome",
+        "base": "Welcome 🙏 First-visit special: ₹{amount} off on consultation. Limited to first {count} bookings. Expires in {expiryDays} days.",
+        "audienceHint": ["New"]
+      }
+    ],
+    "physio": [
+      {
+        "id": "physio-session-pack",
+        "title": "Pain Relief Session Pack",
+        "base": "This week only: {count}-session physio pack — save ₹{amount}. Valid {expiryDays} days. Reply YES to secure your slot.",
+        "audienceHint": ["All"]
+      },
+      {
+        "id": "physio-reactivate",
+        "title": "Continue Your Recovery",
+        "base": "Consistency matters 💪 Book your next session and get ₹{amount} off. Offer valid for {expiryDays} days.",
+        "audienceHint": ["Repeat"]
+      },
+      {
+        "id": "physio-first-visit",
+        "title": "New Client Starter",
+        "base": "Welcome 🙏 First evaluation at special price: save ₹{amount}. Limited to {count} bookings. Expires in {expiryDays} days.",
+        "audienceHint": ["New"]
+      }
+    ],
+    "salon": [
+      {
+        "id": "salon-festive-offer",
+        "title": "Festive Grooming Offer",
+        "base": "Festive week ✨ Book {count} services and save ₹{amount}. Valid {expiryDays} days. Reply YES to book now.",
+        "audienceHint": ["All"]
+      },
+      {
+        "id": "salon-reactivate",
+        "title": "It’s Time For A Refresh",
+        "base": "We miss you! Get ₹{amount} off on your next service. Valid for {expiryDays} days.",
+        "audienceHint": ["Repeat"]
+      },
+      {
+        "id": "salon-first-visit",
+        "title": "First Visit Special",
+        "base": "Welcome 🙏 First-visit special: ₹{amount} off. Limited to first {count} bookings. Expires in {expiryDays} days.",
+        "audienceHint": ["New"]
+      }
+    ]
+  }
+}

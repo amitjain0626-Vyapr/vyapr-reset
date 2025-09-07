@@ -9,17 +9,18 @@ import { createServerClient } from "@supabase/ssr";
 
 /**
  * Purpose: Verify that the current provider has a valid Google Calendar token.
- * What it does:
- * 1) Reads Supabase session from cookies.
- * 2) Extracts provider_token (Google access token).
- * 3) Calls Google CalendarList (lightweight) to confirm access.
- * 4) Logs a telemetry event and returns a tiny JSON.
- *
- * No schema drift. Safe to call anytime.
+ * What it checks (in order):
+ * 1) Secure cookie 'gc_at' set by /api/google-calendar/token (best for server).
+ * 2) Supabase session's provider_token/provider_access_token (fallback).
+ * Then calls CalendarList to confirm access.
  */
 export async function GET(req: NextRequest) {
   const cookieStore = cookies();
 
+  // 0) Cookie fallback FIRST (so we don't require session exposure of provider_token)
+  const cookieTok = cookieStore.get("gc_at")?.value || null;
+
+  // 1) Try Supabase session as secondary source
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -38,32 +39,24 @@ export async function GET(req: NextRequest) {
     }
   );
 
-  // 1) Get session (reads cookies)
-  const { data: sessData, error: sessErr } = await supabase.auth.getSession();
-  if (sessErr || !sessData?.session) {
-    return NextResponse.json(
-      { ok: false, error: "no_session" },
-      { status: 401 }
-    );
-  }
+  const { data: sessData } = await supabase.auth.getSession();
+  const session: any = sessData?.session || null;
 
-  // 2) Extract Google access token from session (supabase-js stores it as provider_token)
   const providerToken =
-    (sessData.session as any)?.provider_token ||
-    (sessData.session as any)?.provider_access_token ||
+    cookieTok ||
+    session?.provider_token ||
+    session?.provider_access_token ||
     null;
 
   if (!providerToken) {
-    // Not fatal—just tells us we don't have a token in session cookies.
-    // (User may need to re-login with Google after scopes update.)
-    await logEvent(req, "calendar.health.no_token", {});
+    await logEvent(req, "calendar.health.no_token", { where: "health" });
     return NextResponse.json(
       { ok: false, error: "no_google_token" },
       { status: 400 }
     );
   }
 
-  // 3) Call Google Calendar (lightweight list)
+  // 2) Call Google Calendar (lightweight list)
   try {
     const r = await fetch(
       "https://www.googleapis.com/calendar/v3/users/me/calendarList?maxResults=1",
@@ -94,10 +87,7 @@ export async function GET(req: NextRequest) {
         ? { id: j.items[0]?.id, summary: j.items[0]?.summary }
         : null;
 
-    return NextResponse.json({
-      ok: true,
-      primary,
-    });
+    return NextResponse.json({ ok: true, primary });
   } catch (e: any) {
     await logEvent(req, "calendar.health.exception", {
       message: e?.message || "exception",
@@ -118,4 +108,3 @@ async function logEvent(req: NextRequest, event: string, source: any) {
     });
   } catch {}
 }
-export {};

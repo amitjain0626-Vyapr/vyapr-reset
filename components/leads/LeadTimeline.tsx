@@ -27,6 +27,9 @@ export default function LeadTimeline({
   const [rows, setRows] = useState<TimelineEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  // search/filter
+  const [q, setQ] = useState("");
+
   // provider notes state
   const [noteText, setNoteText] = useState("");
   const [saving, setSaving] = useState(false);
@@ -37,6 +40,9 @@ export default function LeadTimeline({
   const [custSaving, setCustSaving] = useState(false);
   const custCanSave =
     (custText ?? "").trim().length > 0 && !!leadId && !custSaving;
+
+    // quick type filter
+const [type, setType] = useState<"all" | "notes" | "wa" | "nudges">("all");
 
   // fetch events
   async function loadEvents() {
@@ -117,6 +123,28 @@ export default function LeadTimeline({
       setCustSaving(false);
     }
   }
+
+  const filtered = rows.filter((ev) => {
+  // type filter first
+  const e = (ev.event || "");
+  const typePass =
+    type === "all"
+      ? true
+      : type === "notes"
+      ? e.startsWith("note.")
+      : type === "wa"
+      ? e.startsWith("wa.")
+      : e.startsWith("nudge."); // nudges
+
+  if (!typePass) return false;
+
+  // optional search
+  if (!q.trim()) return true;
+  const needle = q.toLowerCase();
+  const hay1 = e.toLowerCase();
+  const hay2 = JSON.stringify(ev.source || {}).toLowerCase();
+  return hay1.includes(needle) || hay2.includes(needle);
+});
 
   return (
     <div
@@ -238,30 +266,75 @@ export default function LeadTimeline({
               No events yet for this lead.
             </div>
           ) : (
-            <ul className="space-y-3">
-              {rows.map((ev) => (
-                <li
-                  key={ev.id}
-                  className="rounded-lg border p-3 shadow-sm bg-white"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium">{ev.event}</span>
-                    <time className="text-xs text-gray-500">
-                      {new Intl.DateTimeFormat("en-IN", {
-                        dateStyle: "medium",
-                        timeStyle: "short",
-                        timeZone: "Asia/Kolkata",
-                      }).format(new Date(Number(ev.ts)))}
-                    </time>
-                  </div>
-                  {ev?.source ? (
-                    <pre className="mt-2 overflow-x-auto rounded bg-gray-50 p-2 text-xs text-gray-700">
-                      {JSON.stringify(ev.source, null, 2)}
-                    </pre>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
+            <>
+              {/* quick type chips */}
+    <div className="mb-2 flex items-center gap-2">
+      {[
+        { k: "all",    label: "All" },
+        { k: "notes",  label: "Notes" },
+        { k: "wa",     label: "WhatsApp" },
+        { k: "nudges", label: "Nudges" },
+      ].map(({ k, label }) => (
+        <button
+          key={k}
+          type="button"
+          onClick={() => setType(k as any)}
+          className={`rounded border px-2 py-1 text-xs ${
+            type === (k as any) ? "bg-gray-100 border-gray-400" : "hover:bg-gray-50"
+          }`}
+          title={label}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+
+    {/* tiny search */}
+    <div className="mb-2 flex items-center gap-2">
+      <input
+        value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  className="w-full rounded border px-2 py-1 text-sm"
+                  placeholder="Filter timeline (try: wa., note., lead., or any word from details)"
+                />
+                {q ? (
+                  <button
+                    type="button"
+                    onClick={() => setQ("")}
+                    className="rounded border px-2 py-1 text-xs hover:bg-gray-50"
+                    title="Clear"
+                  >
+                    ✕
+                  </button>
+                ) : null}
+              </div>
+
+              {/* filtered list */}
+              <ul className="space-y-3">
+                {filtered.map((ev) => (
+                  <li
+                    key={ev.id}
+                    className="rounded-lg border p-3 shadow-sm bg-white"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium">{ev.event}</span>
+                      <time className="text-xs text-gray-500">
+                        {new Intl.DateTimeFormat("en-IN", {
+                          dateStyle: "medium",
+                          timeStyle: "short",
+                          timeZone: "Asia/Kolkata",
+                        }).format(new Date(Number(ev.ts)))}
+                      </time>
+                    </div>
+                    {ev?.source ? (
+                      <pre className="mt-2 overflow-x-auto rounded bg-gray-50 p-2 text-xs text-gray-700">
+                        {JSON.stringify(ev.source, null, 2)}
+                      </pre>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
         </div>
       </aside>

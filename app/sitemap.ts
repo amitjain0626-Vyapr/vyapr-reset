@@ -7,7 +7,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 300;
 
-const BASE = process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
+const BASE =
+  process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
 
 function slugify(s: string) {
   return String(s || "")
@@ -30,21 +31,40 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     );
 
-    // NOTE: Use created_at (Providers has no updated_at)
+    // NOTE: Providers has no updated_at → use created_at
     const { data, error } = await supabase
       .from("Providers")
-      .select("slug, created_at, category, location")
+      .select("slug, created_at, category, location, published")
       .eq("published", true);
 
     if (!error && Array.isArray(data) && data.length) {
-      // Provider microsites
+      // Per-provider URLs
       for (const row of data) {
         if (!row?.slug) continue;
+        const lastModified = row?.created_at ? new Date(row.created_at) : undefined;
+
+        // Booking page
         urls.push({
           url: `${BASE}/book/${row.slug}`,
           changeFrequency: "weekly",
           priority: 0.5,
-          lastModified: row?.created_at ? new Date(row.created_at) : undefined,
+          lastModified,
+        });
+
+        // Microsite (consumer profile)
+        urls.push({
+          url: `${BASE}/microsite/${row.slug}`,
+          changeFrequency: "weekly",
+          priority: 0.8,
+          lastModified,
+        });
+
+        // Digital Card (share card UI)
+        urls.push({
+          url: `${BASE}/vcard/${row.slug}`,
+          changeFrequency: "monthly",
+          priority: 0.5,
+          lastModified,
         });
       }
 

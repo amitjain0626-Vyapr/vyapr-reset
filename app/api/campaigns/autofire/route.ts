@@ -9,10 +9,11 @@ import { createClient } from "@supabase/supabase-js";
 /* ----------------------------- lang helpers ------------------------------ */
 /* No schema drift. English default. Honors: ?lang → cookie(vyapr.lang) → Providers.lang_pref → "en" */
 type Lang = "en" | "hi";
-function normalizeLangToken(v?: string | null): Lang | null {
+function normalizeLangToken(v?: string | null): "en" | "hi" | "hinglish" | null {
   const t = (v || "").toLowerCase().trim();
   if (t === "en") return "en";
-  if (t === "hi" || t === "hinglish") return "hi";
+  if (t === "hi") return "hi";
+  if (t === "hinglish") return "hinglish";
   return null;
 }
 async function resolveProviderLangPref(origin: string, slug: string): Promise<Lang | null> {

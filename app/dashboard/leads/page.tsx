@@ -10,6 +10,11 @@ import KpiCard from "@/components/ui/KpiCard";
 import VeliPanel from "@/components/copilot/VeliPanel";
 import ReferralCard from "@/components/referral/ReferralCard";
 import { createClient } from "@supabase/supabase-js";
+import LeadsTable from "@/components/leads/LeadsTable";
+import CalendarConnectHint from "@/components/calendar/CalendarConnectHint";
+import CalendarStatusPill from "@/components/calendar/CalendarStatusPill";
+/* INSERT: client widget for quick verification */
+import UnverifiedImports from "@/components/leads/UnverifiedImports";
 
 /* ---------- Supabase admin (server) ---------- */
 function admin() {
@@ -60,8 +65,16 @@ async function fetchLeadsSafe(providerId: string | null): Promise<Lead[]> {
     return [];
   }
 }
+async function updateStatus(id: string, status: string) {
+  await fetch("/api/leads/update-status", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id, status, provider_slug: "amitjain0626" }),
+  });
+  fetchLeads();
+}
 
-/* ---------- ROI + WoW deltas ---------- */
+/* ---------- ROI + WoW deltas (+ verified funnel) ---------- */
 async function fetchRoiSafe(providerId: string | null) {
   if (!providerId)
     return {
@@ -81,6 +94,12 @@ async function fetchRoiSafe(providerId: string | null) {
       pending7: 0,
       deltaBookings7Text: "—",
       deltaPayments7Text: "—",
+      verified7: 0,
+      prevVerified7: 0,
+      verifiedToBookingsPct7: 0,
+      pendingAmount7: 0,
+      leadToPaidPct7: 0,
+      bookingToPaidPct7: 0,
     };
   try {
     const sb = admin();
@@ -95,11 +114,13 @@ async function fetchRoiSafe(providerId: string | null) {
     lmStart.setDate(1);
     lmStart.setHours(0, 0, 0, 0);
     const lmEnd = new Date(mtdStart.getTime() - 1);
+
     const { data: rows = [] } = await sb
       .from("Events")
       .select("event, ts, source, lead_id")
       .eq("provider_id", providerId)
       .gte("ts", lmStart.getTime());
+
     let d7 = 0,
       prev7 = 0,
       mtd = 0,
@@ -109,10 +130,17 @@ async function fetchRoiSafe(providerId: string | null) {
       bookings7 = 0,
       prevBookings7 = 0,
       payments7 = 0,
-      prevPayments7 = 0;
+      prevPayments7 = 0,
+      verified7 = 0,
+      prevVerified7 = 0;
+
     const paid7 = new Set<string>();
+    // Track booking rows inside last 7d with optional expected amount
+    const bookings7Rows: Array<{ lead_id?: string | null; amount: number }> = [];
+
     for (const r of rows) {
       const amt = typeof r?.source?.amount === "number" ? r.source.amount : 0;
+
       if (r.event === "payment.success") {
         payments++;
         if (r.ts >= d7Cut) {
@@ -127,12 +155,24 @@ async function fetchRoiSafe(providerId: string | null) {
         if (r.ts >= mtdStart.getTime()) mtd += amt;
         if (r.ts >= lmStart.getTime() && r.ts <= lmEnd.getTime()) lmtd += amt;
       }
+
       if (r.event === "booking.confirmed") {
+        const bAmt =
+          typeof r?.source?.amount === "number" ? r.source.amount : 0;
         bookings++;
         if (r.ts >= d7Cut) bookings7++;
+        if (r.ts >= d7Cut) {
+          bookings7Rows.push({ lead_id: r.lead_id, amount: bAmt });
+        }
         if (r.ts >= d14Cut && r.ts < d7Cut) prevBookings7++;
       }
+
+      if (r.event === "lead.verified") {
+        if (r.ts >= d7Cut) verified7++;
+        if (r.ts >= d14Cut && r.ts < d7Cut) prevVerified7++;
+      }
     }
+
     const mkDelta = (c: number, p: number) =>
       p === 0 && c === 0
         ? "—"
@@ -143,6 +183,22 @@ async function fetchRoiSafe(providerId: string | null) {
         : `${c - p > 0 ? "↑" : "↓"} ${Math.round(
             Math.abs(((c - p) / p) * 100)
           )}%`;
+
+    // Compute pending amount (booked but not yet paid) in last 7d
+    let pendingAmount7 = 0;
+    for (const b of bookings7Rows) {
+      const lead = b.lead_id || "";
+      if (!paid7.has(lead)) pendingAmount7 += b.amount || 0;
+    }
+
+    // Conversion % helpers (7d)
+    const verifiedToBookingsPct7 =
+      verified7 > 0 ? Math.round((bookings7 / verified7) * 100) : 0;
+    const leadToPaidPct7 =
+      verified7 > 0 ? Math.round((paidLeads7 / verified7) * 100) : 0;
+    const bookingToPaidPct7 =
+      bookings7 > 0 ? Math.round((paidLeads7 / bookings7) * 100) : 0;
+
     return {
       d7,
       prev7,
@@ -160,6 +216,12 @@ async function fetchRoiSafe(providerId: string | null) {
       deltaPayments7Text: mkDelta(payments7, prevPayments7),
       paidLeads7: paid7.size,
       pending7: Math.max(bookings7 - paidLeads7, 0),
+      verified7,
+      prevVerified7,
+      verifiedToBookingsPct7,
+      pendingAmount7,
+      leadToPaidPct7,
+      bookingToPaidPct7,
     };
   } catch {
     return {
@@ -179,6 +241,12 @@ async function fetchRoiSafe(providerId: string | null) {
       pending7: 0,
       deltaBookings7Text: "—",
       deltaPayments7Text: "—",
+      verified7: 0,
+      prevVerified7: 0,
+      verifiedToBookingsPct7: 0,
+      pendingAmount7: 0,
+      leadToPaidPct7: 0,
+      bookingToPaidPct7: 0,
     };
   }
 }
@@ -283,6 +351,10 @@ export default async function LeadsPage(props: any) {
   const searchParams =
     spRaw && typeof spRaw.then === "function" ? await spRaw : spRaw || {};
   const slug = typeof searchParams?.slug === "string" ? searchParams.slug : "";
+  const q = typeof searchParams?.q === "string" ? searchParams.q.trim() : "";
+const status = typeof searchParams?.status === "string" ? searchParams.status.trim().toLowerCase() : "";
+const validStatuses = new Set(["", "new", "verified", "booked", "paid"]);
+const statusSafe = validStatuses.has(status) ? status : "";
   const provider = await getProviderBySlugSafe(slug);
   const providerId = provider?.id || null;
 
@@ -292,6 +364,31 @@ export default async function LeadsPage(props: any) {
     fetchWeeklySeriesSafe(providerId),
     fetchIdleSignalsSafe(providerId),
   ]);
+  // Basic, safe filtering (no schema drift)
+const leadsAll = Array.isArray(leads) ? leads : [];
+const leadsFiltered = leadsAll.filter((r) => {
+  const s = (r?.status || "").toLowerCase();
+  const name = (r?.patient_name || "").toLowerCase();
+  const phone = (r?.phone || "").toLowerCase();
+  const qOk = q ? name.includes(q.toLowerCase()) || phone.includes(q.toLowerCase()) : true;
+  const stOk = statusSafe ? s === statusSafe : true;
+  return qOk && stOk;
+});
+
+// Status counts for chips
+const counts = leadsAll.reduce(
+  (acc: any, r: any) => {
+    const s = (r?.status || "").toLowerCase();
+    if (s === "new") acc.new++;
+    else if (s === "verified") acc.verified++;
+    else if (s === "booked") acc.booked++;
+    else if (s === "paid") acc.paid++;
+    else acc.other++;
+    acc.all++;
+    return acc;
+  },
+  { all: 0, new: 0, verified: 0, booked: 0, paid: 0, other: 0 }
+);
 
   const nudgesHref = slug
     ? `/dashboard/nudges?slug=${encodeURIComponent(slug)}`
@@ -303,6 +400,15 @@ export default async function LeadsPage(props: any) {
     ? `/templates?slug=${encodeURIComponent(slug)}`
     : "/templates";
 
+    function withParams(next: { q?: string; status?: string }) {
+  const u = new URLSearchParams();
+  if (slug) u.set("slug", slug);
+  const qVal = typeof next.q === "string" ? next.q : q;
+  const sVal = typeof next.status === "string" ? next.status : statusSafe;
+  if (qVal) u.set("q", qVal);
+  if (sVal) u.set("status", sVal);
+  return `/dashboard/leads?${u.toString()}`;
+}
   const showEmptySlots =
     !idle.hasActivity24h ||
     ((roi.bookings7 || 0) < 2 && (roi.payments7 || 0) < 2);
@@ -314,7 +420,9 @@ export default async function LeadsPage(props: any) {
     <main className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Leads</h1>
+
         <div className="flex items-center gap-2">
+          <CalendarStatusPill />
           <VeliPanel
             slug={slug}
             provider={provider?.display_name || slug || "your service provider"}
@@ -322,6 +430,50 @@ export default async function LeadsPage(props: any) {
           <QuickAddLead slug={slug} />
         </div>
       </div>
+
+{/* Search + Filters */}
+<div className="rounded-2xl border p-3 bg-white">
+  <form method="GET" action="/dashboard/leads" className="flex flex-col md:flex-row md:items-center gap-2">
+    {/* keep slug on submit */}
+    {slug ? <input type="hidden" name="slug" value={slug} /> : null}
+    <input
+      type="text"
+      name="q"
+      defaultValue={q}
+      placeholder="Search name or phone (all TGs)"
+      className="flex-1 min-w-0 rounded-xl border px-3 py-2 text-sm"
+    />
+    <div className="flex items-center gap-1 text-xs">
+      <a href={withParams({ status: "" })} className={`inline-flex items-center gap-1 rounded-xl px-2 py-1 border ${statusSafe==="" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-800"}`}>
+        All <span className="opacity-70">({counts.all})</span>
+      </a>
+      <a href={withParams({ status: "new" })} className={`inline-flex items-center gap-1 rounded-xl px-2 py-1 border ${statusSafe==="new" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-800"}`}>
+        New <span className="opacity-70">({counts.new})</span>
+      </a>
+      <a href={withParams({ status: "verified" })} className={`inline-flex items-center gap-1 rounded-xl px-2 py-1 border ${statusSafe==="verified" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-800"}`}>
+        Verified <span className="opacity-70">({counts.verified})</span>
+      </a>
+      <a href={withParams({ status: "booked" })} className={`inline-flex items-center gap-1 rounded-xl px-2 py-1 border ${statusSafe==="booked" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-800"}`}>
+        Booked <span className="opacity-70">({counts.booked})</span>
+      </a>
+      <a href={withParams({ status: "paid" })} className={`inline-flex items-center gap-1 rounded-xl px-2 py-1 border ${statusSafe==="paid" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-800"}`}>
+        Paid <span className="opacity-70">({counts.paid})</span>
+      </a>
+    </div>
+    <button type="submit" className="rounded-xl bg-gray-900 text-white px-3 py-2 text-sm">
+      Search
+    </button>
+  </form>
+  <div className="mt-2 text-[11px] text-gray-500">
+    Works for all categories: dentists, astrologers, fitness, beauty — this inbox is generic by design.
+  </div>
+</div>
+
+{/* Calendar connect hint (only shows when token missing) */}
+      <CalendarConnectHint />
+
+      {/* Quick verify widget for imported contacts */}
+      <UnverifiedImports providerId={providerId} slug={slug} />
 
       {/* Referral card */}
       <ReferralCard
@@ -392,8 +544,8 @@ export default async function LeadsPage(props: any) {
         </div>
       )}
 
-      {/* KPI cards with WoW deltas */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      {/* KPI cards with WoW deltas + verified→bookings funnel */}
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
         <KpiCard
           label="₹ in last 7 days"
           value={roi.d7 > 0 ? `₹${Math.round(roi.d7)}` : "₹0 (start by adding leads)"}
@@ -446,6 +598,33 @@ export default async function LeadsPage(props: any) {
               : "neutral"
           }
         />
+        {/* NEW: Pending ₹ (7d) — unpaid booked amount */}
+        <KpiCard
+          label="Pending ₹ (7d)"
+          value={
+            roi.pendingAmount7 > 0
+              ? `₹${Math.round(roi.pendingAmount7)}`
+              : "₹0 (all clear)"
+          }
+          deltaText=""
+          help="Sum of expected booking amounts in the last 7 days where payment.success not seen yet."
+          tone={roi.pendingAmount7 > 0 ? "warn" : "success"}
+        />
+        {/* NEW: Leads→Paid % (7d) */}
+        <KpiCard
+          label="Leads→Paid % (7d)"
+          value={`${roi.leadToPaidPct7 || 0}%`}
+          deltaText=""
+          help="Paid leads in last 7 days divided by verified leads."
+          tone="neutral"
+        />
+        <KpiCard
+          label="Verified→Bookings % (7d)"
+          value={`${roi.verifiedToBookingsPct7 || 0}%`}
+          deltaText=""
+          help="bookings.confirmed divided by lead.verified in last 7 days."
+          tone="neutral"
+        />
       </div>
 
       {/* Weekly trend line */}
@@ -462,19 +641,21 @@ export default async function LeadsPage(props: any) {
       <TopCampaigns slug={slug} />
 
       {provider ? (
-        leads.length > 0 ? (
-          <LeadsClientTable rows={leads} provider={provider} />
+  leadsFiltered.length > 0 ? (
+    <LeadsClientTable rows={leadsFiltered} provider={provider} />
         ) : (
           <div className="rounded-xl border p-4 bg-gray-50 text-gray-600 text-sm">
-            No leads yet — add your first lead using the “Quick Add” button above.
-          </div>
-        )
-      ) : (
-        <div className="rounded-xl border p-4 bg-amber-50 text-amber-900 text-sm">
-          Provider not found for slug <code>{slug || "(empty)"}</code>.
-        </div>
-      )}
-    </main>
+  {q || statusSafe
+    ? "No matching leads — clear filters to see all."
+    : "No leads yet — add your first lead using the “Quick Add” button above."}
+</div>
+)
+) : (
+  <div className="rounded-xl border p-4 bg-amber-50 text-amber-900 text-sm">
+    Provider not found for slug <code>{slug || "(empty)"}</code>.
+  </div>
+)}
+</main>
   );
 }
 

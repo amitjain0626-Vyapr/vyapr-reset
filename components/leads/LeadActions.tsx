@@ -5,7 +5,7 @@
 import * as React from 'react';
 import { useCallback, useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import { waReminder, waRebook, waBookingLink } from '@/lib/wa/templates';
+import { waReminder, waRebook } from '@/lib/wa/templates';
 
 type Lead = { id: string; patient_name?: string | null; phone?: string | null };
 type Provider = { slug: string; id?: string; display_name?: string | null };
@@ -19,7 +19,6 @@ interface Props {
 const encode = (s: string) => encodeURIComponent(s);
 
 const isMobile = () => {
-  // Prefer UA-CH if available
   // @ts-ignore
   const ch = typeof navigator !== 'undefined' && (navigator as any).userAgentData;
   if (ch && typeof ch.mobile === 'boolean') return ch.mobile;
@@ -46,32 +45,95 @@ const copyToClipboard = async (text: string) => {
 };
 
 async function logEvent(payload: {
-  event: 'wa.reminder.sent' | 'wa.rebook.sent';
+  event: string;
   provider_slug?: string;
   provider_id?: string;
   lead_id?: string;
   source: any;
 }) {
   try {
-    const res = await fetch('/api/events/log', {
+    await fetch('/api/events/log', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        event: payload.event,
-        provider_slug: payload.provider_slug,
-        provider_id: payload.provider_id,
-        lead_id: payload.lead_id,
-        source: payload.source,
-        ts: Date.now(),
-      }),
+      body: JSON.stringify({ ...payload, ts: Date.now() }),
     });
-    if (!res.ok) console.warn('events/log non-200', res.status);
-  } catch (e) {
-    console.warn('events/log failed', e);
+  } catch {}
+}
+
+/* ===================== Retention Playbooks bridge ===================== */
+async function openPlaybook(
+  kind: 'no_show_followup' | 'reactivation_nudge' | 'pre_booking_reminder',
+  lead: Lead,
+  provider: Provider
+) {
+  try {
+    const url = new URL('/api/templates/preview', window.location.origin);
+    url.searchParams.set('slug', provider.slug);
+    url.searchParams.set('lead_id', lead.id);
+    url.searchParams.set('kind', kind);
+
+    // pass customer name (if we have it)
+    const name = (lead?.patient_name || '').trim();
+    if (name) url.searchParams.set('name', name);
+
+    // NEW: pass provider display name when present
+    const provName = (provider?.display_name || '').trim();
+    if (provName) url.searchParams.set('provider', provName);
+
+    const res = await fetch(url.toString(), { cache: 'no-store' });
+    const json = await res.json().catch(() => ({} as any));
+    const deeplink = json?.wa_deeplink || '';
+
+    if (!deeplink) {
+      toast.error('Could not build WhatsApp message');
+      return;
+    }
+
+    if (isMobile()) {
+      window.location.href = deeplink;
+    } else {
+      window.open(deeplink, '_blank');
+    }
+
+    const event = kind === 'reactivation_nudge' ? 'wa.reactivation.sent' : 'wa.reminder.sent';
+    logEvent({
+      event,
+      provider_slug: provider.slug,
+      provider_id: provider.id,
+      lead_id: lead.id,
+      source: { via: 'ui', playbook: kind },
+    });
+  } catch {
+    toast.error('Preview failed');
   }
+}
+/* =================== /Retention Playbooks bridge ====================== */
+
+// --- Build tracked booking URL ---
+function trackedBookingUrl(opts: {
+  slug: string;
+  leadId: string;
+  campaign: string;
+  utm_source: 'whatsapp' | 'sms' | 'qr' | 'direct';
+  utm_medium: 'message' | 'scan' | 'link';
+}) {
+  const origin =
+    (typeof window !== 'undefined' && window.location && window.location.origin) ||
+    process.env.NEXT_PUBLIC_BASE_URL ||
+    'https://vyapr-reset-5rly.vercel.app';
+
+  const q = new URLSearchParams({
+    lid: opts.leadId,
+    utm_source: opts.utm_source,
+    utm_medium: opts.utm_medium,
+    utm_campaign: opts.campaign || 'direct',
+  });
+
+  return `${origin}/book/${opts.slug}?${q.toString()}`;
 }
 
 function buildReminderText(lead: Lead, provider: Provider, campaign?: string) {
+  ts // --- Resolve friendly provider role (Dentist → “Dentist”, physio → “Physiotherapist”) --- async function getProviderRole(slug: string): Promise<string> { try { const res = await fetch(`/api/providers/${encodeURIComponent(slug)}`, { cache: 'no-store' }); const j: any = await res.json().catch(() => null); const raw = (j?.category || j?.provider?.category || '').toString().trim(); if (!raw) return ''; const map: Record<string, string> = { dentist: 'Dentist', dental: 'Dentist', astro: 'Astrologer', astrologer: 'Astrologer', physio: 'Physiotherapist', physiotherapist: 'Physiotherapist', yoga: 'Yoga Instructor', 'gym-trainer': 'Fitness Coach', salon: 'Stylist', derma: 'Dermatologist', dermatologist: 'Dermatologist', tutor: 'Tutor', }; const k = raw.toLowerCase(); return map[k] || (raw.charAt(0).toUpperCase() + raw.slice(1)); } catch { return ''; } } ``` 2 lines after ```ts const name = (lead.patient_name || '').trim();  
   const name = (lead.patient_name || '').trim();
   const prov = (provider.display_name || provider.slug || 'your provider').trim();
   return waReminder({ name, provider: prov, slug: provider.slug, leadId: lead.id, campaign });
@@ -86,104 +148,110 @@ function buildRebookText(lead: Lead, provider: Provider, campaign?: string) {
 export default function LeadActions({ lead, provider, className }: Props) {
   const hasPhone = !!(lead?.phone && String(lead.phone).trim());
   const disabledCls = hasPhone ? 'hover:bg-gray-50' : 'opacity-50 cursor-not-allowed';
-  const reminderTitle = hasPhone ? '💬 Send WhatsApp reminder' : 'No phone on lead';
-  const rebookTitle = hasPhone ? '↩️ Send WhatsApp rebooking' : 'No phone on lead';
 
-  // Campaign selector (drives utm_campaign across all actions) — PERSISTED
   const [campaign, setCampaign] = useState<
-    'direct' | 'whatsapp' | 'sms' | 'instagram' | 'qr' |
-    'confirm' | 'noshow' | 'reactivation'
+    'direct' | 'whatsapp' | 'sms' | 'instagram' | 'qr' | 'confirm' | 'noshow' | 'reactivation'
   >('direct');
 
-  // Load persisted row campaign
   useEffect(() => {
     try {
       const v = localStorage.getItem('vyapr.rowCampaign');
       if (v) setCampaign(v as any);
     } catch {}
   }, []);
-
-  // Save on change
   useEffect(() => {
     try {
       localStorage.setItem('vyapr.rowCampaign', campaign);
     } catch {}
   }, [campaign]);
 
+  // handlers for playbooks
+  const sendNoShow = useCallback(() => openPlaybook('no_show_followup', lead, provider), [lead, provider]);
+  const sendReactivate = useCallback(() => openPlaybook('reactivation_nudge', lead, provider), [lead, provider]);
+  const sendPreBooking = useCallback(() => openPlaybook('pre_booking_reminder', lead, provider), [lead, provider]);
+
   const handleSend = useCallback(
     async (kind: 'reminder' | 'rebook') => {
+      // Optional “, your <role>” phrasing — fetched from provider.category const role = await getProviderRole(provider.slug); ``` 2 lines after ```ts let rawText = kind === 'reminder' ? buildReminderText(lead, provider, campaign) : buildRebookText(lead, provider, campaign);
       if (!hasPhone) {
         toast.message('No phone on lead', { duration: 1500 });
         return;
       }
-
-      const rawText =
+      let rawText =
         kind === 'reminder'
           ? buildReminderText(lead, provider, campaign)
           : buildRebookText(lead, provider, campaign);
 
-      // Always copy first (fallback)
-      const copied = await copyToClipboard(rawText);
+      const tracked = trackedBookingUrl({
+        // If we have a role, convert: // "this is Amit Jain's team." → "this is Amit Jain's team, your Dentist." if (role) { rawText = rawText.replace('team.', `team, your ${role}.`); } ``` 2 lines after ```ts campaign, utm_source: 'whatsapp',
+        slug: provider.slug,
+        leadId: lead.id,
+        campaign,
+        utm_source: 'whatsapp',
+        utm_medium: 'message',
+      });
+      if (!rawText.includes(tracked)) rawText += `\n\n${tracked}`;
 
-      const phone = (lead.phone || '').replace(/[^\d+]/g, ''); // keep + and digits
+      await copyToClipboard(rawText);
+      const phone = (lead.phone || '').replace(/[^\d+]/g, '');
       const textParam = encode(rawText);
 
-      const mobile = isMobile();
-      let opened = false;
-
-      try {
-        if (mobile) {
-          window.location.href = `https://wa.me/${phone}?text=${textParam}`;
-          opened = true;
-          toast.message('Opening WhatsApp…', { duration: 1200 });
-        } else {
-          const url = `https://web.whatsapp.com/send?phone=${encode(phone)}&text=${textParam}`;
-          const win = window.open(url, '_blank', 'noopener,noreferrer');
-          opened = !!win;
-          toast.message('Copied. Opening WhatsApp Web…', { duration: 1600 });
-        }
-      } catch {
-        toast.message(copied ? 'Copied.' : 'Tried to copy.', { duration: 1400 });
+      if (isMobile()) {
+        window.location.href = `https://wa.me/${phone}?text=${textParam}`;
+      } else {
+        window.open(`https://web.whatsapp.com/send?phone=${encode(phone)}&text=${textParam}`, '_blank');
       }
 
-      // Telemetry (non-blocking)
       logEvent({
         event: kind === 'reminder' ? 'wa.reminder.sent' : 'wa.rebook.sent',
         provider_slug: provider.slug,
         provider_id: provider.id,
         lead_id: lead.id,
-        source: { via: 'ui', bulk: false, to: phone, opened, copied, campaign },
+        source: { via: 'ui', bulk: false, to: phone, campaign },
       });
     },
     [hasPhone, lead, provider, campaign]
   );
 
-  const isiOS = () => {
-    if (typeof navigator === 'undefined') return false;
-    const ua = navigator.userAgent || '';
-    return /iPhone|iPad|iPod/i.test(ua);
-  };
-
-  // SMS compose (reminder text)
+  // --- SMS mirror ---
   const handleSms = useCallback(async () => {
     if (!hasPhone) {
       toast.message('No phone on lead', { duration: 1500 });
       return;
     }
-    const body = buildReminderText(lead, provider, campaign);
+    let body = buildReminderText(lead, provider, campaign);
+    const tracked = trackedBookingUrl({
+      slug: provider.slug,
+      leadId: lead.id,
+      campaign,
+      utm_source: 'sms',
+      utm_medium: 'message',
+    });
+    if (!body.includes(tracked)) body += `\n\n${tracked}`;
     const phone = (lead.phone || '').replace(/[^\d+]/g, '');
     const textParam = encode(body);
-    const url = isiOS()
-      ? `sms:${phone}&body=${textParam}`
-      : `sms:${phone}?body=${textParam}`;
+    const url = isiOS() ? `sms:${phone}&body=${textParam}` : `sms:${phone}?body=${textParam}`;
     try {
       window.location.href = url;
     } catch {}
+
+    logEvent({
+      event: 'sms.reminder.sent',
+      provider_slug: provider.slug,
+      provider_id: provider.id,
+      lead_id: lead.id,
+      source: { via: 'sms', bulk: false, to: phone, campaign },
+    });
   }, [hasPhone, lead, provider, campaign]);
 
-  // Download QR (PNG)
   const handleQR = useCallback(async () => {
-    const tracked = waBookingLink({ slug: provider.slug, leadId: lead.id, campaign });
+    const tracked = trackedBookingUrl({
+      slug: provider.slug,
+      leadId: lead.id,
+      campaign,
+      utm_source: 'qr',
+      utm_medium: 'scan',
+    });
     const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=512x512&data=${encode(tracked)}`;
     const a = document.createElement('a');
     a.href = qrUrl;
@@ -193,44 +261,30 @@ export default function LeadActions({ lead, provider, className }: Props) {
     a.remove();
   }, [provider.slug, lead.id, campaign]);
 
+  const handleCopyLink = useCallback(async () => {
+    const tracked = trackedBookingUrl({
+      slug: provider.slug,
+      leadId: lead.id,
+      campaign,
+      utm_source: 'direct',
+      utm_medium: 'link',
+    });
+    const ok = await copyToClipboard(tracked);
+    toast.success(ok ? 'Booking link copied' : 'Tried to copy link');
+  }, [provider.slug, lead.id, campaign]);
+
   return (
     <div className={`flex flex-wrap items-center gap-2 ${className || ''}`}>
       {/* Presets */}
       <div className="flex flex-wrap items-center gap-1">
-        <button
-          type="button"
-          onClick={() => { setCampaign('confirm'); toast.message('Preset: Confirm'); }}
-          className="px-2 py-0.5 rounded border text-xs hover:bg-gray-50"
-          title="Use confirm preset"
-        >
-          ✅ Confirm
-        </button>
-        <button
-          type="button"
-          onClick={() => { setCampaign('noshow'); toast.message('Preset: No-show recovery'); }}
-          className="px-2 py-0.5 rounded border text-xs hover:bg-gray-50"
-          title="Use no-show recovery preset"
-        >
-          ⏰ No-show
-        </button>
-        <button
-          type="button"
-          onClick={() => { setCampaign('reactivation'); toast.message('Preset: Reactivation'); }}
-          className="px-2 py-0.5 rounded border text-xs hover:bg-gray-50"
-          title="Use reactivation preset"
-        >
-          🔄 Reactivate
-        </button>
+        <button type="button" onClick={() => { setCampaign('confirm'); toast.message('Preset: Confirm'); }} className="px-2 py-0.5 rounded border text-xs hover:bg-gray-50">✅ Confirm</button>
+        <button type="button" onClick={() => { setCampaign('noshow'); toast.message('Preset: No-show recovery'); }} className="px-2 py-0.5 rounded border text-xs hover:bg-gray-50">⏰ No-show</button>
+        <button type="button" onClick={() => { setCampaign('reactivation'); toast.message('Preset: Reactivation'); }} className="px-2 py-0.5 rounded border text-xs hover:bg-gray-50">🔄 Reactivate</button>
       </div>
 
-      {/* Campaign selector (shows current tag) */}
+      {/* Campaign selector */}
       <label className="text-xs text-gray-500">Camp.</label>
-      <select
-        value={campaign}
-        onChange={(e) => setCampaign(e.target.value as any)}
-        className="px-2 py-1 rounded border text-sm"
-        title="Choose campaign tag"
-      >
+      <select value={campaign} onChange={(e) => setCampaign(e.target.value as any)} className="px-2 py-1 rounded border text-sm">
         <option value="direct">Direct</option>
         <option value="whatsapp">WhatsApp</option>
         <option value="sms">SMS</option>
@@ -241,60 +295,21 @@ export default function LeadActions({ lead, provider, className }: Props) {
         <option value="reactivation">reactivation</option>
       </select>
 
-      <button
-        type="button"
-        onClick={() => handleSend('reminder')}
-        disabled={!hasPhone}
-        title={reminderTitle}
-        className={`px-2 py-1 rounded border text-sm ${disabledCls}`}
-      >
-        💬 WA Reminder
-      </button>
+      <button type="button" onClick={() => handleSend('reminder')} disabled={!hasPhone} className={`px-2 py-1 rounded border text-sm ${disabledCls}`}>💬 WA Reminder</button>
+      <button type="button" onClick={() => handleSend('rebook')} disabled={!hasPhone} className={`px-2 py-1 rounded border text-sm ${disabledCls}`}>↩️ Rebooking</button>
+      <button type="button" onClick={handleCopyLink} className="px-2 py-1 rounded border text-sm hover:bg-gray-50">🔗 Copy Link</button>
+      <button type="button" onClick={handleSms} disabled={!hasPhone} className={`px-2 py-1 rounded border text-sm ${disabledCls}`}>📩 SMS</button>
+      <button type="button" onClick={handleQR} className="px-2 py-1 rounded border text-sm hover:bg-gray-50">🖨️ QR</button>
 
-      <button
-        type="button"
-        onClick={() => handleSend('rebook')}
-        disabled={!hasPhone}
-        title={rebookTitle}
-        className={`px-2 py-1 rounded border text-sm ${disabledCls}`}
-      >
-        ↩️ Rebooking
-      </button>
+      {/* Retention Playbooks — one-click WA */}
+      <div className="flex flex-wrap items-center gap-1">
+        <button type="button" onClick={sendNoShow} disabled={!hasPhone} className={`px-2 py-1 rounded border text-sm ${disabledCls}`} title="Send a no-show recovery message on WA">⏰ No-show (WA)</button>
+        <button type="button" onClick={sendReactivate} disabled={!hasPhone} className={`px-2 py-1 rounded border text-sm ${disabledCls}`} title="Send a reactivation nudge on WA">🔄 Reactivate (WA)</button>
+        <button type="button" onClick={sendPreBooking} disabled={!hasPhone} className={`px-2 py-1 rounded border text-sm ${disabledCls}`} title="Send a pre-booking confirmation on WA">🗓️ Pre-book (WA)</button>
+      </div>
 
-      {/* Copy link */}
-      <button
-        type="button"
-        onClick={async () => {
-          const link = waBookingLink({ slug: provider.slug, leadId: lead.id, campaign });
-          const ok = await copyToClipboard(link);
-          toast.success(ok ? 'Booking link copied' : 'Tried to copy link');
-        }}
-        title="🔗 Copy tracked booking link"
-        className="px-2 py-1 rounded border text-sm hover:bg-gray-50"
-      >
-        🔗 Copy Link
-      </button>
-
-      {/* SMS */}
-      <button
-        type="button"
-        onClick={handleSms}
-        disabled={!hasPhone}
-        title="📩 Open SMS composer"
-        className={`px-2 py-1 rounded border text-sm ${disabledCls}`}
-      >
-        📩 SMS
-      </button>
-
-      {/* QR */}
-      <button
-        type="button"
-        onClick={handleQR}
-        title="🖨️ Download QR PNG"
-        className="px-2 py-1 rounded border text-sm hover:bg-gray-50"
-      >
-        🖨️ QR
-      </button>
+      {/* micro-upsell chip */}
+      <a href={`/upsell?slug=${encodeURIComponent(provider.slug)}&lid=${encodeURIComponent(lead.id)}`} className="text-[11px] rounded-full border px-2 py-0.5 text-indigo-700 border-indigo-300 hover:bg-indigo-50" title="Get more visibility & ready-made message templates">⭐ Boost</a>
     </div>
   );
 }

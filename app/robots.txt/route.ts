@@ -1,18 +1,33 @@
 // @ts-nocheck
-import { NextResponse } from 'next/server';
-import { getBaseUrl } from '@/lib/site';
+import { NextResponse } from "next/server";
 
-export async function GET(req: Request) {
-  const base = getBaseUrl(req.headers);
+export const dynamic = "force-dynamic";
+
+function baseUrl() {
+  const env = process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "");
+  return env && /^https?:\/\//i.test(env) ? env : "https://vyapr-reset-5rly.vercel.app";
+}
+
+export async function GET() {
+  const BASE = baseUrl();
   const body = [
-    'User-agent: *',
-    'Allow: /',
-    ``,
-    `Sitemap: ${base}/sitemap.xml`,
-    ``,
-  ].join('\n');
+    "User-agent: *",
+    "Allow: /",
+    "Allow: /d/",
+    "Allow: /directory",
+    "Allow: /book/",
+    "Allow: /card/",
+    "Disallow: /dashboard",
+    "Disallow: /onboarding",
+    "Disallow: /auth",
+    "",
+    `Host: ${BASE.replace(/^https?:\/\//, "")}`,
+    `Sitemap: ${BASE}/sitemap.xml`,
+    "",
+  ].join("\n");
 
   return new NextResponse(body, {
-    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    status: 200,
+    headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
 }
