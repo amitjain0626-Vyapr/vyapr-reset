@@ -500,6 +500,101 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
         `}
       </Script>
       {/* === VYAPR: Batch Send (22.15) END === */}
+
+      {/* === VYAPR: Batch Send Cap+Hint START (22.17) === */}
+      <Script id="vyapr-batch-cap" strategy="afterInteractive">
+        {`
+(function(){
+  try{
+    // Hard cap for UI fan-out to avoid WA rate-limit spikes
+    var CAP = 6;
+
+    var section = document.querySelector('[data-test="nudge-batch-ui"]');
+    if(!section) return;
+    section.setAttribute('data-batch-cap', String(CAP));
+
+    // Inject/update a small hint near the Batch button
+    var btn = section.querySelector('button');
+    if(btn){
+      var hint = section.querySelector('[data-test="batch-hint"]');
+      if(!hint){
+        hint = document.createElement('small');
+        hint.setAttribute('data-test','batch-hint');
+        hint.style.display = 'block';
+        hint.style.marginTop = '6px';
+        hint.style.color = '#4b5563'; // gray-600
+        btn.parentElement && btn.parentElement.appendChild(hint);
+      }
+      var total = Number(section.getAttribute('data-total')||'0');
+      var remaining = Number(section.getAttribute('data-remaining')||'0');
+      var allowed = Math.max(0, Math.min(remaining, total));
+      var openN = Math.min(CAP, allowed);
+      hint.textContent = 'Will open up to ' + openN + ' (cap ' + CAP + ')';
+    }
+
+    // Replace existing click handler with a capped version (no edits to earlier code)
+    var oldBtn = section.querySelector('#vy-batch-btn');
+    if(!oldBtn) return;
+
+    var clone = oldBtn.cloneNode(true);
+    oldBtn.replaceWith(clone);
+
+    var rootEl = document.querySelector('[data-test="nudge-center-root"]');
+    var providerId = rootEl ? rootEl.getAttribute('data-provider-id') : null;
+
+    var anchors = Array.from(document.querySelectorAll('[data-test="nudge-item"] a[data-test="nudge-send"]'));
+    var total = Number(section.getAttribute('data-total')||'0');
+    var remaining = Number(section.getAttribute('data-remaining')||'0');
+    var isQuiet = section.getAttribute('data-isquiet') === '1';
+    var allowed = Math.max(0, Math.min(remaining, anchors.length));
+    var openN = Math.min(CAP, allowed);
+
+    async function logBatch(count){
+      try{
+        await fetch('/api/events/log', {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({
+            event:'nudge.batch.sent',
+            ts: Date.now(),
+            provider_id: providerId,
+            lead_id: null,
+            source:{ via:'ui', count: count, cap: CAP, window: (document.querySelector('[data-test="win-h24"].bg-black') ? 'h24' : 'd30') }
+          })
+        });
+      }catch(_){}
+    }
+
+    clone.addEventListener('click', async function(ev){
+      ev.preventDefault();
+
+      // Respect quiet/cap
+      if(isQuiet || openN <= 0){
+        await logBatch(0);
+        clone.disabled = true;
+        clone.textContent = 'Batch sent (0)';
+        return;
+      }
+
+      var opened = 0;
+      for(var i=0;i<openN;i++){
+        var a = anchors[i];
+        if(!a) break;
+        var href = a.getAttribute('href');
+        if(!href) continue;
+        window.open(href, '_blank', 'noopener,noreferrer');
+        opened++;
+        await new Promise(function(r){ setTimeout(r,150); });
+      }
+      await logBatch(opened);
+      clone.disabled = true;
+      clone.textContent = 'Batch sent ('+opened+')';
+    }, { once:true });
+  }catch(_){}
+})();
+        `}
+      </Script>
+      {/* === VYAPR: Batch Send Cap+Hint END (22.17) === */}
     </main>
   );
 }
