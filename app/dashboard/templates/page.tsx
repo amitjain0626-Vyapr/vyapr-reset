@@ -132,11 +132,43 @@ export default function TemplatesPage() {
   const [ok, setOk] = useState<boolean | null>(null);
   const [preview, setPreview] = useState<null | { text: string; whatsapp_url?: string }>(null);
 
+  // NEW: pinning state (per provider)
+  const [providerId, setProviderId] = useState<string | null>(null);
+  const [pinned, setPinned] = useState<Set<string>>(new Set());
+  const [pinBusy, setPinBusy] = useState<string | null>(null);
+
   // Filter by category
   const templates = useMemo(
     () => ALL_TEMPLATES.filter((t) => t.category === category),
     [category]
   );
+
+  // Load provider ID + current pinned list when slug changes
+  useEffect(() => {
+    let cancelled = false;
+    async function loadProviderAndPins() {
+      try {
+        // provider id
+        const pRes = await fetch(`/api/providers/${encode(slug)}`, { cache: "no-store" });
+        const pJson = await pRes.json().catch(() => ({}));
+        if (!cancelled) setProviderId(pJson?.id || pJson?.provider?.id || null);
+      } catch {
+        if (!cancelled) setProviderId(null);
+      }
+      try {
+        const r = await fetch(`/api/templates/pinned?slug=${encode(slug)}`, { cache: "no-store" });
+        const j = await r.json().catch(() => ({}));
+        const keys = Array.isArray(j?.items) ? j.items.map((x: any) => x.template_id) : [];
+        if (!cancelled) setPinned(new Set(keys));
+      } catch {
+        if (!cancelled) setPinned(new Set());
+      }
+    }
+    loadProviderAndPins();
+    return () => {
+      cancelled = true;
+    };
+  }, [slug]);
 
   useEffect(() => {
     setOk(null);
@@ -244,6 +276,65 @@ export default function TemplatesPage() {
       setOk(false);
     } finally {
       setBusy(null);
+    }
+  }
+
+  // NEW: pin/unpin helpers
+  async function pinTemplate(t: Template) {
+    if (!providerId) return;
+    setPinBusy(t.key);
+    try {
+      const ts = Date.now();
+      await fetch(`/api/events/log`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event: "template.pinned",
+          ts,
+          provider_id: providerId,
+          source: {
+            provider_slug: slug,
+            template_id: t.key,
+            category: t.category,
+          },
+        }),
+      });
+      setPinned((prev) => new Set(prev).add(t.key));
+    } catch {
+      // noop (we keep UX simple)
+    } finally {
+      setPinBusy(null);
+    }
+  }
+
+  async function unpinTemplate(t: Template) {
+    if (!providerId) return;
+    setPinBusy(t.key);
+    try {
+      const ts = Date.now();
+      await fetch(`/api/events/log`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event: "template.unpinned",
+          ts,
+          provider_id: providerId,
+          source: {
+            provider_slug: slug,
+            template_id: t.key,
+            category: t.category,
+          },
+        }),
+      });
+      setPinned((prev) => {
+        const n = new Set(prev);
+        n.delete(t.key);
+        return n;
+      });
+    } catch {
+      // noop
+    } finally {
+      setPinBusy(null);
     }
   }
 
@@ -375,70 +466,91 @@ export default function TemplatesPage() {
 
       {/* Templates grid */}
       <section className="grid gap-4 lg:grid-cols-2">
-        {templates.map((t) => (
-          <div key={t.key} className="rounded border border-gray-200 p-4 bg-white space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-semibold">{t.title}</div>
-              <span className="text-[10px] px-2 py-0.5 rounded bg-gray-100 border">
-                {t.category}
-              </span>
-            </div>
-
-            <div className="text-sm text-gray-700 whitespace-pre-line">
-              {t.body}
-            </div>
-
-            <div className="flex flex-wrap gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => previewTemplate(t)}
-                disabled={busy === t.key}
-                className="rounded bg-blue-600 px-3 py-1 text-sm text-white disabled:opacity-50"
-              >
-                {busy === t.key ? "Previewing…" : "Preview (fill vars)"}
-              </button>
-              <button
-                type="button"
-                onClick={() => sendTest(t)}
-                disabled={busy === t.key}
-                className="rounded bg-emerald-600 px-3 py-1 text-sm text-white disabled:opacity-50"
-              >
-                {busy === t.key ? "Sending…" : "Send test (WA)"}
-              </button>
-              <button
-                type="button"
-                onClick={openWhatsApp}
-                className="rounded bg-gray-900 px-3 py-1 text-sm text-white"
-              >
-                Open WhatsApp
-              </button>
-              <button
-                type="button"
-                onClick={copyText}
-                className="rounded bg-gray-200 px-3 py-1 text-sm"
-              >
-                Copy text
-              </button>
-            </div>
-
-            {/* Live preview panel */}
-            {preview?.text && (
-              <div className="mt-2 rounded bg-gray-50 p-2 text-xs space-y-1 border">
-                <div className="font-medium">Preview:</div>
-                <pre className="whitespace-pre-wrap">{preview.text}</pre>
-                {(preview.whatsapp_url || preview.text) && (
-                  <a
-                    href={preview.whatsapp_url || buildWAUrl({ phone, text: preview.text })}
-                    target="_blank"
-                    className="inline-block mt-1 underline text-blue-700"
-                  >
-                    Open in WhatsApp
-                  </a>
-                )}
+        {templates.map((t) => {
+          const isPinned = pinned.has(t.key);
+          return (
+            <div key={t.key} className="rounded border border-gray-200 p-4 bg-white space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold">
+                  {t.title}{" "}
+                  {isPinned && <span title="Pinned" className="ml-1">⭐</span>}
+                </div>
+                <span className="text-[10px] px-2 py-0.5 rounded bg-gray-100 border">
+                  {t.category}
+                </span>
               </div>
-            )}
-          </div>
-        ))}
+
+              <div className="text-sm text-gray-700 whitespace-pre-line">
+                {t.body}
+              </div>
+
+              <div className="flex flex-wrap gap-2 pt-1">
+                {/* NEW: Pin / Unpin */}
+                <button
+                  type="button"
+                  disabled={!providerId || pinBusy === t.key}
+                  onClick={() => (isPinned ? unpinTemplate(t) : pinTemplate(t))}
+                  className={`rounded px-3 py-1 text-sm border ${isPinned ? "bg-yellow-100 border-yellow-300" : "bg-white"}`}
+                  title={isPinned ? "Unpin this template" : "Pin this template"}
+                >
+                  {pinBusy === t.key
+                    ? "Saving…"
+                    : isPinned
+                    ? "Unpin"
+                    : "Pin"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => previewTemplate(t)}
+                  disabled={busy === t.key}
+                  className="rounded bg-blue-600 px-3 py-1 text-sm text-white disabled:opacity-50"
+                >
+                  {busy === t.key ? "Previewing…" : "Preview (fill vars)"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => sendTest(t)}
+                  disabled={busy === t.key}
+                  className="rounded bg-emerald-600 px-3 py-1 text-sm text-white disabled:opacity-50"
+                >
+                  {busy === t.key ? "Sending…" : "Send test (WA)"}
+                </button>
+                <button
+                  type="button"
+                  onClick={openWhatsApp}
+                  className="rounded bg-gray-900 px-3 py-1 text-sm text-white"
+                >
+                  Open WhatsApp
+                </button>
+                <button
+                  type="button"
+                  onClick={copyText}
+                  className="rounded bg-gray-200 px-3 py-1 text-sm"
+                >
+                  Copy text
+                </button>
+              </div>
+
+              {/* Live preview panel */}
+              {preview?.text && (
+                <div className="mt-2 rounded bg-gray-50 p-2 text-xs space-y-1 border">
+                  <div className="font-medium">Preview:</div>
+                  <pre className="whitespace-pre-wrap">{preview.text}</pre>
+                  {(preview.whatsapp_url || preview.text) && (
+                    <a
+                      href={preview.whatsapp_url || buildWAUrl({ phone, text: preview.text })}
+                      target="_blank"
+                      className="inline-block mt-1 underline text-blue-700"
+                    >
+                      Open in WhatsApp
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </section>
 
       {/* Helper links for quick sanity checks */}
