@@ -53,6 +53,14 @@ export async function POST(req: Request) {
       );
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
 
+        // === VYAPR: publish flag (22.15) START ===
+    const { error: pErr } = await sb
+      .from("Providers")
+      .update({ published: true, updated_at: new Date().toISOString() })
+      .eq("id", provider_id);
+    if (pErr) return NextResponse.json({ ok: false, error: pErr.message }, { status: 400 });
+    // === VYAPR: publish flag (22.15) END ===
+
     // telemetry (best effort)
     const base = process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
     fetch(`${base}/api/events/log`, {
