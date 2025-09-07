@@ -1,4 +1,3 @@
-// components/templates/TemplatesList.tsx
 "use client";
 // @ts-nocheck
 import { useEffect, useMemo, useState } from "react";
@@ -9,6 +8,7 @@ type Audience = "all" | "new" | "repeat";
 
 const SITE = process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
 
+// ---------- helpers ----------
 function buildBookingLink(origin: string, slug: string) {
   const base = origin || (typeof window !== "undefined" ? window.location.origin : "");
   const u = new URL(`/book/${encodeURIComponent(slug || "")}`, base);
@@ -21,6 +21,15 @@ function readSlugFallback(slugProp?: string) {
   if (slugProp) return slugProp;
   try { const sp = new URLSearchParams(window.location.search); const s = sp.get("slug"); if (s) return s.trim(); } catch {}
   return "";
+}
+function readLeadIdFallback() {
+  try {
+    const sp = new URLSearchParams(window.location.search);
+    const lid = sp.get("lead_id");
+    if (lid) return lid.trim();
+  } catch {}
+  // safe default (your test lead id)
+  return "22dfd131-9bb5-4072-a177-4417585a84c0";
 }
 async function resolveProviderIdFromEvents(): Promise<string | null> {
   try {
@@ -72,27 +81,27 @@ function detectDentalFocus(services: Array<{name: string}> = []) {
 // Maps category → default service terms (TG1/TG2 starter set)
 const TG_TERMS: Record<string, { top?: string; offer?: string; rebook?: string; thanks?: string; newp?: string; noshow?: string }> = {
   // TG1 medical
-  "dentist":         { top: "dental checkup", offer: "scaling & polishing", rebook: "cleaning / consultation", thanks: "dental care", newp: "first dental visit", noshow: "dental appointment" },
-  "dental":          { top: "dental checkup", offer: "scaling & polishing", rebook: "cleaning / consultation", thanks: "dental care", newp: "first dental visit", noshow: "dental appointment" },
-  "physiotherapist": { top: "physio session", offer: "assessment",          rebook: "follow-up session",        thanks: "physio care",   newp: "first physio",     noshow: "physio session" },
-  "physio":          { top: "physio session", offer: "assessment",          rebook: "follow-up session",        thanks: "physio care",   newp: "first physio",     noshow: "physio session" },
-  "dermatologist":   { top: "skin consult",   offer: "consult",             rebook: "review consult",           thanks: "derma care",    newp: "first consult",    noshow: "derma consult" },
-  "skin clinic":     { top: "skin consult",   offer: "consult",             rebook: "review consult",           thanks: "derma care",    newp: "first consult",    noshow: "derma consult" },
-  "gynecologist":    { top: "gyn consult",    offer: "consult",             rebook: "follow-up consult",        thanks: "care visit",    newp: "first consult",    noshow: "consult" },
-  "pediatrician":    { top: "child consult",  offer: "consult",             rebook: "review consult",           thanks: "child care",    newp: "first consult",    noshow: "consult" },
+  dentist:         { top: "dental checkup", offer: "scaling & polishing", rebook: "cleaning / consultation", thanks: "dental care", newp: "first dental visit", noshow: "dental appointment" },
+  dental:          { top: "dental checkup", offer: "scaling & polishing", rebook: "cleaning / consultation", thanks: "dental care", newp: "first dental visit", noshow: "dental appointment" },
+  physiotherapist: { top: "physio session", offer: "assessment",          rebook: "follow-up session",        thanks: "physio care",   newp: "first physio",     noshow: "physio session" },
+  physio:          { top: "physio session", offer: "assessment",          rebook: "follow-up session",        thanks: "physio care",   newp: "first physio",     noshow: "physio session" },
+  dermatologist:   { top: "skin consult",   offer: "consult",             rebook: "review consult",           thanks: "derma care",    newp: "first consult",    noshow: "derma consult" },
+  "skin clinic":   { top: "skin consult",   offer: "consult",             rebook: "review consult",           thanks: "derma care",    newp: "first consult",    noshow: "derma consult" },
+  gynecologist:    { top: "gyn consult",    offer: "consult",             rebook: "follow-up consult",        thanks: "care visit",    newp: "first consult",    noshow: "consult" },
+  pediatrician:    { top: "child consult",  offer: "consult",             rebook: "review consult",           thanks: "child care",    newp: "first consult",    noshow: "consult" },
 
   // TG1 beauty/fitness
-  "salon":           { top: "haircut",        offer: "cut/style",           rebook: "trim/style",               thanks: "salon service", newp: "first visit",      noshow: "salon appointment" },
-  "spa":             { top: "spa session",    offer: "relax session",       rebook: "follow-up session",        thanks: "spa care",      newp: "first session",    noshow: "session" },
-  "gym trainer":     { top: "personal session", offer: "trial session",     rebook: "PT session",               thanks: "fitness plan",  newp: "intro session",    noshow: "training session" },
-  "yoga":            { top: "yoga class",     offer: "trial class",         rebook: "class",                    thanks: "yoga session",  newp: "intro class",      noshow: "yoga class" },
+  salon:           { top: "haircut",        offer: "cut/style",           rebook: "trim/style",               thanks: "salon service", newp: "first visit",      noshow: "salon appointment" },
+  spa:             { top: "spa session",    offer: "relax session",       rebook: "follow-up session",        thanks: "spa care",      newp: "first session",    noshow: "session" },
+  "gym trainer":   { top: "personal session", offer: "trial session",     rebook: "PT session",               thanks: "fitness plan",  newp: "intro session",    noshow: "training session" },
+  yoga:            { top: "yoga class",     offer: "trial class",         rebook: "class",                    thanks: "yoga session",  newp: "intro class",      noshow: "yoga class" },
 
   // TG2 home/local services
-  "tutor":           { top: "demo class",     offer: "intro class",         rebook: "class",                    thanks: "coaching",      newp: "first class",      noshow: "class" },
-  "plumber":         { top: "plumbing visit", offer: "home visit",          rebook: "service visit",            thanks: "repair",        newp: "first visit",      noshow: "service visit" },
-  "electrician":     { top: "electric visit", offer: "home visit",          rebook: "service visit",            thanks: "repair",        newp: "first visit",      noshow: "service visit" },
-  "photographer":    { top: "shoot",          offer: "mini shoot",          rebook: "edit/re-shoot",            thanks: "shoot",         newp: "intro shoot",      noshow: "shoot" },
-  "cleaning":        { top: "deep clean",     offer: "home clean",          rebook: "follow-up clean",          thanks: "service",       newp: "first clean",      noshow: "service" },
+  tutor:           { top: "demo class",     offer: "intro class",         rebook: "class",                    thanks: "coaching",      newp: "first class",      noshow: "class" },
+  plumber:         { top: "plumbing visit", offer: "home visit",          rebook: "service visit",            thanks: "repair",        newp: "first visit",      noshow: "service visit" },
+  electrician:     { top: "electric visit", offer: "home visit",          rebook: "service visit",            thanks: "repair",        newp: "first visit",      noshow: "service visit" },
+  photographer:    { top: "shoot",          offer: "mini shoot",          rebook: "edit/re-shoot",            thanks: "shoot",         newp: "intro shoot",      noshow: "shoot" },
+  cleaning:        { top: "deep clean",     offer: "home clean",          rebook: "follow-up clean",          thanks: "service",       newp: "first clean",      noshow: "service" },
 };
 
 export default function TemplatesList({ slug }: { slug?: string }) {
@@ -102,6 +111,7 @@ export default function TemplatesList({ slug }: { slug?: string }) {
   const [aud, setAud] = useState<Audience>(() => { try { return (localStorage.getItem("vyapr.audience") as Audience) || "all"; } catch {} return "all"; });
   const [analytics, setAnalytics] = useState<Record<string, { sent7d: number; opens7d: number }>>({});
   const effectiveSlug = readSlugFallback(slug);
+  const effectiveLeadId = readLeadIdFallback();
 
   // NEW: Pull provider meta (category + services)
   const [meta, setMeta] = useState<ProviderMeta>({});
@@ -131,7 +141,7 @@ export default function TemplatesList({ slug }: { slug?: string }) {
 
   const link = buildBookingLink(origin, effectiveSlug || "");
 
-  // TG-aware text dictionaries (EN+HI) with dental procedure preference
+  // TG-aware text dictionaries (fallbacks if Preview API not used)
   const baseText = useMemo(() => {
     // choose service terms
     const svcOffer = (dentalSpecific || tg?.offer || svcTop || "appointment");
@@ -165,7 +175,7 @@ export default function TemplatesList({ slug }: { slug?: string }) {
     return { en, hi };
   }, [link, svcTop, category, dentalSpecific]);
 
-  // UI state (placeholders + media)
+  // UI state (placeholders + media + preview payloads)
   function defaultISTDateTimeLocal(minutesFromNow = 60) {
     const now = new Date(); const istOffsetMin = 330;
     const t = new Date(now.getTime() + (istOffsetMin * 60 + minutesFromNow) * 60 * 1000);
@@ -179,6 +189,10 @@ export default function TemplatesList({ slug }: { slug?: string }) {
     "tpl-newpatient": { media: "" },
     "tpl-noshow":     { media: "" },
   });
+
+  // NEW: resolved preview + CTAs (per card)
+  const [previewText, setPreviewText] = useState<Record<string, string>>({});
+  const [previewCtas, setPreviewCtas] = useState<Record<string, { collect?: string | null; boost?: string | null }>>({});
 
   // Templates (TG-aware titles/blurbs)
   const templates = useMemo(() => {
@@ -252,8 +266,40 @@ export default function TemplatesList({ slug }: { slug?: string }) {
   }, [lang, aud, templates]);
 
   // UI helpers
-  function Btn({ children, className = "", ...rest }: any) {
-    return <button className={`inline-flex items-center rounded-full border px-3 py-2 text-sm hover:shadow-sm ${className}`} {...rest}>{children}</button>;
+  function Btn({ children, className = "", onClick, ...rest }: any) {
+    return (
+      <button
+        type="button"
+        className={`inline-flex items-center rounded-full border px-3 py-2 text-sm hover:shadow-sm ${className}`}
+        onClick={(e) => { try { e.preventDefault(); e.stopPropagation(); } catch {} if (onClick) onClick(e); }}
+        {...rest}
+      >
+        {children}
+      </button>
+    );
+  }
+
+  // ---- NEW: Preview API call (English default; "hi" => Hinglish) ----
+  async function callPreview(kind: TemplateKind, cardId: string) {
+    const s = state[cardId] || {};
+    const params = new URLSearchParams();
+    params.set("slug", effectiveSlug);
+    params.set("template", kind);
+    params.set("lead_id", effectiveLeadId);
+    params.set("lang", lang === "en" ? "en" : "hinglish"); // default English, else Hinglish
+    if (s.amount != null) params.set("amt", String(s.amount));
+    if (s.count != null) params.set("cnt", String(s.count));
+    if (s.expiry) params.set("exp", String(s.expiry));
+
+    const href = `${SITE}/api/templates/preview?${params.toString()}`;
+    try {
+      const r = await fetch(href, { cache: "no-store" });
+      const j = await r.json();
+      if (j?.ok) {
+        setPreviewText((p) => ({ ...p, [cardId]: j.text || "" }));
+        setPreviewCtas((p) => ({ ...p, [cardId]: { collect: j?.ctas?.collect || null, boost: j?.ctas?.boost || null } }));
+      }
+    } catch {}
   }
 
   return (
@@ -273,11 +319,13 @@ export default function TemplatesList({ slug }: { slug?: string }) {
       <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {templates.map((t) => {
           const s = state[t.id] || {};
-          const base = t.computeText();
-          const finalText = s.media ? `${base}\n\nImage: ${s.media}` : base;
+          const fallbackText = t.computeText();
+          const resolved = previewText[t.id] || fallbackText;
+          const mediaAdded = s.media ? `${resolved}\n\nImage: ${s.media}` : resolved;
 
-          const go = redirectUrl("template.sent", t.kind, effectiveSlug, providerId, finalText, aud, s.media || "");
+          const go = redirectUrl("template.sent", t.kind, effectiveSlug, providerId, mediaAdded, aud, s.media || "");
           const a = analytics[t.kind] || { sent7d: 0, opens7d: 0 };
+          const ctas = previewCtas[t.id] || {};
 
           return (
             <article key={t.id} className="rounded-2xl border p-4 bg-white">
@@ -317,8 +365,22 @@ export default function TemplatesList({ slug }: { slug?: string }) {
                 />
               </div>
 
-              {/* Preview */}
-              <textarea readOnly className="mt-3 w-full h-36 text-sm border rounded-xl p-3 bg-gray-50" value={finalText} />
+              {/* Preview (resolved via API; falls back to local template) */}
+              <div className="mt-3 flex items-center gap-2">
+                <Btn className="bg-black text-white" onClick={(e)=>{ e?.preventDefault?.(); e?.stopPropagation?.(); void callPreview(t.kind, t.id); }}>
+                  Preview (API)
+                </Btn>
+                {ctas.collect && (
+                  <a className="inline-flex items-center rounded-full border px-3 py-2 text-sm hover:shadow-sm"
+                     href={ctas.collect} target="_blank" rel="noopener noreferrer">Collect pending ₹</a>
+                )}
+                {ctas.boost && (
+                  <a className="inline-flex items-center rounded-full border px-3 py-2 text-sm hover:shadow-sm"
+                     href={ctas.boost} target="_blank" rel="noopener noreferrer">Boost visibility</a>
+                )}
+              </div>
+
+              <textarea readOnly className="mt-3 w-full h-36 text-sm border rounded-xl p-3 bg-gray-50" value={mediaAdded} />
 
               {/* Actions */}
               <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -326,13 +388,13 @@ export default function TemplatesList({ slug }: { slug?: string }) {
                    href={go} target="_blank" rel="noopener noreferrer">
                   Send on WhatsApp
                 </a>
-                <Btn onClick={async ()=>{
-                  try { await navigator.clipboard.writeText(finalText); } catch {}
-                  const url = redirectUrl("template.copied", t.kind, effectiveSlug, providerId, finalText, aud, s.media || "");
+                <Btn onClick={async (e)=>{
+                  try { await navigator.clipboard.writeText(mediaAdded); } catch {}
+                  const url = redirectUrl("template.copied", t.kind, effectiveSlug, providerId, mediaAdded, aud, s.media || "");
                   fetch(url + "&debug=0", { method: "GET", keepalive: true });
                   alert("Copied to clipboard ✓");
                 }}>Copy</Btn>
-                <Btn onClick={async ()=>{
+                <Btn onClick={async (e)=>{
                   const when = prompt("Schedule when? (ISO or 'YYYY-MM-DD')", new Date().toISOString().slice(0,10));
                   if (!when) return;
                   try {

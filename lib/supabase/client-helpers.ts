@@ -1,56 +1,30 @@
-// lib/supabase/client-helpers.ts
+// lib/supabase/client-helpers.tsx
 // @ts-nocheck
-import { cookies } from 'next/headers';
-import { createServerClient } from '@supabase/ssr';
-import { createClient } from '@supabase/supabase-js';
 
-/** Server-side Supabase (RLS via auth cookies). */
-export function supabaseServer() {
-  const cookieStore = cookies();
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get: (name: string) => cookieStore.get(name)?.value,
-        set: (name: string, value: string, options: any) => {
-          cookieStore.set({ name, value, ...options });
-        },
-        remove: (name: string, options: any) => {
-          cookieStore.set({ name, value: '', ...options, maxAge: 0 });
-        },
-      },
-    }
-  );
+import { createClient } from "@supabase/supabase-js";
+
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+const BASE = process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
+
+/** Browser client */
+export function createBrowserSupabase() {
+  return createClient(SUPABASE_URL, SUPABASE_ANON, {
+    auth: { persistSession: true, detectSessionInUrl: true },
+  });
 }
 
-/** Node-only Admin client (service role) for server routes/actions. */
-export function supabaseAdmin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-      auth: { autoRefreshToken: false, persistSession: false },
-      global: { headers: { 'X-Client-Info': 'vyapr-admin' } },
-    }
-  );
-}
-
-/** Common server-route logger (keeps import compatibility). */
-export function logServerRoute(label: string, extra?: any) {
+/** Server-safe telemetry helper for API routes */
+export async function logServerRoute(path: string, meta: any = {}) {
   try {
-    const payload =
-      extra && typeof extra === 'object' ? JSON.stringify(extra) : String(extra ?? '');
-    console.log(`[SRV] ${label}${payload ? ` :: ${payload}` : ''}`);
-  } catch {
-    console.log(`[SRV] ${label}`);
-  }
-}
-
-/** Small helper used by some routes. */
-export async function requireSession() {
-  const sb = supabaseServer();
-  const { data: { session } } = await sb.auth.getSession();
-  if (!session) throw new Error('UNAUTHENTICATED');
-  return { sb, session };
+    await fetch(`${BASE}/api/events/log`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event: "server.route.hit",
+        source: { path, ...meta },
+      }),
+      keepalive: true,
+    });
+  } catch {}
 }

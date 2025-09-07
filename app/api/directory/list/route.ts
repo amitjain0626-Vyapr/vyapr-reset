@@ -13,8 +13,25 @@ function admin() {
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const category = (searchParams.get("cat") || "").trim();
-  const location = (searchParams.get("loc") || "").trim();
+
+  // New: accept legacy combo like "dentist-delhi"
+  const rawCat = (searchParams.get("cat") || "").trim();
+  const rawLoc = (searchParams.get("loc") || "").trim();
+  const combo  = (searchParams.get("combo") || "").trim();
+
+  let catFilter = rawCat;
+  let locFilter = rawLoc;
+  if (combo) {
+    // Split by hyphen; first = category, rest = location (joined with space)
+    const parts = combo.split("-").filter(Boolean);
+    if (parts.length >= 2) {
+      catFilter = parts[0];
+      locFilter = parts.slice(1).join(" ");
+    } else {
+      // If only one token, treat it as category
+      catFilter = parts[0] || rawCat;
+    }
+  }
 
   const sb = admin();
 
@@ -23,8 +40,8 @@ export async function GET(req: Request) {
     .from("Providers")
     .select("id, slug, display_name, category, location, bio")
     .eq("published", true)
-    .ilike("category", `%${category}%`)
-    .ilike("location", `%${location}%`);
+    .ilike("category", `%${catFilter}%`)
+    .ilike("location", `%${locFilter}%`);
 
   const filteredProviders = filtered.data || [];
 
@@ -42,7 +59,7 @@ export async function GET(req: Request) {
 
   // ---- VERIFIED FLAG (derive from Events; aligns with /api/verification/status) ----
   const VERIFIED_EVENTS = [
-    "provider.verified",              // <- added to match your status route + data
+    "provider.verified",
     "verification.verified",
     "verification.approved",
     "verification.badge.granted",

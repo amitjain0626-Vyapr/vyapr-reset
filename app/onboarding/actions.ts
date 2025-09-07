@@ -1,60 +1,39 @@
+// app/onboarding/actions.ts
 // @ts-nocheck
 "use server";
 
-import { cookies, headers } from "next/headers";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
-export async function publishProviderAction(formData: FormData | Record<string, any>) {
-  // Accept both FormData and plain objects
-  const body =
-    typeof (formData as any).get === "function"
-      ? {
-          name: (formData as any).get("name")?.toString() || "",
-          phone: (formData as any).get("phone")?.toString() || "",
-          city: (formData as any).get("city")?.toString() || "",
-          category: (formData as any).get("category")?.toString() || "",
-          slug: (formData as any).get("slug")?.toString() || "",
-          publish: ((formData as any).get("publish") ?? "true").toString() !== "false",
-        }
-      : {
-          name: (formData as any)?.name?.toString?.() || "",
-          phone: (formData as any)?.phone?.toString?.() || "",
-          city: (formData as any)?.city?.toString?.() || "",
-          category: (formData as any)?.category?.toString?.() || "",
-          slug: (formData as any)?.slug?.toString?.() || "",
-          publish: Boolean((formData as any)?.publish ?? true),
-        };
+/**
+ * Save provider's language preference + fire telemetry.
+ */
+export async function saveLang(formData: FormData) {
+  const supabase = await createSupabaseServerClient();
 
-  // Server action posts to our hardened API
-  try {
-    const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || ""}/api/dentists/publish`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        // Forward a couple of headers to preserve auth context if needed
-        "x-forwarded-for": headers().get("x-forwarded-for") || "",
-        "x-request-id": headers().get("x-request-id") || "",
-      },
-      body: JSON.stringify(body),
-      // cookies() are sent by default on same-origin in Next server actions
-    });
+  const { data: userRes } = await supabase.auth.getUser();
+  const user = userRes?.user;
+  if (!user) throw new Error("not_authenticated");
 
-    let json: any = null;
-    try {
-      json = await res.json();
-    } catch {
-      json = null;
-    }
+  const lang = String(formData.get("lang_pref") || "hinglish");
 
-    if (!res.ok || !json?.ok) {
-      const err = json?.error || { code: "unknown", message: "Unexpected error" };
-      return { ok: false, error: err };
-    }
+  // Update provider profile
+  const { data: profile } = await supabase
+    .from("Providers")
+    .select("id")
+    .eq("owner_id", user.id)
+    .maybeSingle();
 
-    return { ok: true, slug: json.slug, redirectTo: json.redirectTo || `/dashboard?slug=${json.slug}` };
-  } catch (e: any) {
-    return {
-      ok: false,
-      error: { code: "network_error", message: "Network error during publish.", details: e?.message || String(e) },
-    };
-  }
+  await supabase
+    .from("Providers")
+    .update({ lang_pref: lang })
+    .eq("owner_id", user.id);
+
+  // Fire telemetry
+  await supabase.from("Events").insert({
+    event: "provider.lang.chosen",
+    ts: Date.now(),
+    provider_id: profile?.id || null,
+    lead_id: null,
+    source: { via: "web", lang },
+  });
 }

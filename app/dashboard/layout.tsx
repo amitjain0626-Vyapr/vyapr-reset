@@ -1,23 +1,22 @@
-import React from 'react';
-import Link from 'next/link';
+// app/dashboard/layout.tsx
+// @ts-nocheck
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-export default function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+import { Suspense } from "react";
+import DashboardTabs from "@/components/dashboard/DashboardTabs";
+
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen">
       <header className="border-b bg-white">
-        <div className="mx-auto flex max-w-5xl items-center justify-between p-4">
-          <div className="font-semibold">Vyapr — Dashboard</div>
-          <nav className="flex items-center gap-3 text-sm">
-            <Link href="/dashboard/leads" className="rounded-lg border px-3 py-1.5 hover:bg-gray-50">Leads</Link>
-            <Link href="/dashboard/payments" className="rounded-lg border px-3 py-1.5 hover:bg-gray-50">Payments</Link>
-          </nav>
+        <div className="max-w-5xl mx-auto px-4 py-3">
+          <Suspense fallback={<div className="text-sm text-gray-500">Loading…</div>}>
+            <DashboardTabs />
+          </Suspense>
         </div>
       </header>
-      <main className="mx-auto max-w-5xl p-6">{children}</main>
+      <div className="max-w-5xl mx-auto px-4">{children}</div>
     </div>
   );
 }

@@ -1,93 +1,69 @@
+// app/api/microsite/publish/route.ts
 // @ts-nocheck
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-import { NextResponse } from 'next/server';
-import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { NextResponse } from "next/server";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createClient } from "@supabase/supabase-js";
 
-function slugify(input: string) {
-  return (input || '')
-    .toString()
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)+/g, '')
-    .slice(0, 60) || 'user';
-}
-
-async function ensureUniqueSlug(supabase: any, candidate: string, ignoreSlug?: string) {
-  let base = candidate || 'user';
-  let attempt = base;
-  let i = 2;
-  while (true) {
-    const { data } = await supabase
-      .from('Providers')
-      .select('slug')
-      .eq('slug', attempt)
-      .maybeSingle();
-    if (!data || data.slug === ignoreSlug) return attempt;
-    attempt = `${base}-${i++}`;
-  }
+function admin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  return createClient(url, key, { auth: { persistSession: false } });
 }
 
 export async function POST(req: Request) {
-  const supabase = await createSupabaseServerClient();
-  const { data: auth } = await supabase.auth.getUser();
-  const user = auth?.user;
-  if (!user) return NextResponse.json({ ok: false, error: 'Not authenticated' }, { status: 401 });
-
-  // body (all optional)
-  let published = true, desiredSlug: string | null = null, category: string | null = null;
-  let displayName: string | null = null, phone: string | null = null, bio: string | null = null;
   try {
-    const body = await req.json();
-    if (typeof body?.published === 'boolean') published = body.published;
-    if (typeof body?.slug === 'string') desiredSlug = body.slug;
-    if (typeof body?.category === 'string') category = body.category;
-    if (typeof body?.display_name === 'string') displayName = body.display_name;
-    if (typeof body?.phone === 'string') phone = body.phone;
-    if (typeof body?.bio === 'string') bio = body.bio;
-  } catch {}
+    const body = (await req.json().catch(() => ({}))) || {};
+    const about = (body.about || "About us coming soon…").toString();
+    const services = Array.isArray(body.services) && body.services.length
+      ? body.services
+      : ["General consultation"];
+    const provider_slug = (body.provider_slug || "").trim();
 
-  const fallbackName =
-    displayName || user.user_metadata?.name || (user.email ? user.email.split('@')[0] : 'Provider');
+    const sbUser = createSupabaseServerClient();
+    const { data: auth } = await sbUser.auth.getUser();
 
-  // Load existing (if any) — tolerate 0/1 rows after unique index
-  const { data: existing } = await supabase
-    .from('Providers')
-    .select('id, slug')
-    .eq('owner_id', user.id)
-    .maybeSingle();
+    let sb = sbUser;
+    let provider_id: string | null = null;
 
-  // Decide final slug
-  let finalSlug: string;
-  if (existing?.slug && !desiredSlug) {
-    finalSlug = existing.slug;
-  } else {
-    const candidate = slugify(desiredSlug || existing?.slug || fallbackName);
-    finalSlug = await ensureUniqueSlug(supabase, candidate, existing?.slug);
+    if (auth?.user?.id) {
+      provider_id = auth.user.id;
+    } else {
+      if (!provider_slug) {
+        return NextResponse.json({ ok: false, error: "Not authenticated" }, { status: 401 });
+      }
+      const { data: row, error: e1 } = await admin()
+        .from("Providers")
+        .select("id")
+        .eq("slug", provider_slug)
+        .maybeSingle();
+      if (e1) return NextResponse.json({ ok: false, error: e1.message }, { status: 400 });
+      if (!row?.id) return NextResponse.json({ ok: false, error: "provider_not_found" }, { status: 404 });
+      provider_id = row.id;
+      sb = admin();
+    }
+
+    const { error } = await sb
+      .from("Microsite")
+      .upsert(
+        { provider_id, about, services, updated_at: new Date().toISOString() },
+        { onConflict: "provider_id" }
+      );
+    if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
+
+    // telemetry (best effort)
+    const base = process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
+    fetch(`${base}/api/events/log`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event: "microsite.published", provider_id, source: { via: auth?.user ? "auth" : "admin" } }),
+      keepalive: true,
+    }).catch(() => {});
+
+    return NextResponse.json({ ok: true, provider_id, about, services });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e?.message || "publish_failed" }, { status: 500 });
   }
-
-  // Build payload
-  const payload: any = {
-    owner_id: user.id,
-    display_name: fallbackName,
-    slug: finalSlug,
-    category: category || 'general',
-    published,
-    phone: phone ?? null,
-    bio: bio ?? null,
-  };
-
-  // Upsert on unique owner_id (requires providers_owner_uidx)
-  const { data, error } = await supabase
-    .from('Providers')
-    .upsert(payload, { onConflict: 'owner_id' })
-    .select('id, slug')
-    .single(); // deterministic now
-
-  if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
-
-  return NextResponse.json({ ok: true, slug: data.slug });
 }

@@ -1,7 +1,7 @@
 // @ts-nocheck
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 function fmtINR(n: number) {
   try {
@@ -12,8 +12,20 @@ function fmtINR(n: number) {
   }
 }
 
+const DEPLOY_BASE = "https://vyapr-reset-5rly.vercel.app";
+const PROVIDER_SLUG = "amitjain0626";
+// Test handles we already use in this environment
+const TEST_LEAD_ID = "22dfd131-9bb5-4072-a177-4417585a84c0";
+const TEST_WA_PHONE = "919873284544"; // user’s preferred WA test number
+
 export default function RoiTrackerClient() {
-  const [data, setData] = useState<{today:number;last7:number;last30:number;mtd:number;lmtd:number;deltaPct:number|null} | null>(null);
+  const [data, setData] = useState<{
+    today:number; last7:number; last30:number; mtd:number; lmtd:number;
+    deltaPct:number|null; pending:number;
+    leads30:number; bookings30:number; paid30:number;
+    conv?: { overall:number|null; l2b:number|null; b2p:number|null };
+  } | null>(null);
+
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -35,29 +47,61 @@ export default function RoiTrackerClient() {
     return () => { mounted = false; };
   }, []);
 
+  const waCollectURL = useMemo(() => {
+    const payLink = `${DEPLOY_BASE}/pay/${TEST_LEAD_ID}?slug=${encodeURIComponent(PROVIDER_SLUG)}&amount=${encodeURIComponent(data?.pending || 0)}&utm_source=dashboard&utm_medium=cta&utm_campaign=pending_collect`;
+    const text = [
+      `Namaste! Main ${PROVIDER_SLUG} se bol raha/rahi hoon.`,
+      `Aapki ek chhoti si payment pending hai: ${fmtINR(data?.pending || 0)}.`,
+      `Yahin se secure pay kar sakte hain: ${payLink}`,
+      `Aap aage badhiye, hum saath hain aapke. 🙏`
+    ].join(" ");
+    return `https://wa.me/${TEST_WA_PHONE}?text=${encodeURIComponent(text)}`;
+  }, [data?.pending]);
+
+  const boostURL = useMemo(() => {
+    // For now, route to Settings where upgrades/boost will live (harmless even if tab ignored)
+    const url = `${DEPLOY_BASE}/settings?tab=boost&utm_source=dashboard&utm_medium=cta&utm_campaign=boost_visibility`;
+    return url;
+  }, []);
+
   if (err) return null;
+
+  // skeleton
   if (!data) {
-    // lightweight skeleton
     return (
-      <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="rounded-2xl border border-gray-200 p-4 bg-white animate-pulse h-20" />
-        ))}
+      <div className="mb-6">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-7">
+          {Array.from({ length: 7 }).map((_, i) => (
+            <div key={i} className="rounded-2xl border border-gray-200 p-4 bg-white animate-pulse h-20" />
+          ))}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <div className="h-10 w-40 rounded-xl bg-gray-200 animate-pulse" />
+          <div className="h-10 w-40 rounded-xl bg-gray-200 animate-pulse" />
+        </div>
       </div>
     );
   }
 
+  const convOverall = data?.conv?.overall ?? null;
   const stats = [
     { label: "Today", value: fmtINR(data.today), sub: "Since midnight IST" },
     { label: "7D", value: fmtINR(data.last7), sub: "Last 7 days (rolling)" },
     { label: "30D", value: fmtINR(data.last30), sub: "Last 30 days (rolling)" },
     { label: "MTD", value: fmtINR(data.mtd), sub: "Month-to-date (IST)" },
     { label: "LMTD", value: fmtINR(data.lmtd), sub: "Last month to date" },
+    { label: "Pending ₹", value: fmtINR(data.pending || 0), sub: "Unpaid bookings" },
+    {
+      label: "Conversion %",
+      value: convOverall == null ? "—" : `${convOverall}%`,
+      sub: `L→B ${data?.conv?.l2b ?? "—"}% • B→P ${data?.conv?.b2p ?? "—"}%`,
+    },
   ];
 
   return (
     <div className="mb-6">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      {/* KPI tiles */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-7">
         {stats.map((s) => (
           <div key={s.label} className="rounded-2xl border border-gray-200 p-4 shadow-sm bg-white">
             <div className="text-xs uppercase tracking-wide text-gray-500">{s.label}</div>
@@ -66,6 +110,8 @@ export default function RoiTrackerClient() {
           </div>
         ))}
       </div>
+
+      {/* MTD vs LMTD note */}
       <div className="mt-2 text-sm text-gray-600">
         {data.deltaPct == null ? (
           <span className="italic">MTD vs LMTD: not enough data last month.</span>
@@ -77,6 +123,26 @@ export default function RoiTrackerClient() {
             </span>
           </span>
         )}
+      </div>
+
+      {/* CTAs */}
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <a
+          href={waCollectURL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-white shadow hover:bg-emerald-700 transition"
+          aria-label="Collect pending payments on WhatsApp"
+        >
+          💬 Collect pending payments
+        </a>
+        <a
+          href={boostURL}
+          className="inline-flex items-center gap-2 rounded-xl border border-indigo-600 px-4 py-2 text-indigo-700 bg-white hover:bg-indigo-50 transition"
+          aria-label="Boost visibility"
+        >
+          🚀 Boost visibility
+        </a>
       </div>
     </div>
   );

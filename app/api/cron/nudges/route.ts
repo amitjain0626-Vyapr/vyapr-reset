@@ -1,96 +1,121 @@
+// app/api/cron/nudges/route.ts
 // @ts-nocheck
-import { NextResponse } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
-import { createClient as createSb } from "@supabase/supabase-js";
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
-// Nudge window: 12 hours
-const WINDOW_MS = 12 * 60 * 60 * 1000;
-
-function json(data: any, status = 200) {
-  return new NextResponse(JSON.stringify(data), {
-    status,
-    headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-  });
+function admin() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } }
+  );
 }
 
-async function run() {
-  const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-  const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-  if (!SUPABASE_URL || !SERVICE_KEY) return json({ ok: false, error: "server_misconfigured_supabase" }, 500);
-
-  const admin = createSb(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
-
-  // 1) Published providers
-  const { data: providers, error: pErr } = await admin
+/** --- helpers --- */
+async function getProviderBySlug(slug: string) {
+  if (!slug) return null;
+  const { data } = await admin()
     .from("Providers")
-    .select("id, slug, published")
-    .eq("published", true);
+    .select("id, slug")
+    .eq("slug", slug)
+    .maybeSingle();
+  return data || null;
+}
 
-  if (pErr) return json({ ok: false, error: "provider_query_failed", details: String(pErr.message || pErr) }, 500);
+async function getLatestNudgeConfig(provider_id: string) {
+  const { data = [] } = await admin()
+    .from("Events")
+    .select("event, ts, source")
+    .eq("provider_id", provider_id)
+    .eq("event", "nudge.config.updated")
+    .order("ts", { ascending: false })
+    .limit(1);
 
-  const cutoffISO = new Date(Date.now() - WINDOW_MS).toISOString();
+  const row = data[0];
+  const src = (row?.source || {}) as any;
+  const quiet_start = Number.isFinite(src.quiet_start) ? src.quiet_start : 22;
+  const quiet_end = Number.isFinite(src.quiet_end) ? src.quiet_end : 8;
+  const cap = Number.isFinite(src.cap) ? src.cap : 25;
+  return { quiet_start, quiet_end, cap, updated_ts: row?.ts || null };
+}
 
-  let totalCandidates = 0;
-  let totalInserted = 0;
-  const perProvider: Record<string, { candidates: number; inserted: number; lastError?: string }> = {};
+/** compute IST hour + start-of-day in IST (UTC ms) */
+function computeIstClock(nowUtcMs: number) {
+  const IST_OFFSET_MIN = 330; // +05:30
+  const nowUtc = new Date(nowUtcMs);
+  const minsUtc =
+    nowUtc.getUTCHours() * 60 + nowUtc.getUTCMinutes() + IST_OFFSET_MIN;
+  const minsInDay = ((minsUtc % 1440) + 1440) % 1440;
+  const istHour = Math.floor(minsInDay / 60);
+  const startOfDayUtcMs = nowUtcMs - minsInDay * 60 * 1000;
+  return { istHour, startOfDayUtcMs };
+}
 
-  for (const p of providers || []) {
-    const slug = p.slug || "null";
+function isInQuiet(istHour: number, quiet_start: number, quiet_end: number) {
+  // if start <= end: range in same day; else crosses midnight
+  if (quiet_start <= quiet_end) return istHour >= quiet_start && istHour < quiet_end;
+  return istHour >= quiet_start || istHour < quiet_end;
+}
 
-    // 2) Find due leads (status=new older than window)
-    const { data: leads, error: lErr } = await admin
-      .from("Leads")
-      .select("id, status, created_at")
-      .eq("provider_id", p.id)
-      .eq("status", "new")
-      .lt("created_at", cutoffISO)
-      .order("created_at", { ascending: false })
-      .limit(500);
+async function countSentToday(provider_id: string, sinceUtcMs: number) {
+  const { count: c1 } = await admin()
+    .from("Events")
+    .select("event", { head: true, count: "exact" })
+    .eq("provider_id", provider_id)
+    .in("event", ["wa.reminder.sent", "nudge.sent"])
+    .gte("ts", sinceUtcMs);
+  return c1 || 0;
+}
 
-    if (lErr) {
-      perProvider[slug] = { candidates: 0, inserted: 0, lastError: String(lErr.message || lErr) };
-      continue;
-    }
-
-    const candidates = leads?.length || 0;
-    totalCandidates += candidates;
-    perProvider[slug] = { candidates, inserted: 0 };
-    if (!candidates) continue;
-
-    // 3) Insert into YOUR Events schema: event, ts, provider_id, lead_id, source
-    const nowMs = Date.now();
-    const rows = (leads || []).map((l) => ({
-      event: "nudge.suggested",
-      ts: nowMs,                 // bigint milliseconds
-      provider_id: p.id,         // NOT NULL
-      lead_id: l.id,             // nullable OK
-      source: { reason: "new>=12h", cutoffISO }, // NOT NULL (json/text), we send object
-    }));
-
-    const r = await admin.from("Events").insert(rows).select("lead_id");
-    if (r.error) {
-      perProvider[slug].lastError = String(r.error.message || r.error);
-    } else {
-      const inserted = (r.data || []).length;
-      perProvider[slug].inserted = inserted;
-      totalInserted += inserted;
-    }
+/** --- GET /api/cron/nudges?slug=amitjain0626 --- */
+export async function GET(req: NextRequest) {
+  const slug = req.nextUrl.searchParams.get("slug") || "";
+  if (!slug) {
+    return NextResponse.json(
+      { ok: false, error: "missing slug", usage: "/api/cron/nudges?slug=<provider-slug>" },
+      { status: 400 }
+    );
   }
 
-  return json({
+  const prov = await getProviderBySlug(slug);
+  if (!prov?.id) {
+    return NextResponse.json({ ok: false, error: "provider_not_found" }, { status: 404 });
+  }
+
+  const { quiet_start, quiet_end, cap, updated_ts } = await getLatestNudgeConfig(prov.id);
+  const now = Date.now();
+  const { istHour, startOfDayUtcMs } = computeIstClock(now);
+  const sentToday = await countSentToday(prov.id, startOfDayUtcMs);
+
+  const is_quiet = isInQuiet(istHour, quiet_start, quiet_end);
+  const remaining = Math.max(0, cap - sentToday);
+  const allowed = !is_quiet && remaining > 0;
+
+  // (optional) telemetry: best-effort, non-blocking
+  admin()
+    .from("Events")
+    .insert({
+      event: "cron.checked",
+      ts: now,
+      provider_id: prov.id,
+      lead_id: null,
+      source: { istHour, quiet_start, quiet_end, cap, sentToday, remaining, allowed },
+    })
+    .then(() => {})
+    .catch(() => {});
+
+  return NextResponse.json({
     ok: true,
-    windowHours: WINDOW_MS / 3600000,
-    cutoffISO,
-    providers: Object.keys(perProvider).length,
-    totalCandidates,
-    totalInserted,
-    perProvider,
+    slug,
+    provider_id: prov.id,
+    now_ist_hour: istHour,
+    config: { quiet_start, quiet_end, cap, updated_ts },
+    sent_today: sentToday,
+    remaining,
+    is_quiet,
+    allowed,
   });
 }
-
-// Accept BOTH GET and POST to avoid 405s
-export async function GET() { return run(); }
-export async function POST() { return run(); }

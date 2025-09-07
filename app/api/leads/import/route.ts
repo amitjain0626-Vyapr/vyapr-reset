@@ -34,10 +34,7 @@ type LeadRow = {
 };
 
 /**
- * Minimal CSV parser that handles:
- * - Header row (required headers: patient_name, phone; optional: note)
- * - Quoted fields with commas and newlines
- * - UTF-8 input
+ * Minimal CSV parser with quotes & commas support.
  */
 function parseCSV(text: string): string[][] {
   const rows: string[][] = [];
@@ -52,23 +49,13 @@ function parseCSV(text: string): string[][] {
     if (inQuotes) {
       if (ch === '"') {
         if (i + 1 < text.length && text[i + 1] === '"') {
-          cell += '"'; // escaped quote
-          i += 2;
-          continue;
-        } else {
-          inQuotes = false;
-          i++;
-          continue;
-        }
-      } else {
-        cell += ch;
-        i++;
-        continue;
-      }
+          cell += '"'; i += 2; continue; // escaped quote
+        } else { inQuotes = false; i++; continue; }
+      } else { cell += ch; i++; continue; }
     } else {
       if (ch === '"') { inQuotes = true; i++; continue; }
       if (ch === ",") { row.push(cell); cell = ""; i++; continue; }
-      if (ch === "\r") { i++; continue; } // normalize CRLF
+      if (ch === "\r") { i++; continue; }
       if (ch === "\n") { row.push(cell); rows.push(row); row = []; cell = ""; i++; continue; }
       cell += ch; i++;
     }
@@ -82,9 +69,7 @@ function parseCSV(text: string): string[][] {
 /* ---------- Handlers ---------- */
 export async function POST(req: Request) {
   try {
-    // Expect multipart/form-data:
-    // - slug: provider slug (required)
-    // - file: CSV (required) with headers: patient_name, phone, (optional) note
+    // multipart/form-data: slug (required), file (required)
     const form = await req.formData();
     const slug = (form.get("slug") || "").toString().trim();
     const file = form.get("file") as File | null;
@@ -94,21 +79,19 @@ export async function POST(req: Request) {
 
     const sb = admin();
 
-    // Resolve provider
+    // Provider
     const { data: prov, error: pErr } = await sb
       .from("Providers")
       .select("id, slug, display_name, published")
       .eq("slug", slug)
       .single();
-
     if (pErr || !prov?.id) return json({ ok: false, error: "provider_not_found" }, 404);
 
-    // Read & parse CSV
+    // CSV
     const csvText = await file.text();
     const grid = parseCSV(csvText);
     if (!grid.length) return json({ ok: false, error: "empty_csv" }, 400);
 
-    // Headers
     const header = grid[0].map((h) => h.trim().toLowerCase());
     const colIdx = {
       patient_name: header.indexOf("patient_name"),
@@ -122,7 +105,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // Build lead rows
+    // Build rows
     const rows: LeadRow[] = [];
     let skipped = 0;
     for (let r = 1; r < grid.length; r++) {
@@ -140,42 +123,50 @@ export async function POST(req: Request) {
         source: { utm: { source: "import:csv" } },
       });
     }
-
     if (!rows.length) return json({ ok: false, error: "no_valid_rows", skipped }, 400);
 
-    // Batch insert Leads
+    // Insert Leads
     const { data: inserted, error: insErr } = await sb.from("Leads").insert(rows).select("id");
     if (insErr) return json({ ok: false, error: "lead_batch_insert_failed", detail: insErr.message }, 500);
-
     const count = inserted?.length || rows.length;
 
-    // --- Telemetry: write to Events (match existing schema) ---
-    // Your Events rows show: event (text), ts (number ms), provider_id, lead_id, source (jsonb).
-    // We do NOT include 'count' to avoid column mismatch.
+    // Telemetry (match existing schema exactly: event, ts(ms), provider_id, lead_id, source)
     const eventRow = {
       event: "lead.imported",
-      ts: Date.now(),               // numeric ms like your current rows
+      ts: Date.now(),               // numeric ms like existing rows
       provider_id: prov.id,
       lead_id: null,
       source: { method: "import:csv" },
     };
 
-    // Use "Events" (capital E) to match your existing table casing
-    const { error: e1 } = await sb.from("Events").insert(eventRow);
-    if (e1) {
-      // soft-fail telemetry; import has already succeeded
-      console.error("[telemetry] Events insert failed (lead.imported):", e1.message || e1);
-    }
-    // --- end telemetry ---
+    let telemetry_ok = false;
+    let telemetry_error: string | null = null;
 
-    return json({ ok: true, provider_slug: prov.slug, imported: count, skipped });
+    try {
+      const { error: e1 } = await sb.from("Events").insert(eventRow); // capital E matches your table
+      if (!e1) {
+        telemetry_ok = true;
+      } else {
+        telemetry_error = e1.message || String(e1);
+      }
+    } catch (e: any) {
+      telemetry_error = e?.message || String(e);
+    }
+
+    // Respond with telemetry status so we can verify without logs
+    return json({
+      ok: true,
+      provider_slug: prov.slug,
+      imported: count,
+      skipped,
+      telemetry_ok,
+      telemetry_error,
+    });
   } catch (e: any) {
-    console.error("leads/import exception", e);
     return json({ ok: false, error: "bad_request" }, 400);
   }
 }
 
-// healthcheck
 export async function GET() {
   return json({ ok: true });
 }

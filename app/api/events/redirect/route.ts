@@ -33,23 +33,50 @@ async function postEventViaInternalApi(req: NextRequest, payload: any) {
   }
 }
 
+function isSafeDest(to: string) {
+  if (!to) return false;
+  try {
+    // allow relative app paths
+    if (to.startsWith("/")) return true;
+    // allow absolute http(s)
+    const u = new URL(to);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export async function GET(req: NextRequest) {
-  const url = new URL(req.url);
+  const url   = new URL(req.url);
   const debug = url.searchParams.get("debug") === "1";
 
-  const e     = (url.searchParams.get("e")    || "template.sent").trim();
+  // accept both ?e= and ?event=
+  const eRaw  = (url.searchParams.get("event") || url.searchParams.get("e") || "template.sent").trim();
+
   const kind  = (url.searchParams.get("kind") || "offer").trim();
   const slug  = (url.searchParams.get("slug") || "").trim() || null;
-  const pid   = (url.searchParams.get("pid")  || "").trim() || null; // NEW: provider_id coming from client
-  const phone = (url.searchParams.get("phone") || "").trim() || undefined;
+  const pid   = (url.searchParams.get("pid")  || "").trim() || null;
+  const key   = (url.searchParams.get("key")  || "").trim() || null; // nudge key, template key, etc
+  const aud   = (url.searchParams.get("aud")  || "").trim() || null;
+  const media = (url.searchParams.get("media")|| "").trim() || null;
+  const phone = (url.searchParams.get("phone")|| "").trim() || undefined;
   const text  = url.searchParams.get("text") || "";
+  const to    = url.searchParams.get("to") || "";
 
   const payload = {
-    event: e,
+    event: eRaw,
     ts: Date.now(),
-    provider_id: pid || null,  // MUST be non-null to satisfy NOT NULL
+    provider_id: pid || null,
     lead_id: null,
-    source: { via: "ui", kind, provider_slug: slug },
+    source: {
+      via: "ui.redirect",
+      kind,
+      provider_slug: slug,
+      key,                // e.g. upsell nudge key
+      audience: aud || "all",
+      media_url: media || null,
+      dest_kind: to ? (to.startsWith("/") ? "internal" : "external") : "whatsapp",
+    },
   };
 
   const result = await postEventViaInternalApi(req, payload);
@@ -64,6 +91,13 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  const dest = waUrlFrom(text, phone);
+  // Prefer explicit destination (?to=). Fallback to WhatsApp text link.
+  let dest = "";
+  if (isSafeDest(to)) {
+    dest = to.startsWith("/") ? to : to; // NextResponse.redirect handles absolute too
+  } else {
+    dest = waUrlFrom(text, phone);
+  }
+
   return NextResponse.redirect(dest, { status: 302 });
 }
