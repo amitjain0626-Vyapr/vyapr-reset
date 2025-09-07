@@ -57,6 +57,23 @@ export async function POST(req: NextRequest) {
   const slug = (url.searchParams.get("slug") || "").trim();
   const expire = url.searchParams.get("expire") === "1"; // test hook
 
+  /* === INSERT START (22.16: telemetry stub for selection) === */
+  // If caller posts JSON with { provider_id }, log the selection stub and return.
+  // This lets us verify quickly without a slug or DB writes.
+  const body = await req.json().catch(() => null) as any;
+  if (body && body.provider_id && !slug) {
+    const pid = String(body.provider_id);
+    await logEvent(req, {
+      event: "boost.slot.selected",
+      ts: Date.now(),
+      provider_id: pid,
+      lead_id: null,
+      source: { via: "boost.api", mode: "selected", note: "stub" },
+    });
+    return j({ ok: true, mode: "selected", provider_id: pid });
+  }
+  /* === INSERT END === */
+
   if (!slug) return j({ ok: false, error: "missing slug" }, 400);
 
   const p = await resolveProvider(slug);
