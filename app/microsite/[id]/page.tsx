@@ -116,6 +116,13 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-10 space-y-8">
+      <main
+      className="mx-auto max-w-3xl px-4 py-10 space-y-8"
+      data-test="microsite-root"
+      data-published={String(!!p?.published)}
+      data-verified={String(!!verified)}
+      data-slug={slug}
+    ></main>
       <Script id="json-ld-microsite" type="application/ld+json">
         {JSON.stringify(jsonLd)}
       </Script>

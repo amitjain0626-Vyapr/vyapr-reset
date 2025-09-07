@@ -86,6 +86,22 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
 
         <form action="/api/microsite/publish" method="post" className="space-y-3">
           <input type="hidden" name="slug" value={safeSlug} />
+
+          {/* V2.3 context — 2 lines above
+              <form action="/api/microsite/publish" method="post" className="space-y-3">
+              <input type="hidden" name="slug" value={safeSlug} />
+              <<insert>> */}
+          {/* === INSERT START (V2.3): publish toggle (append-only) === */}
+          <input type="hidden" name="published" value="1" />
+          <input type="hidden" name="action" value="publish" />
+          {/* === INSERT END (V2.3) === */}
+          {/* V2.3 context — 2 lines below
+              <button
+                type="submit"
+                className="px-3 py-1.5 rounded bg-emerald-600 text-white text-sm"
+              >
+          */}
+
           <button
             type="submit"
             className="px-3 py-1.5 rounded bg-emerald-600 text-white text-sm"
