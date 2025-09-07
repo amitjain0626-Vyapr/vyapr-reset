@@ -32,7 +32,8 @@ export async function GET(_req: Request, ctx: { params?: { slug?: string } }) {
     // we fall back to '*' so we don't 500 when some columns are missing.
     const explicit =
       "id,slug,name,display_name,category,url,bio,phone,whatsapp,location,address_line1,address_line2,pincode,latitude,longitude,price_range,opening_hours,faqs,created_at";
-
+// +published so clients can read the publish flag
+      "id,slug,name,display_name,category,url,bio,phone,whatsapp,location,address_line1,address_line2,pincode,latitude,longitude,price_range,opening_hours,faqs,created_at,published";
     let { data, error } = await admin
       .from("Providers")
       .select(explicit)
@@ -57,6 +58,8 @@ export async function GET(_req: Request, ctx: { params?: { slug?: string } }) {
     const provider = {
       id: data.id ?? null,
       slug: data.slug ?? null,
+      // publish visibility
+      published: data.published ?? null,
       name: data.name ?? null,
       display_name: data.display_name ?? null,
       category: data.category ?? null,
