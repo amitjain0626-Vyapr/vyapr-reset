@@ -369,6 +369,47 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
 
       {/* === VYAPR: Batch Send (22.15) START === */}
       <Script id="vyapr-batch-send" strategy="afterInteractive">
+        
+         <Script id="vyapr-batch-send-guard" strategy="afterInteractive">
+        {`
+/**
+ * VYAPR Guard (22.16): ensure button is enabled client-side when allowed
+ * - No deletions/overrides of existing logic
+ * - Adds data-test and aria hints; de-dupes via window.__vyBatchGuard
+ */
+(function(){
+  try{
+    if (window.__vyBatchGuard) return;
+    window.__vyBatchGuard = true;
+
+    const section = document.querySelector('[data-test="nudge-batch-ui"]');
+    if(!section) return;
+
+    // Add a stable data-test on the button so QA can target it
+    const btn = section.querySelector('button');
+    if(btn){
+      btn.setAttribute('data-test','nudge-batch-send');
+      btn.setAttribute('aria-label','Batch send WhatsApp nudges');
+    }
+
+    const total = Number(section.getAttribute('data-total')||'0');
+    const remaining = Number(section.getAttribute('data-remaining')||'0');
+    const isQuiet = section.getAttribute('data-isquiet') === '1';
+
+    // If the server-side disabled attribute stuck despite being allowed, fix it on client
+    // (respects quiet hours + caps; we never force-enable during quiet or when 0 remaining)
+    if(btn && !isQuiet && remaining > 0 && total > 0){
+      btn.removeAttribute('disabled');
+      btn.classList.remove('opacity-50','cursor-not-allowed');
+      if (!btn.textContent || /enable batch/i.test(btn.title||'')) {
+        btn.textContent = 'Batch send';
+        btn.title = 'Open WhatsApp for the allowed suggestions';
+      }
+    }
+  }catch(_){}
+})();
+        `}
+      </Script>
         {`
 (function(){
   try {
