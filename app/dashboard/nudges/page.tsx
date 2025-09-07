@@ -447,11 +447,31 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
       }catch(_){}
     }
 
+    /* === INSERT START (22.16: empty-anchors UX + telemetry) === */
+    // If there are zero sendable anchors, make it clear and still log on click.
+    if(anchors.length === 0){
+      btn.setAttribute('data-empty','1');
+      btn.title = 'No sendable WhatsApp numbers found in suggestions';
+    }
+    /* === INSERT END === */
+
     btn.textContent = 'Batch send';
     btn.title = 'Open WhatsApp for the allowed suggestions';
     btn.addEventListener('click', async function(ev){
       ev.preventDefault();
-      if(isQuiet || allowed <= 0){ return; }
+
+      /* === INSERT START (22.16: ensure telemetry even when none sent) === */
+      if(isQuiet || allowed <= 0){
+        await logBatch(0);
+        btn.disabled = true;
+        btn.textContent = 'Batch sent (0)';
+        btn.title = btn.getAttribute('data-empty') === '1'
+          ? 'No sendable WhatsApp numbers in this list'
+          : (isQuiet ? 'Quiet hours active — sends paused' : 'Daily cap exhausted');
+        return;
+      }
+      /* === INSERT END === */
+
       let opened = 0;
       for(let i=0;i<allowed;i++){
         const a = anchors[i];
