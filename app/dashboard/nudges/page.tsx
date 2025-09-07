@@ -5,6 +5,10 @@ export const dynamic = 'force-dynamic';
 
 import { createClient } from '@supabase/supabase-js';
 
+// === VYAPR: Batch Send (22.15) START ===
+import Script from "next/script";
+// === VYAPR: Batch Send (22.15) END ===
+
 /* -------- supabase admin -------- */
 function admin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -288,7 +292,7 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
                 : 'Next step will enable batch opening'
             }
           >
-            Batch send (coming next)
+            Batch send
           </button>
         </div>
       </section>
@@ -377,6 +381,65 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
           );
         })}
       </div>
+      {/* === VYAPR: Batch Send (22.15) START === */}
+<Script id="vyapr-batch-send" strategy="afterInteractive">
+{`
+(function(){
+  try {
+    const section = document.querySelector('[data-test="nudge-batch-ui"]');
+    if(!section) return;
+    const btn = section.querySelector('button');
+    if(!btn) return;
+    btn.id = 'vy-batch-btn';
+
+    const total = Number(section.getAttribute('data-total')||'0');
+    const remaining = Number(section.getAttribute('data-remaining')||'0');
+    const isQuiet = section.getAttribute('data-isquiet') === '1';
+    if(isQuiet || remaining <= 0 || total <= 0) return;
+
+    const anchors = Array.from(document.querySelectorAll('[data-test="nudge-item"] a[data-test="nudge-send"]'));
+    const allowed = Math.max(0, Math.min(remaining, anchors.length));
+
+    async function logBatch(count){
+      try{
+        await fetch('/api/events/log', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({
+            event: 'nudge.batch.sent',
+            ts: Date.now(),
+            provider_id: (document.querySelector('[data-test="nudge-center-root"] .font-mono')||{}).textContent || null,
+            lead_id: null,
+            source: { via: 'ui', count, window: (document.querySelector('[data-test="win-h24"].bg-black') ? 'h24' : 'd30') }
+          })
+        });
+      }catch(_){}
+    }
+
+    btn.textContent = 'Batch send';
+    btn.title = 'Open WhatsApp for the allowed suggestions';
+    btn.addEventListener('click', async function(ev){
+      ev.preventDefault();
+      if(isQuiet || allowed <= 0){ return; }
+      let opened = 0;
+      for(let i=0;i<allowed;i++){
+        const a = anchors[i];
+        if(!a) break;
+        const href = a.getAttribute('href');
+        if(!href) continue;
+        window.open(href, '_blank');
+        opened++;
+        await new Promise(r => setTimeout(r, 150));
+      }
+      logBatch(opened);
+      btn.disabled = true;
+      btn.textContent = 'Batch sent (' + opened + ')';
+    }, { once: true });
+  } catch(e){}
+})();
+`}
+</Script>
+{/* === VYAPR: Batch Send (22.15) END === */}
     </main>
   );
 }
