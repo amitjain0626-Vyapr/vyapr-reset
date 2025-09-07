@@ -1,5 +1,10 @@
 {
   "categories": {
+    "generic": [
+      { "id": "vyapr.generic.reactivation.1", "title": "We miss you" },
+      { "id": "vyapr.generic.reminder.1", "title": "Friendly reminder" },
+      { "id": "vyapr.generic.offer.1", "title": "Limited slots this week" }
+    ],
     "dentist": [
       {
         "id": "dent-checkup-offer",
@@ -18,7 +23,9 @@
         "title": "First Visit Welcome",
         "base": "Welcome 🙏 First-visit special: ₹{amount} off on consultation. Limited to first {count} bookings. Expires in {expiryDays} days.",
         "audienceHint": ["New"]
-      }
+      },
+      { "id": "vyapr.dentist.reactivation.1", "title": "Dental check-up due" },
+      { "id": "vyapr.dentist.reminder.1", "title": "Today’s appointment" }
     ],
     "physio": [
       {
@@ -58,7 +65,15 @@
         "title": "First Visit Special",
         "base": "Welcome 🙏 First-visit special: ₹{amount} off. Limited to first {count} bookings. Expires in {expiryDays} days.",
         "audienceHint": ["New"]
-      }
+      },
+      { "id": "vyapr.salon.reactivation.1", "title": "Time for a refresh" }
+    ],
+    "astrologer": [
+      { "id": "vyapr.astro.reactivation.1", "title": "New consultation window" },
+      { "id": "vyapr.astro.reminder.1", "title": "Consult reminder" }
+    ],
+    "fitness": [
+      { "id": "vyapr.fitness.reminder.1", "title": "Class reminder" }
     ]
   }
 }
