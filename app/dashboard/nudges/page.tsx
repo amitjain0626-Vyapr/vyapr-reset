@@ -373,9 +373,9 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
          <Script id="vyapr-batch-send-guard" strategy="afterInteractive">
         {`
 /**
- * VYAPR Guard (22.16): ensure button is enabled client-side when allowed
- * - No deletions/overrides of existing logic
- * - Adds data-test and aria hints; de-dupes via window.__vyBatchGuard
+ * VYAPR Guard (22.16): ensure button is interactable when allowed,
+ * and also when cap is exhausted (so a click can log count:0).
+ * No overrides of server state; just client affordances.
  */
 (function(){
   try{
@@ -385,7 +385,6 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
     const section = document.querySelector('[data-test="nudge-batch-ui"]');
     if(!section) return;
 
-    // Add a stable data-test on the button so QA can target it
     const btn = section.querySelector('button');
     if(btn){
       btn.setAttribute('data-test','nudge-batch-send');
@@ -396,8 +395,7 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
     const remaining = Number(section.getAttribute('data-remaining')||'0');
     const isQuiet = section.getAttribute('data-isquiet') === '1';
 
-    // If the server-side disabled attribute stuck despite being allowed, fix it on client
-    // (respects quiet hours + caps; we never force-enable during quiet or when 0 remaining)
+    // Enable when allowed and items exist (normal happy path)
     if(btn && !isQuiet && remaining > 0 && total > 0){
       btn.removeAttribute('disabled');
       btn.classList.remove('opacity-50','cursor-not-allowed');
@@ -406,6 +404,16 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
         btn.title = 'Open WhatsApp for the allowed suggestions';
       }
     }
+
+    /* === INSERT START (22.16: allow click to log when cap exhausted) === */
+    // If cap is exhausted but there are items shown, enable the button so a click can log (0).
+    if(btn && !isQuiet && remaining === 0 && total > 0){
+      btn.removeAttribute('disabled');
+      btn.classList.remove('opacity-50','cursor-not-allowed');
+      btn.setAttribute('data-cap','exhausted');
+      btn.title = 'Daily cap exhausted — click will log as (0)';
+    }
+    /* === INSERT END === */
   }catch(_){}
 })();
         `}
@@ -426,7 +434,10 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
     const total = Number(section.getAttribute('data-total')||'0');
     const remaining = Number(section.getAttribute('data-remaining')||'0');
     const isQuiet = section.getAttribute('data-isquiet') === '1';
-    if(isQuiet || remaining <= 0 || total <= 0) return;
+    if(isQuiet || total <= 0) {
+      // Still attach handler to allow logging (0) during quiet or no items
+      // but don't attempt to open tabs.
+    }
 
     const anchors = Array.from(document.querySelectorAll('[data-test="nudge-item"] a[data-test="nudge-send"]'));
     const allowed = Math.max(0, Math.min(remaining, anchors.length));
@@ -447,20 +458,19 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
       }catch(_){}
     }
 
-    /* === INSERT START (22.16: empty-anchors UX + telemetry) === */
-    // If there are zero sendable anchors, make it clear and still log on click.
+    // If there are zero sendable anchors, mark it so the title explains why.
     if(anchors.length === 0){
       btn.setAttribute('data-empty','1');
-      btn.title = 'No sendable WhatsApp numbers found in suggestions';
+      if(!btn.hasAttribute('title')) {
+        btn.title = 'No sendable WhatsApp numbers found in suggestions';
+      }
     }
-    /* === INSERT END === */
 
-    btn.textContent = 'Batch send';
-    btn.title = 'Open WhatsApp for the allowed suggestions';
+    btn.textContent = btn.textContent || 'Batch send';
     btn.addEventListener('click', async function(ev){
       ev.preventDefault();
 
-      /* === INSERT START (22.16: ensure telemetry even when none sent) === */
+      // Always log even if none sent (quiet/cap/no-anchors)
       if(isQuiet || allowed <= 0){
         await logBatch(0);
         btn.disabled = true;
@@ -470,7 +480,6 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
           : (isQuiet ? 'Quiet hours active — sends paused' : 'Daily cap exhausted');
         return;
       }
-      /* === INSERT END === */
 
       let opened = 0;
       for(let i=0;i<allowed;i++){
