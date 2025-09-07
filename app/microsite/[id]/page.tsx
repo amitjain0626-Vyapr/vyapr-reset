@@ -126,6 +126,9 @@ export default async function Page({
 
   const waUrl = buildWaUrl({ ...p, slug });
   const verified = await getVerified(slug);
+  // === VYAPR: Verified badge guard (22.15) START ===
+  const showVerified = !!verified && !!p?.published;
+  // === VYAPR: Verified badge guard (22.15) END ===
   const services: Array<{
     name: string;
     price?: number | string;
@@ -172,6 +175,13 @@ export default async function Page({
         <div>
           <h1 className="text-2xl md:text-3xl font-semibold flex items-center gap-2">
             {p?.display_name || p?.slug}
+            {/* === VYAPR: Verified badge guard (22.15) START === */}
+            {showVerified ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-xs text-emerald-700">
+                ✓ Verified by Vyapr
+              </span>
+            ) : null}
+            {/* === VYAPR: Verified badge guard (22.15) END === */}
             {verified ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-xs text-emerald-700">
                 ✓ Verified by Vyapr

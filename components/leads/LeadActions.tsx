@@ -7,6 +7,35 @@ import { useCallback, useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { waReminder, waRebook } from '@/lib/wa/templates';
 
+// === VYAPR: Role resolver (22.15) START ===
+async function getProviderRole(slug: string): Promise<string> {
+  try {
+    const res = await fetch(`/api/providers/${encodeURIComponent(slug)}`, { cache: 'no-store' });
+    const j: any = await res.json().catch(() => null);
+    const raw = (j?.category || j?.provider?.category || '').toString().trim();
+    if (!raw) return '';
+    const map: Record<string, string> = {
+      dentist: 'Dentist',
+      dental: 'Dentist',
+      astro: 'Astrologer',
+      astrologer: 'Astrologer',
+      physio: 'Physiotherapist',
+      physiotherapist: 'Physiotherapist',
+      derma: 'Dermatologist',
+      dermatologist: 'Dermatologist',
+      yoga: 'Yoga Instructor',
+      'gym-trainer': 'Fitness Coach',
+      salon: 'Stylist',
+      tutor: 'Tutor',
+    };
+    const k = raw.toLowerCase();
+    return map[k] || (raw.charAt(0).toUpperCase() + raw.slice(1));
+  } catch {
+    return '';
+  }
+}
+// === VYAPR: Role resolver (22.15) END ===
+
 type Lead = { id: string; patient_name?: string | null; phone?: string | null };
 type Provider = { slug: string; id?: string; display_name?: string | null };
 
@@ -173,6 +202,13 @@ export default function LeadActions({ lead, provider, className }: Props) {
   const handleSend = useCallback(
     async (kind: 'reminder' | 'rebook') => {
       // Optional “, your <role>” phrasing — fetched from provider.category const role = await getProviderRole(provider.slug); ``` 2 lines after ```ts let rawText = kind === 'reminder' ? buildReminderText(lead, provider, campaign) : buildRebookText(lead, provider, campaign);
+       // === VYAPR: Role phrase (22.15) START ===
+      const role = await getProviderRole(provider.slug);
+      if (role) {
+        // soften phrasing: "your Dentist." instead of bare "team."
+        rawText = rawText.replace('team.', `team, your ${role}.`);
+      }
+      // === VYAPR: Role phrase (22.15) END ===
       if (!hasPhone) {
         toast.message('No phone on lead', { duration: 1500 });
         return;
