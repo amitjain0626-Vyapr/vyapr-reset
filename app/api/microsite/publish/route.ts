@@ -16,12 +16,9 @@ function admin() {
 export async function POST(req: Request) {
   try {
     const body = (await req.json().catch(() => ({}))) || {};
-    const about = (body.about || "About us coming soon…").toString();
-    const services =
-      Array.isArray(body.services) && body.services.length ? body.services : ["General consultation"];
     const provider_slug = (body.provider_slug || "").trim();
 
-    // Auth: prefer logged-in; otherwise allow admin path via slug
+    // Prefer logged-in session; else allow admin path via slug (same as before)
     const sbUser = createSupabaseServerClient();
     const { data: auth } = await sbUser.auth.getUser();
 
@@ -42,20 +39,20 @@ export async function POST(req: Request) {
       if (e1) return NextResponse.json({ ok: false, error: "provider_lookup_failed" }, { status: 400 });
       if (!row?.id) return NextResponse.json({ ok: false, error: "provider_not_found" }, { status: 404 });
       provider_id = row.id;
-      sb = admin(); // service role for server-side action
+      sb = admin(); // service role to bypass RLS for server-side action
     }
 
-    // ✅ Single source of truth = Providers (no Microsite table)
+    // 🔒 Minimal, safe update: flip only the published flag
     const { error: pErr } = await sb
       .from("Providers")
-      .update({ bio: about, services, published: true, updated_at: new Date().toISOString() })
+      .update({ published: true })
       .eq("id", provider_id);
 
     if (pErr) {
       return NextResponse.json({ ok: false, error: "publish_update_failed" }, { status: 400 });
     }
 
-    // Best-effort telemetry
+    // Best-effort telemetry (unchanged)
     const base = process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
     fetch(`${base}/api/events/log`, {
       method: "POST",
@@ -65,13 +62,13 @@ export async function POST(req: Request) {
         ts: Date.now(),
         provider_id,
         lead_id: null,
-        source: { via: auth?.user ? "auth" : "admin", kind: "providers_only" },
+        source: { via: auth?.user ? "auth" : "admin", kind: "published_only" },
       }),
       keepalive: true,
     }).catch(() => {});
 
-    return NextResponse.json({ ok: true, provider_id });
-  } catch (e: any) {
+    return NextResponse.json({ ok: true });
+  } catch {
     return NextResponse.json({ ok: false, error: "publish_failed" }, { status: 500 });
   }
 }
