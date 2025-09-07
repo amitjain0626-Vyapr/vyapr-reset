@@ -368,9 +368,9 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
       </div>
 
       {/* === VYAPR: Batch Send (22.15) START === */}
-      <Script id="vyapr-batch-send" strategy="afterInteractive">
-        
-         <Script id="vyapr-batch-send-guard" strategy="afterInteractive">
+
+      {/* Guard script — was nested before; now standalone */}
+      <Script id="vyapr-batch-send-guard" strategy="afterInteractive">
         {`
 /**
  * VYAPR Guard (22.16): ensure button is interactable when allowed,
@@ -405,19 +405,22 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
       }
     }
 
-    /* === INSERT START (22.16: allow click to log when cap exhausted) === */
-    // If cap is exhausted but there are items shown, enable the button so a click can log (0).
+    /* <<insert V2.3: allow click to log when cap exhausted >> */
     if(btn && !isQuiet && remaining === 0 && total > 0){
       btn.removeAttribute('disabled');
       btn.classList.remove('opacity-50','cursor-not-allowed');
       btn.setAttribute('data-cap','exhausted');
       btn.title = 'Daily cap exhausted — click will log as (0)';
     }
-    /* === INSERT END === */
+    /* end insert */
+
   }catch(_){}
 })();
         `}
       </Script>
+
+      {/* Primary script (will be replaced by the cap script later) */}
+      <Script id="vyapr-batch-send" strategy="afterInteractive">
         {`
 (function(){
   try {
@@ -434,13 +437,14 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
     const total = Number(section.getAttribute('data-total')||'0');
     const remaining = Number(section.getAttribute('data-remaining')||'0');
     const isQuiet = section.getAttribute('data-isquiet') === '1';
-    if(isQuiet || total <= 0) {
-      // Still attach handler to allow logging (0) during quiet or no items
-      // but don't attempt to open tabs.
-    }
 
     const anchors = Array.from(document.querySelectorAll('[data-test="nudge-item"] a[data-test="nudge-send"]'));
     const allowed = Math.max(0, Math.min(remaining, anchors.length));
+
+    /* <<insert V2.3: read CAP for parity in telemetry (even if not used here) >> */
+    const capAttr = section.getAttribute('data-batch-cap');
+    const CAP = Math.max(1, Number(capAttr || 6) || 6);
+    /* end insert */
 
     async function logBatch(count){
       try{
@@ -452,7 +456,9 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
             ts: Date.now(),
             provider_id: providerId,
             lead_id: null,
-            source: { via: 'ui', count, window: (document.querySelector('[data-test="win-h24"].bg-black') ? 'h24' : 'd30') }
+            /* <<insert V2.3: include cap for consistent telemetry >> */
+            source: { via: 'ui', count, cap: CAP, window: (document.querySelector('[data-test="win-h24"].bg-black') ? 'h24' : 'd30') }
+            /* end insert */
           })
         });
       }catch(_){}
@@ -559,7 +565,9 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
             ts: Date.now(),
             provider_id: providerId,
             lead_id: null,
+            /* <<insert V2.3: unified telemetry >> */
             source:{ via:'ui', count: count, cap: CAP, window: (document.querySelector('[data-test="win-h24"].bg-black') ? 'h24' : 'd30') }
+            /* end insert */
           })
         });
       }catch(_){}
