@@ -101,11 +101,9 @@ async function openPlaybook(
     url.searchParams.set('lead_id', lead.id);
     url.searchParams.set('kind', kind);
 
-    // pass customer name (if we have it)
     const name = (lead?.patient_name || '').trim();
     if (name) url.searchParams.set('name', name);
 
-    // NEW: pass provider display name when present
     const provName = (provider?.display_name || '').trim();
     if (provName) url.searchParams.set('provider', provName);
 
@@ -162,7 +160,6 @@ function trackedBookingUrl(opts: {
 }
 
 function buildReminderText(lead: Lead, provider: Provider, campaign?: string) {
-  ts // --- Resolve friendly provider role (Dentist → “Dentist”, physio → “Physiotherapist”) --- async function getProviderRole(slug: string): Promise<string> { try { const res = await fetch(`/api/providers/${encodeURIComponent(slug)}`, { cache: 'no-store' }); const j: any = await res.json().catch(() => null); const raw = (j?.category || j?.provider?.category || '').toString().trim(); if (!raw) return ''; const map: Record<string, string> = { dentist: 'Dentist', dental: 'Dentist', astro: 'Astrologer', astrologer: 'Astrologer', physio: 'Physiotherapist', physiotherapist: 'Physiotherapist', yoga: 'Yoga Instructor', 'gym-trainer': 'Fitness Coach', salon: 'Stylist', derma: 'Dermatologist', dermatologist: 'Dermatologist', tutor: 'Tutor', }; const k = raw.toLowerCase(); return map[k] || (raw.charAt(0).toUpperCase() + raw.slice(1)); } catch { return ''; } } ``` 2 lines after ```ts const name = (lead.patient_name || '').trim();  
   const name = (lead.patient_name || '').trim();
   const prov = (provider.display_name || provider.slug || 'your provider').trim();
   return waReminder({ name, provider: prov, slug: provider.slug, leadId: lead.id, campaign });
@@ -201,25 +198,25 @@ export default function LeadActions({ lead, provider, className }: Props) {
 
   const handleSend = useCallback(
     async (kind: 'reminder' | 'rebook') => {
-      // Optional “, your <role>” phrasing — fetched from provider.category const role = await getProviderRole(provider.slug); ``` 2 lines after ```ts let rawText = kind === 'reminder' ? buildReminderText(lead, provider, campaign) : buildRebookText(lead, provider, campaign);
-       // === VYAPR: Role phrase (22.15) START ===
+      if (!hasPhone) {
+        toast.message('No phone on lead', { duration: 1500 });
+        return;
+      }
+
+      let rawText =
+        kind === 'reminder'
+          ? buildReminderText(lead, provider, campaign)
+          : buildRebookText(lead, provider, campaign);
+
+      // === VYAPR: Role phrase (22.15) START ===
       const role = await getProviderRole(provider.slug);
       if (role) {
         // soften phrasing: "your Dentist." instead of bare "team."
         rawText = rawText.replace('team.', `team, your ${role}.`);
       }
       // === VYAPR: Role phrase (22.15) END ===
-      if (!hasPhone) {
-        toast.message('No phone on lead', { duration: 1500 });
-        return;
-      }
-      let rawText =
-        kind === 'reminder'
-          ? buildReminderText(lead, provider, campaign)
-          : buildRebookText(lead, provider, campaign);
 
       const tracked = trackedBookingUrl({
-        // If we have a role, convert: // "this is Amit Jain's team." → "this is Amit Jain's team, your Dentist." if (role) { rawText = rawText.replace('team.', `team, your ${role}.`); } ``` 2 lines after ```ts campaign, utm_source: 'whatsapp',
         slug: provider.slug,
         leadId: lead.id,
         campaign,
@@ -313,9 +310,36 @@ export default function LeadActions({ lead, provider, className }: Props) {
     <div className={`flex flex-wrap items-center gap-2 ${className || ''}`}>
       {/* Presets */}
       <div className="flex flex-wrap items-center gap-1">
-        <button type="button" onClick={() => { setCampaign('confirm'); toast.message('Preset: Confirm'); }} className="px-2 py-0.5 rounded border text-xs hover:bg-gray-50">✅ Confirm</button>
-        <button type="button" onClick={() => { setCampaign('noshow'); toast.message('Preset: No-show recovery'); }} className="px-2 py-0.5 rounded border text-xs hover:bg-gray-50">⏰ No-show</button>
-        <button type="button" onClick={() => { setCampaign('reactivation'); toast.message('Preset: Reactivation'); }} className="px-2 py-0.5 rounded border text-xs hover:bg-gray-50">🔄 Reactivate</button>
+        <button
+          type="button"
+          onClick={() => {
+            setCampaign('confirm');
+            toast.message('Preset: Confirm');
+          }}
+          className="px-2 py-0.5 rounded border text-xs hover:bg-gray-50"
+        >
+          ✅ Confirm
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setCampaign('noshow');
+            toast.message('Preset: No-show recovery');
+          }}
+          className="px-2 py-0.5 rounded border text-xs hover:bg-gray-50"
+        >
+          ⏰ No-show
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setCampaign('reactivation');
+            toast.message('Preset: Reactivation');
+          }}
+          className="px-2 py-0.5 rounded border text-xs hover:bg-gray-50"
+        >
+          🔄 Reactivate
+        </button>
       </div>
 
       {/* Campaign selector */}
@@ -331,21 +355,43 @@ export default function LeadActions({ lead, provider, className }: Props) {
         <option value="reactivation">reactivation</option>
       </select>
 
-      <button type="button" onClick={() => handleSend('reminder')} disabled={!hasPhone} className={`px-2 py-1 rounded border text-sm ${disabledCls}`}>💬 WA Reminder</button>
-      <button type="button" onClick={() => handleSend('rebook')} disabled={!hasPhone} className={`px-2 py-1 rounded border text-sm ${disabledCls}`}>↩️ Rebooking</button>
-      <button type="button" onClick={handleCopyLink} className="px-2 py-1 rounded border text-sm hover:bg-gray-50">🔗 Copy Link</button>
-      <button type="button" onClick={handleSms} disabled={!hasPhone} className={`px-2 py-1 rounded border text-sm ${disabledCls}`}>📩 SMS</button>
-      <button type="button" onClick={handleQR} className="px-2 py-1 rounded border text-sm hover:bg-gray-50">🖨️ QR</button>
+      <button type="button" onClick={() => handleSend('reminder')} disabled={!hasPhone} className={`px-2 py-1 rounded border text-sm ${disabledCls}`}>
+        💬 WA Reminder
+      </button>
+      <button type="button" onClick={() => handleSend('rebook')} disabled={!hasPhone} className={`px-2 py-1 rounded border text-sm ${disabledCls}`}>
+        ↩️ Rebooking
+      </button>
+      <button type="button" onClick={handleCopyLink} className="px-2 py-1 rounded border text-sm hover:bg-gray-50">
+        🔗 Copy Link
+      </button>
+      <button type="button" onClick={handleSms} disabled={!hasPhone} className={`px-2 py-1 rounded border text-sm ${disabledCls}`}>
+        📩 SMS
+      </button>
+      <button type="button" onClick={handleQR} className="px-2 py-1 rounded border text-sm hover:bg-gray-50">
+        🖨️ QR
+      </button>
 
       {/* Retention Playbooks — one-click WA */}
       <div className="flex flex-wrap items-center gap-1">
-        <button type="button" onClick={sendNoShow} disabled={!hasPhone} className={`px-2 py-1 rounded border text-sm ${disabledCls}`} title="Send a no-show recovery message on WA">⏰ No-show (WA)</button>
-        <button type="button" onClick={sendReactivate} disabled={!hasPhone} className={`px-2 py-1 rounded border text-sm ${disabledCls}`} title="Send a reactivation nudge on WA">🔄 Reactivate (WA)</button>
-        <button type="button" onClick={sendPreBooking} disabled={!hasPhone} className={`px-2 py-1 rounded border text-sm ${disabledCls}`} title="Send a pre-booking confirmation on WA">🗓️ Pre-book (WA)</button>
+        <button type="button" onClick={sendNoShow} disabled={!hasPhone} className={`px-2 py-1 rounded border text-sm ${disabledCls}`} title="Send a no-show recovery message on WA">
+          ⏰ No-show (WA)
+        </button>
+        <button type="button" onClick={sendReactivate} disabled={!hasPhone} className={`px-2 py-1 rounded border text-sm ${disabledCls}`} title="Send a reactivation nudge on WA">
+          🔄 Reactivate (WA)
+        </button>
+        <button type="button" onClick={sendPreBooking} disabled={!hasPhone} className={`px-2 py-1 rounded border text-sm ${disabledCls}`} title="Send a pre-booking confirmation on WA">
+          🗓️ Pre-book (WA)
+        </button>
       </div>
 
       {/* micro-upsell chip */}
-      <a href={`/upsell?slug=${encodeURIComponent(provider.slug)}&lid=${encodeURIComponent(lead.id)}`} className="text-[11px] rounded-full border px-2 py-0.5 text-indigo-700 border-indigo-300 hover:bg-indigo-50" title="Get more visibility & ready-made message templates">⭐ Boost</a>
+      <a
+        href={`/upsell?slug=${encodeURIComponent(provider.slug)}&lid=${encodeURIComponent(lead.id)}`}
+        className="text-[11px] rounded-full border px-2 py-0.5 text-indigo-700 border-indigo-300 hover:bg-indigo-50"
+        title="Get more visibility & ready-made message templates"
+      >
+        ⭐ Boost
+      </a>
     </div>
   );
 }
