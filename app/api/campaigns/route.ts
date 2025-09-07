@@ -1,46 +1,126 @@
-// app/api/cron/campaigns/route.ts
+// app/api/campaigns/route.ts
 // @ts-nocheck
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
-async function fire(origin: string, path: string, slug: string, test: boolean) {
-  const url = `${origin}${path}?slug=${encodeURIComponent(slug)}${test ? "&test=1" : ""}`;
-  const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" } }).catch(() => null);
-  const json = await res?.json().catch(() => ({}));
-  return { path, status: res?.status || 0, json };
+/** Service-role admin (no schema drift) */
+function admin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  return createClient(url, key, { auth: { persistSession: false } });
 }
 
-export async function POST(req: NextRequest) {
-  const url = new URL(req.url);
-  const origin = url.origin;
-  const slug = (url.searchParams.get("slug") || "").trim();
-  const test = url.searchParams.get("test") === "1"; // test mode passthrough
+/** Resolve provider_id by slug */
+async function resolveProviderIdBySlug(slug: string) {
+  const { data, error } = await admin()
+    .from("Providers")
+    .select("id")
+    .eq("slug", slug)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data?.id || null;
+}
 
-  if (!slug) return NextResponse.json({ ok: false, error: "missing_slug" }, { status: 400 });
+/** Collapse last-known campaign states from Events (no schema drift) */
+async function listExistingCampaigns(provider_id: string) {
+  const { data, error } = await admin()
+    .from("Events")
+    .select("event, ts, source")
+    .eq("provider_id", provider_id)
+    .in("event", [
+      "campaign.created",
+      "campaign.updated",
+      "campaign.paused",
+      "campaign.resumed",
+      "campaign.archived",
+    ])
+    .order("ts", { ascending: false })
+    .limit(2000);
 
-  const [reminders, reactivation] = await Promise.all([
-    fire(origin, "/api/campaigns/autofire", slug, test),
-    fire(origin, "/api/campaigns/reactivate", slug, test),
-  ]);
+  if (error) return [];
 
-  return NextResponse.json({
-    ok: true,
-    slug,
-    mode: test ? "test" : "normal",
-    results: { reminders, reactivation },
-  });
+  const byId = new Map<
+    string,
+    { id: string; label?: string; channel?: string; kind?: string; status?: string; updated_at?: number }
+  >();
+
+  for (const r of data || []) {
+    const src: any = r?.source || {};
+    const id = (src.id || src.campaign_id || "").toString().trim();
+    if (!id) continue;
+    if (byId.has(id)) continue; // first hit is most recent (desc)
+
+    const status =
+      r.event === "campaign.archived"
+        ? "archived"
+        : r.event === "campaign.paused"
+        ? "paused"
+        : r.event === "campaign.resumed" || r.event === "campaign.created" || r.event === "campaign.updated"
+        ? (src.status || "live")
+        : "live";
+
+    byId.set(id, {
+      id,
+      label: src.label || src.name || undefined,
+      channel: src.channel || "wa",
+      kind: src.kind || "reminder",
+      status,
+      updated_at: Number(r.ts) || Date.now(),
+    });
+  }
+
+  return Array.from(byId.values()).filter((c) => c.status !== "archived");
+}
+
+/** Guardrail default (virtual) campaign — ensures list is never empty */
+function defaultCampaign(origin: string, slug: string) {
+  const triggerTest = `${origin}/api/campaigns/autofire?slug=${encodeURIComponent(slug)}&test=1`;
+  const triggerNormal = `${origin}/api/campaigns/autofire?slug=${encodeURIComponent(slug)}`;
+  return {
+    id: "vyapr.default.wa.reminders",
+    label: "WhatsApp Reminders (Auto)",
+    channel: "wa",
+    kind: "reminder",
+    status: "live",
+    actions: {
+      autofire_test: triggerTest,
+      autofire: triggerNormal,
+      reactivate_test: `${origin}/api/campaigns/reactivate?slug=${encodeURIComponent(slug)}&test=1`,
+      reactivate: `${origin}/api/campaigns/reactivate?slug=${encodeURIComponent(slug)}`,
+    },
+  };
 }
 
 export async function GET(req: NextRequest) {
-  const u = new URL(req.url);
-  return NextResponse.json({
-    ok: true,
-    route: "/api/cron/campaigns",
-    usage: {
-      test: `${u.origin}/api/cron/campaigns?slug=YOUR_SLUG&test=1  (POST)`,
-      normal: `${u.origin}/api/cron/campaigns?slug=YOUR_SLUG  (POST)`,
-    },
-  });
+  try {
+    const url = new URL(req.url);
+    const slug = (url.searchParams.get("slug") || url.searchParams.get("provider_slug") || "").trim();
+    const provider_id_qs = (url.searchParams.get("provider_id") || "").trim();
+
+    // Resolve provider
+    let provider_id = provider_id_qs;
+    if (!provider_id) {
+      if (!slug) return NextResponse.json({ ok: false, error: "missing_slug_or_provider_id" }, { status: 400 });
+      provider_id = await resolveProviderIdBySlug(slug);
+      if (!provider_id) return NextResponse.json({ ok: false, error: "provider_not_found" }, { status: 404 });
+    }
+
+    // Read existing campaigns; apply guardrail if none
+    const existing = await listExistingCampaigns(provider_id);
+    const items = existing.length > 0 ? existing : [defaultCampaign(url.origin, slug || "")];
+
+    return NextResponse.json({
+      ok: true,
+      provider_id,
+      slug: slug || null,
+      count: items.length,
+      items,
+      guardrail: existing.length === 0 ? "virtual_default_active" : "existing",
+    });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e?.message || "server_error" }, { status: 500 });
+  }
 }
