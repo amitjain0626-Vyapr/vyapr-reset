@@ -1,102 +1,106 @@
+// app/api/templates/preview/route.ts
 // @ts-nocheck
 import { NextRequest, NextResponse } from "next/server";
 import { waReminder, waRebook } from "@/lib/wa/templates";
 
-/**
- * Lightweight WhatsApp text preview builder.
- * No DB writes. Uses lib/wa/templates and returns a WA deeplink.
- *
- * Examples:
- *  /api/templates/preview?slug=amitjain0626&template=collect_pending&amt=1200&lang=en
- *  /api/templates/preview?slug=amitjain0626&template=rebook&category=dentist&service=scaling%20%26%20polishing&lang=hi
- */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function waUrlFor(phone: string, text: string) {
-  const digits = (phone || "").replace(/[^\d]/g, "");
-  const msg = encodeURIComponent(text || "");
-  if (!digits) return `https://api.whatsapp.com/send/?text=${msg}&type=phone_number&app_absent=0`;
-  return `https://api.whatsapp.com/send/?phone=${digits}&text=${msg}&type=phone_number&app_absent=0`;
-}
-
+/** Minimal lang normalizer; default = en */
 type Lang = "en" | "hi" | "hinglish";
-function normLang(v?: string | null): Lang {
+function normalizeLangToken(v?: string | null): Lang {
   const t = (v || "").toLowerCase().trim();
   if (t === "hi") return "hi";
   if (t === "hinglish") return "hinglish";
   return "en";
 }
 
+/** Build a WA deep link */
+function waUrlFor(phone: string | null | undefined, text: string) {
+  const digits = (phone || "").replace(/[^\d]/g, "");
+  const msg = encodeURIComponent(text || "");
+  if (!digits) return `https://api.whatsapp.com/send/?text=${msg}&type=phone_number&app_absent=0`;
+  return `https://api.whatsapp.com/send/?phone=${digits}&text=${msg}&type=phone_number&app_absent=0`;
+}
+
+/**
+ * Preview message copy for common templates (collect pending / rebook).
+ * GET /api/templates/preview?slug=...&template=collect_pending|rebook&...
+ * Optional qs:
+ * - lang=en|hi|hinglish
+ * - name, provider, phone
+ * - amt (for collect_pending)
+ * - category, service (for rebook)
+ * - link (appended to the message if present)
+ */
 export async function GET(req: NextRequest) {
-  const url = new URL(req.url);
+  try {
+    const url = new URL(req.url);
 
-  const slug = (url.searchParams.get("slug") || "").trim(); // optional, for analytics later
-  const template = (url.searchParams.get("template") || "collect_pending").trim().toLowerCase();
+    const slug = (url.searchParams.get("slug") || "").trim();
+    const tpl = (url.searchParams.get("template") || "").trim().toLowerCase();
+    const lang = normalizeLangToken(url.searchParams.get("lang"));
 
-  // optional context (safe defaults)
-  const lang = normLang(url.searchParams.get("lang"));
-  const name = url.searchParams.get("name") || "there";
-  const provider = url.searchParams.get("provider") || ""; // show only if caller passes
-  const phone = url.searchParams.get("phone") || "";
-  const category = url.searchParams.get("category") || ""; // e.g., dentist
-  const service = url.searchParams.get("service") || "";   // e.g., scaling & polishing
-  const ref = url.searchParams.get("ref") || "";
-  const amt = Number(url.searchParams.get("amt") || "0") || undefined;
+    const name = (url.searchParams.get("name") || "there").trim();
+    const provider = (url.searchParams.get("provider") || "your service provider").trim();
+    const phone = (url.searchParams.get("phone") || "").trim();
 
-  let text = "";
+    const amtRaw = url.searchParams.get("amt");
+    const amountINR =
+      amtRaw && isFinite(Number(amtRaw)) ? Math.max(0, Math.round(Number(amtRaw))) : undefined;
 
-  if (template === "collect_pending" || template === "collect" || template === "payment") {
-    text = waReminder(
-      {
-        name,
-        provider,
-        refCode: ref,
-        amountINR: amt,
-        category,
-        topService: service,
+    const category = (url.searchParams.get("category") || "").trim().toLowerCase() || null;
+    const service = (url.searchParams.get("service") || "").trim() || null;
+
+    // Build message text
+    let text = "";
+    if (tpl === "collect_pending") {
+      text = waReminder(
+        {
+          name,
+          provider,
+          amountINR,
+          category,
+          topService: service,
+        },
+        lang
+      );
+    } else if (tpl === "rebook") {
+      text = waRebook(
+        {
+          name,
+          provider,
+          category,
+          topService: service,
+        },
+        lang
+      );
+    } else {
+      return NextResponse.json(
+        { ok: false, error: "unknown_template", hint: "Use template=collect_pending or template=rebook" },
+        { status: 400 }
+      );
+    }
+
+    // --- INSERT: append link if provided (no duplicate whatsapp_url) ---
+    const link = (url.searchParams.get("link") || "").trim();
+    if (link) {
+      text = `${text} ${link}`;
+    }
+
+    const whatsapp_url = waUrlFor(phone, text);
+
+    return NextResponse.json({
+      ok: true,
+      slug,
+      template: tpl,
+      language: lang,
+      preview: {
+        text,
+        whatsapp_url,
       },
-      lang
-    );
-  } else if (template === "rebook" || template === "reactivate") {
-    text = waRebook(
-      {
-        name,
-        provider,
-        refCode: ref,
-        amountINR: undefined,
-        category,
-        topService: service,
-      },
-      lang
-    );
-  } else {
-    // Fallback to collect-pending if unknown template key
-    text = waReminder({ name, provider, refCode: ref, amountINR: amt, category, topService: service }, lang);
+    });
+  } catch (e: any) {
+    return NextResponse.json({ ok: false, error: e?.message || "server_error" }, { status: 500 });
   }
-
- // (new) if a payment/booking link is provided, append it to the text
-  const link = (url.searchParams.get("link") || "").trim();
-  if (link) {
-    // ensure a space/newline before the link so it’s clickable in WA
-    text = `${text} ${link}`;
-  }
-  const whatsapp_url = waUrlFor(phone, text);
-
-  // (new) if a payment/booking link is provided, append it to the text
-  const link = (url.searchParams.get("link") || "").trim();
-  if (link) {
-    // ensure a space/newline before the link so it’s clickable in WA
-    text = `${text} ${link}`;
-  }
-
-  const whatsapp_url = waUrlFor(phone, text);
-
-  return NextResponse.json({
-    ok: true,
-    slug,
-    template,
-    language: lang,
-    preview: { text, whatsapp_url },
-  });
 }
