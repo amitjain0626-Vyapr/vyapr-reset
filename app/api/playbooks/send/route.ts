@@ -8,10 +8,11 @@ import { NextRequest, NextResponse } from "next/server";
 
 // === VYAPR: Playbooks API START (22.18) ===
 // POST /api/playbooks/send?slug=...
-// Body: { lead_id: string|null, playbook: "reactivation" | "reminder" | "offer" }
+// Body: { lead_id?: string|null, playbook?: "reactivation" | "reminder" | "offer" }
 // Logs STRICT telemetry via internal API (/api/events/log), not direct DB insert.
-// Contract fields ONLY: {event, ts(ms), provider_id, lead_id, source:{playbook,...}}
-// Provider is resolved via /api/providers/resolve to fetch provider_id safely.
+// Contract ONLY: {event, ts(ms), provider_id, lead_id, source:{playbook, via:"api.playbooks.send"}}
+// Provider resolved via /api/providers/resolve (single source of truth).
+// UUID guard: non-UUID lead_id is coerced to null to satisfy DB type.
 // === VYAPR: Playbooks API END (22.18) ===
 
 function json(status: number, body: any) {
@@ -27,13 +28,22 @@ function baseUrlFrom(req: NextRequest) {
 
 async function resolveProviderId(req: NextRequest, slug: string) {
   const base = baseUrlFrom(req);
-  const res = await fetch(`${base}/api/providers/resolve?slug=${encodeURIComponent(slug)}`, {
-    cache: "no-store",
-  });
+  const res = await fetch(
+    `${base}/api/providers/resolve?slug=${encodeURIComponent(slug)}`,
+    { cache: "no-store" }
+  );
   if (!res.ok) throw new Error(`provider_resolve_http_${res.status}`);
   const j = await res.json();
   if (!j?.ok || !j?.id) throw new Error("provider_resolve_invalid");
   return j.id as string;
+}
+
+function asUuidOrNull(v: any): string | null {
+  if (typeof v !== "string") return null;
+  const s = v.trim().toLowerCase();
+  // very permissive UUID v4/v1 matcher (xxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
+  const uuid36 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+  return uuid36.test(s) ? s : null;
 }
 
 export async function POST(req: NextRequest) {
@@ -43,25 +53,19 @@ export async function POST(req: NextRequest) {
     if (!slug) return json(400, { ok: false, error: "missing_slug" });
 
     const body = (await req.json().catch(() => ({}))) || {};
-    const lead_id =
-      typeof body?.lead_id === "string" && body.lead_id.trim()
-        ? body.lead_id.trim()
-        : null;
+    const lead_id = asUuidOrNull(body?.lead_id);
     const playbook = String(body?.playbook || "reactivation").toLowerCase().trim();
 
-    // Resolve provider_id via canonical resolver
     const provider_id = await resolveProviderId(req, slug);
 
-    // Build STRICT telemetry payload (no schema drift)
     const payload = {
       event: "playbook.sent",
       ts: Date.now(),
       provider_id,
-      lead_id, // nullable in batch mode
+      lead_id, // may be null (batch mode or non-UUID input)
       source: { playbook, via: "api.playbooks.send" },
     };
 
-    // Delegate append to existing internal API (avoids direct table/schema coupling)
     const base = baseUrlFrom(req);
     const res = await fetch(`${base}/api/events/log`, {
       method: "POST",
@@ -75,7 +79,6 @@ export async function POST(req: NextRequest) {
       return json(500, { ok: false, error: "event_log_failed", detail });
     }
 
-    // Return minimal success with echoed context
     return json(200, {
       ok: true,
       event: "playbook.sent",
