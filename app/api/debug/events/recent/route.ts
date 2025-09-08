@@ -28,7 +28,10 @@ export async function GET(req: NextRequest) {
     // 2 lines before
     if (!slug) return NextResponse.json({ ok: false, error: "missing_slug" }, { status: 400 });
     // << insert >>
-    // look up provider_id by slug (service role, read-only)
+    // === VYAPR: Playbooks debug START (22.18) ===
+    // Explicit support for playbooks filter. Aliases allowed: "playbook", "playbooks" -> "playbook.sent"
+    const wantsPlaybook = ["playbook", "playbooks", "playbook.sent"].includes(event.toLowerCase());
+    // === VYAPR: Playbooks debug END (22.18) ===
     // 2 lines after
 
     const { data: prov } = await admin().from("Providers").select("id").eq("slug", slug).maybeSingle();
@@ -40,14 +43,14 @@ export async function GET(req: NextRequest) {
       .from("Events")
       .select("lead_id, ts, source")
       .eq("provider_id", provider_id)
-      .eq("event", event)
+      .eq("event", wantsPlaybook ? "playbook.sent" : event)
       .gte("ts", since)
       .order("ts", { ascending: false })
       .limit(1000);
 
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
 
-    return NextResponse.json({ ok: true, slug, event, window: win, rows: data });
+    return NextResponse.json({ ok: true, slug, event: wantsPlaybook ? "playbook.sent" : event, window: win, rows: data });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message || "server_error" }, { status: 500 });
   }
