@@ -1,5 +1,5 @@
-// app/dashboard/nudges/page.tsx
 // @ts-nocheck
+// app/dashboard/nudges/page.tsx
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -114,19 +114,19 @@ function buildText(providerName: string, leadName?: string) {
   };
 }
 
-/* V2.3 insert block around the exact fix below */
 /* two lines before
    (helper section continues)
 << insert >>
-   V2.3: FIX — Next.js App Router passes a plain object (not a Promise) for searchParams.
-   Use object destructuring without await to prevent server crash (Digest-like errors).
+   V2.3 fix: Handle both shapes (object OR Promise) + avoid type errors by ts-nocheck.
 two lines after */
 
 /* -------- page -------- */
 export default async function Page(
-  { searchParams }: { searchParams: { slug?: string; window?: string } }
+  props: { searchParams: { slug?: string; window?: string } } | { searchParams: Promise<{ slug?: string; window?: string }> } | any
 ) {
-  const { slug, window } = searchParams;
+  const raw = props?.searchParams;
+  const sp = raw && typeof raw.then === 'function' ? await raw : (raw || {});
+  const { slug, window } = sp || {};
 
   const _slug = (slug || '').trim();
   if (!_slug) {
