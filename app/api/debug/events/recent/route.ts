@@ -1,10 +1,10 @@
 // app/api/debug/events/recent/route.ts
 // @ts-nocheck
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 
 function admin() {
   return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
@@ -12,27 +12,43 @@ function admin() {
   });
 }
 
-export async function GET(req: Request) {
+function windowStart(key: string) {
+  const now = Date.now();
+  if (key === "h24") return now - 24 * 60 * 60 * 1000;
+  return now - 30 * 24 * 60 * 60 * 1000;
+}
+
+export async function GET(req: NextRequest) {
   try {
-    const url = new URL(req.url);
-    const event = (url.searchParams.get('event') || '').trim(); // optional
-    const provider_id = (url.searchParams.get('provider_id') || '').trim(); // optional
-    const limit = Math.max(1, Math.min(200, parseInt(url.searchParams.get('limit') || '50', 10)));
+    const { searchParams } = new URL(req.url);
+    const slug = (searchParams.get("slug") || "").trim();
+    const event = (searchParams.get("event") || "nudge.suggested").trim();
+    const win = (searchParams.get("window") || "d30").trim().toLowerCase();
 
-    let q = admin()
-      .from('Events')
-      .select('event, ts, provider_id, lead_id, source')
-      .order('ts', { ascending: false })
-      .limit(limit);
+    // 2 lines before
+    if (!slug) return NextResponse.json({ ok: false, error: "missing_slug" }, { status: 400 });
+    // << insert >>
+    // look up provider_id by slug (service role, read-only)
+    // 2 lines after
 
-    if (event) q = q.eq('event', event);
-    if (provider_id) q = q.eq('provider_id', provider_id);
+    const { data: prov } = await admin().from("Providers").select("id").eq("slug", slug).maybeSingle();
+    const provider_id = prov?.id || null;
+    if (!provider_id) return NextResponse.json({ ok: false, error: "provider_not_found" }, { status: 404 });
 
-    const { data = [], error } = await q;
+    const since = windowStart(win);
+    const { data = [], error } = await admin()
+      .from("Events")
+      .select("lead_id, ts, source")
+      .eq("provider_id", provider_id)
+      .eq("event", event)
+      .gte("ts", since)
+      .order("ts", { ascending: false })
+      .limit(1000);
+
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
 
-    return NextResponse.json({ ok: true, count: data.length, rows: data });
+    return NextResponse.json({ ok: true, slug, event, window: win, rows: data });
   } catch (e: any) {
-    return NextResponse.json({ ok: false, error: e?.message || 'server_error' }, { status: 500 });
+    return NextResponse.json({ ok: false, error: e?.message || "server_error" }, { status: 500 });
   }
 }
