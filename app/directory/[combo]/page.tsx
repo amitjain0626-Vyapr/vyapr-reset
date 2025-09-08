@@ -24,7 +24,7 @@ export async function generateMetadata({ params }: { params: Promise<{ combo: st
     `Discover trusted local providers on Vyapr.`;
 
   const canonical = `${site}/directory/${encodeURIComponent(String(combo || ""))}`;
-  const ogImage = `${site}/og/default-provider.svg`; // fallback (safe even if file not present yet)
+  const ogImage = `${site}/og/default-provider.svg`;
 
   return {
     title: pageTitle,
@@ -36,21 +36,10 @@ export async function generateMetadata({ params }: { params: Promise<{ combo: st
       url: canonical,
       siteName: "Vyapr",
       type: "website",
-      images: [
-        { url: ogImage, width: 1200, height: 630, alt: "Vyapr — Verified Providers" },
-      ],
+      images: [{ url: ogImage, width: 1200, height: 630, alt: "Vyapr — Verified Providers" }],
     },
-    twitter: {
-      card: "summary_large_image",
-      title: pageTitle,
-      description,
-      images: [ogImage],
-    },
-    robots: {
-      index: true,
-      follow: true,
-      "max-image-preview": "large",
-    },
+    twitter: { card: "summary_large_image", title: pageTitle, description, images: [ogImage] },
+    robots: { index: true, follow: true, "max-image-preview": "large" },
   };
 }
 
@@ -63,23 +52,13 @@ export default async function DirectoryComboPage({ params }: { params: Promise<{
   const titleCity = unslugify(rawCity);
   const pageTitle = `${titleCat} in ${titleCity}`;
 
-  // fetch from new API
   const url = `${site}/api/directory/list?cat=${encodeURIComponent(rawCat)}&loc=${encodeURIComponent(rawCity)}`;
   const res = await fetch(url, { cache: "no-store" });
   const json = await res.json().catch(() => ({}));
   const providers = Array.isArray(json?.providers) ? json.providers : [];
 
-  // ---- JSON-LD helpers (Breadcrumb + ItemList) ----
-  const breadcrumbJsonLd = getBreadcrumbJsonLd({
-    site,
-    combo: String(combo || ""),
-    titleCat,
-    titleCity,
-  });
-  const itemListJsonLd = getItemListJsonLd({
-    site,
-    providers,
-  });
+  const breadcrumbJsonLd = getBreadcrumbJsonLd({ site, combo: String(combo || ""), titleCat, titleCity });
+  const itemListJsonLd = getItemListJsonLd({ site, providers });
 
   /* === VYAPR: Directory JSON-LD START (22.19) === */
   const localBusinessJsonLd = getLocalBusinessGraphJsonLd({
@@ -92,9 +71,7 @@ export default async function DirectoryComboPage({ params }: { params: Promise<{
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-10">
-      <div className="flex items-center justify-end">
-        <LanguageToggle />
-      </div>
+      <div className="flex items-center justify-end"><LanguageToggle /></div>
 
       {/* breadcrumbs */}
       <nav aria-label="Breadcrumb" className="text-sm mb-6 mt-3">
@@ -108,91 +85,52 @@ export default async function DirectoryComboPage({ params }: { params: Promise<{
       </nav>
 
       {/* SEO JSON-LD */}
-      <script
-        type="application/ld+json"
-        // BreadcrumbList
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }}
-      />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }} />
       {providers.length > 0 ? (
-        <script
-          type="application/ld+json"
-          // ItemList for providers browsing
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListJsonLd) }}
-        />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListJsonLd) }} />
       ) : null}
 
-      {/* === VYAPR: Directory JSON-LD (LocalBusiness per provider) === */}
+      {/* LocalBusiness graph */}
       {providers.length > 0 ? (
-        <script
-          type="application/ld+json"
-          // LocalBusiness/Service graph with verified/boosted flags
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusinessJsonLd) }}
-        />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusinessJsonLd) }} />
       ) : null}
 
-      <h1 className="text-2xl md:text-3xl font-semibold mb-2">
-        <T en={pageTitle} hi={pageTitle} />
-      </h1>
+      <h1 className="text-2xl md:text-3xl font-semibold mb-2"><T en={pageTitle} hi={pageTitle} /></h1>
       <p className="text-gray-600 mb-8">
-        <T
-          en="Published providers only. Boosted providers appear first."
-          hi="Sirf published providers dikhte hain. Boosted providers sabse upar."
-        />
+        <T en="Published providers only. Boosted providers appear first." hi="Sirf published providers dikhte hain. Boosted providers sabse upar." />
       </p>
 
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {providers.length > 0 ? (
           providers.map((p: any) => (
             <div key={p.slug} className="relative">
-              {/* Trust marker (non-invasive): shows only if backend included a verified flag; no schema drift */}
               {p?.verified ? (
-                <span
-                  className="absolute -top-2 -left-2 z-10 rounded-full bg-emerald-600 px-2 py-0.5 text-xs font-semibold text-white shadow"
-                  aria-label="Verified by Vyapr"
-                >
+                <span className="absolute -top-2 -left-2 z-10 rounded-full bg-emerald-600 px-2 py-0.5 text-xs font-semibold text-white shadow" aria-label="Verified by Vyapr">
                   Verified by Vyapr
                 </span>
               ) : null}
-
-              {/* === VYAPR: Boosted badge (display-only) START (22.19) === */}
+              {/* Boosted badge */}
               {p?.boosted ? (
-                <span
-                  className="absolute -top-2 -right-2 z-10 rounded-full bg-indigo-600 px-2 py-0.5 text-xs font-semibold text-white shadow"
-                  aria-label="Boosted"
-                  title="Boosted placement"
-                >
+                <span className="absolute -top-2 -right-2 z-10 rounded-full bg-indigo-600 px-2 py-0.5 text-xs font-semibold text-white shadow" aria-label="Boosted" title="Boosted placement">
                   Boosted
                 </span>
               ) : null}
-              {/* === VYAPR: Boosted badge END (22.19) === */}
-
               <ProviderCard {...p} />
             </div>
           ))
         ) : (
           <div className="rounded-xl border border-dashed p-6 text-gray-600">
-            <T
-              en={`No published providers yet for ${pageTitle}. Check back soon.`}
-              hi={`${pageTitle} ke liye abhi providers listed nahi hain. Jaldi wapas check kijiye.`}
-            />
+            <T en={`No published providers yet for ${pageTitle}. Check back soon.`} hi={`${pageTitle} ke liye abhi providers listed nahi hain. Jaldi wapas check kijiye.`} />
           </div>
         )}
       </section>
 
-      {/* Internal links (SEO crawl rails): home → directory → current combo */}
       <section className="mt-10">
         <div className="rounded-xl border p-4">
           <p className="text-sm text-gray-700">
-            Looking for more options in{" "}
-            <strong>{titleCity}</strong>? Explore our{" "}
-            <Link href="/directory" className="underline">
-              Vyapr Directory
-            </Link>{" "}
-            or go back to{" "}
-            <Link href="/" className="underline">
-              Home
-            </Link>
-            .
+            Looking for more options in <strong>{titleCity}</strong>? Explore our{" "}
+            <Link href="/directory" className="underline">Vyapr Directory</Link> or go back to{" "}
+            <Link href="/" className="underline">Home</Link>.
           </p>
         </div>
       </section>
@@ -200,20 +138,11 @@ export default async function DirectoryComboPage({ params }: { params: Promise<{
       {/* FAQ */}
       <section className="mt-10">
         <h2 className="text-xl font-semibold">
-          <T
-            en={`FAQs about ${titleCat} in ${titleCity}`}
-            hi={`${titleCity} mein ${titleCat} — FAQs`}
-          />
+          <T en={`FAQs about ${titleCat} in ${titleCity}`} hi={`${titleCity} mein ${titleCat} — FAQs`} />
         </h2>
-        <p className="text-sm text-gray-600 mb-4">
-          <T en="Short answers to common questions." hi="Chhote aur seedhe jawaab." />
-        </p>
+        <p className="text-sm text-gray-600 mb-4"><T en="Short answers to common questions." hi="Chhote aur seedhe jawaab." /></p>
         {(() => {
-          const faqItems = generateDirectoryFaq({
-            category: titleCat,
-            city: titleCity,
-            providerCount: providers.length,
-          });
+          const faqItems = generateDirectoryFaq({ category: titleCat, city: titleCity, providerCount: providers.length });
           return (
             <>
               <div className="space-y-4">
@@ -224,10 +153,7 @@ export default async function DirectoryComboPage({ params }: { params: Promise<{
                   </details>
                 ))}
               </div>
-              <script
-                type="application/ld+json"
-                dangerouslySetInnerHTML={{ __html: faqJsonLd(faqItems) }}
-              />
+              <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: faqJsonLd(faqItems) }} />
             </>
           );
         })()}
@@ -242,51 +168,20 @@ function unslugify(s: string) {
   return t.length ? t[0].toUpperCase() + t.slice(1) : "";
 }
 
-function getBreadcrumbJsonLd({
-  site,
-  combo,
-  titleCat,
-  titleCity,
-}: {
-  site: string;
-  combo: string;
-  titleCat: string;
-  titleCity: string;
-}) {
+function getBreadcrumbJsonLd({ site, combo, titleCat, titleCity }: { site: string; combo: string; titleCat: string; titleCity: string }) {
   const current = `${titleCat} in ${titleCity}`;
   return {
     "@context": "https://schema.org",
     "@type": "BreadcrumbList",
     "itemListElement": [
-      {
-        "@type": "ListItem",
-        "position": 1,
-        "name": "Home",
-        "item": `${site}/`,
-      },
-      {
-        "@type": "ListItem",
-        "position": 2,
-        "name": "Directory",
-        "item": `${site}/directory`,
-      },
-      {
-        "@type": "ListItem",
-        "position": 3,
-        "name": current,
-        "item": `${site}/directory/${encodeURIComponent(combo)}`,
-      },
+      { "@type": "ListItem", "position": 1, "name": "Home", "item": `${site}/` },
+      { "@type": "ListItem", "position": 2, "name": "Directory", "item": `${site}/directory` },
+      { "@type": "ListItem", "position": 3, "name": current, "item": `${site}/directory/${encodeURIComponent(combo)}` },
     ],
   };
 }
 
-function getItemListJsonLd({
-  site,
-  providers,
-}: {
-  site: string;
-  providers: Array<{ slug?: string; display_name?: string; name?: string }>;
-}) {
+function getItemListJsonLd({ site, providers }: { site: string; providers: Array<{ slug?: string; display_name?: string; name?: string }> }) {
   const items = (providers || []).slice(0, 30).map((p, idx) => ({
     "@type": "ListItem",
     "position": idx + 1,
@@ -319,20 +214,36 @@ function getLocalBusinessGraphJsonLd({
     const url = `${site}/book/${encodeURIComponent(p.slug || "")}`;
     const telephone = typeof p.phone === "string" ? p.phone : undefined;
 
-    // Minimal, standards-safe LocalBusiness doc with soft hints
     const node: any = {
       "@type": "LocalBusiness",
       "@id": `${url}#org`,
       "name": name,
       "url": url,
-      "areaServed": {
-        "@type": "City",
-        "name": city,
-      },
-      "knowsAbout": category, // non-invasive hint for category
+      "areaServed": { "@type": "City", "name": city },
+      "knowsAbout": category,
     };
 
     if (telephone) node.telephone = telephone;
+
+    // === INSERT: openingHours (if present) ===
+    // Accepts any of: p.openingHours (array), p.opening_hours (array), p.hours (string)
+    const oh = Array.isArray(p?.openingHours) ? p.openingHours
+            : Array.isArray(p?.opening_hours) ? p.opening_hours
+            : typeof p?.hours === "string" ? [p.hours] : null;
+    if (oh && oh.length) node.openingHours = oh.slice(0, 14); // schema allows multiple strings like "Mo-Fr 10:00-18:00"
+
+    // === INSERT: sameAs (if present) ===
+    // Accepts arrays/strings from common fields; filters to http(s) URLs
+    const rawLinks = []
+      .concat(Array.isArray(p?.sameAs) ? p.sameAs : [])
+      .concat(Array.isArray(p?.links) ? p.links : [])
+      .concat(Array.isArray(p?.socials) ? p.socials : [])
+      .concat(typeof p?.website === "string" ? [p.website] : [])
+      .concat(typeof p?.facebook === "string" ? [p.facebook] : [])
+      .concat(typeof p?.instagram === "string" ? [p.instagram] : [])
+      .concat(typeof p?.twitter === "string" ? [p.twitter] : []);
+    const sameAs = rawLinks.filter((u: any) => typeof u === "string" && /^https?:\/\//i.test(u));
+    if (sameAs.length) node.sameAs = Array.from(new Set(sameAs)).slice(0, 10);
 
     // Flags via additionalProperty — safe & non-disruptive
     const extra: any[] = [];
@@ -343,9 +254,6 @@ function getLocalBusinessGraphJsonLd({
     return node;
   });
 
-  return {
-    "@context": "https://schema.org",
-    "@graph": graph,
-  };
+  return { "@context": "https://schema.org", "@graph": graph };
 }
 /* === VYAPR: LocalBusiness graph JSON-LD helper END (22.19) === */
