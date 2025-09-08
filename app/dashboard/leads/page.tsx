@@ -345,6 +345,57 @@ async function fetchWeeklySeriesSafe(providerId: string | null) {
   }
 }
 
+/* === VYAPR: Inbox Recent Activity START (22.19) === */
+type RecentActivity = {
+  sent24: number;
+  booked24: number;
+  paid24: number;
+  last5: Array<{ ts: number; event: string }>;
+};
+
+async function fetchRecentActivitySafe(providerId: string | null): Promise<RecentActivity> {
+  try {
+    if (!providerId) return { sent24: 0, booked24: 0, paid24: 0, last5: [] };
+    const sb = admin();
+    const now = Date.now();
+    const since = now - 24 * 60 * 60 * 1000;
+    const { data: rows = [] } = await sb
+      .from("Events")
+      .select("event, ts")
+      .eq("provider_id", providerId)
+      .gte("ts", since)
+      .order("ts", { ascending: false });
+
+    let sent24 = 0, booked24 = 0, paid24 = 0;
+    const last5: Array<{ ts: number; event: string }> = [];
+    for (const r of rows) {
+      if (r.event === "playbook.sent") sent24++;
+      else if (r.event === "booking.confirmed") booked24++;
+      else if (r.event === "payment.success") paid24++;
+      if (last5.length < 5) last5.push({ ts: r.ts, event: r.event });
+    }
+    return { sent24, booked24, paid24, last5 };
+  } catch {
+    return { sent24: 0, booked24: 0, paid24: 0, last5: [] };
+  }
+}
+
+function formatAgo(ts: number) {
+  try {
+    const d = Date.now() - ts;
+    const mins = Math.floor(d / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    return `${days}d ago`;
+  } catch {
+    return "";
+  }
+}
+/* === VYAPR: Inbox Recent Activity END (22.19) === */
+
 /* ---------- Page ---------- */
 export default async function LeadsPage(props: any) {
   const spRaw = props?.searchParams;
@@ -352,43 +403,47 @@ export default async function LeadsPage(props: any) {
     spRaw && typeof spRaw.then === "function" ? await spRaw : spRaw || {};
   const slug = typeof searchParams?.slug === "string" ? searchParams.slug : "";
   const q = typeof searchParams?.q === "string" ? searchParams.q.trim() : "";
-const status = typeof searchParams?.status === "string" ? searchParams.status.trim().toLowerCase() : "";
-const validStatuses = new Set(["", "new", "verified", "booked", "paid"]);
-const statusSafe = validStatuses.has(status) ? status : "";
+  const status = typeof searchParams?.status === "string" ? searchParams.status.trim().toLowerCase() : "";
+  const validStatuses = new Set(["", "new", "verified", "booked", "paid"]);
+  const statusSafe = validStatuses.has(status) ? status : "";
   const provider = await getProviderBySlugSafe(slug);
   const providerId = provider?.id || null;
 
-  const [leads, roi, weekly, idle] = await Promise.all([
+  const [leads, roi, weekly, idle, recent] = await Promise.all([
     fetchLeadsSafe(providerId),
     fetchRoiSafe(providerId),
     fetchWeeklySeriesSafe(providerId),
     fetchIdleSignalsSafe(providerId),
+    /* === VYAPR: Inbox Recent Activity START (22.19) === */
+    fetchRecentActivitySafe(providerId),
+    /* === VYAPR: Inbox Recent Activity END (22.19) === */
   ]);
-  // Basic, safe filtering (no schema drift)
-const leadsAll = Array.isArray(leads) ? leads : [];
-const leadsFiltered = leadsAll.filter((r) => {
-  const s = (r?.status || "").toLowerCase();
-  const name = (r?.patient_name || "").toLowerCase();
-  const phone = (r?.phone || "").toLowerCase();
-  const qOk = q ? name.includes(q.toLowerCase()) || phone.includes(q.toLowerCase()) : true;
-  const stOk = statusSafe ? s === statusSafe : true;
-  return qOk && stOk;
-});
 
-// Status counts for chips
-const counts = leadsAll.reduce(
-  (acc: any, r: any) => {
+  // Basic, safe filtering (no schema drift)
+  const leadsAll = Array.isArray(leads) ? leads : [];
+  const leadsFiltered = leadsAll.filter((r) => {
     const s = (r?.status || "").toLowerCase();
-    if (s === "new") acc.new++;
-    else if (s === "verified") acc.verified++;
-    else if (s === "booked") acc.booked++;
-    else if (s === "paid") acc.paid++;
-    else acc.other++;
-    acc.all++;
-    return acc;
-  },
-  { all: 0, new: 0, verified: 0, booked: 0, paid: 0, other: 0 }
-);
+    const name = (r?.patient_name || "").toLowerCase();
+    const phone = (r?.phone || "").toLowerCase();
+    const qOk = q ? name.includes(q.toLowerCase()) || phone.includes(q.toLowerCase()) : true;
+    const stOk = statusSafe ? s === statusSafe : true;
+    return qOk && stOk;
+  });
+
+  // Status counts for chips
+  const counts = leadsAll.reduce(
+    (acc: any, r: any) => {
+      const s = (r?.status || "").toLowerCase();
+      if (s === "new") acc.new++;
+      else if (s === "verified") acc.verified++;
+      else if (s === "booked") acc.booked++;
+      else if (s === "paid") acc.paid++;
+      else acc.other++;
+      acc.all++;
+      return acc;
+    },
+    { all: 0, new: 0, verified: 0, booked: 0, paid: 0, other: 0 }
+  );
 
   const nudgesHref = slug
     ? `/dashboard/nudges?slug=${encodeURIComponent(slug)}`
@@ -400,15 +455,15 @@ const counts = leadsAll.reduce(
     ? `/templates?slug=${encodeURIComponent(slug)}`
     : "/templates";
 
-    function withParams(next: { q?: string; status?: string }) {
-  const u = new URLSearchParams();
-  if (slug) u.set("slug", slug);
-  const qVal = typeof next.q === "string" ? next.q : q;
-  const sVal = typeof next.status === "string" ? next.status : statusSafe;
-  if (qVal) u.set("q", qVal);
-  if (sVal) u.set("status", sVal);
-  return `/dashboard/leads?${u.toString()}`;
-}
+  function withParams(next: { q?: string; status?: string }) {
+    const u = new URLSearchParams();
+    if (slug) u.set("slug", slug);
+    const qVal = typeof next.q === "string" ? next.q : q;
+    const sVal = typeof next.status === "string" ? next.status : statusSafe;
+    if (qVal) u.set("q", qVal);
+    if (sVal) u.set("status", sVal);
+    return `/dashboard/leads?${u.toString()}`;
+  }
   const showEmptySlots =
     !idle.hasActivity24h ||
     ((roi.bookings7 || 0) < 2 && (roi.payments7 || 0) < 2);
@@ -431,45 +486,80 @@ const counts = leadsAll.reduce(
         </div>
       </div>
 
-{/* Search + Filters */}
-<div className="rounded-2xl border p-3 bg-white">
-  <form method="GET" action="/dashboard/leads" className="flex flex-col md:flex-row md:items-center gap-2">
-    {/* keep slug on submit */}
-    {slug ? <input type="hidden" name="slug" value={slug} /> : null}
-    <input
-      type="text"
-      name="q"
-      defaultValue={q}
-      placeholder="Search name or phone (all TGs)"
-      className="flex-1 min-w-0 rounded-xl border px-3 py-2 text-sm"
-    />
-    <div className="flex items-center gap-1 text-xs">
-      <a href={withParams({ status: "" })} className={`inline-flex items-center gap-1 rounded-xl px-2 py-1 border ${statusSafe==="" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-800"}`}>
-        All <span className="opacity-70">({counts.all})</span>
-      </a>
-      <a href={withParams({ status: "new" })} className={`inline-flex items-center gap-1 rounded-xl px-2 py-1 border ${statusSafe==="new" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-800"}`}>
-        New <span className="opacity-70">({counts.new})</span>
-      </a>
-      <a href={withParams({ status: "verified" })} className={`inline-flex items-center gap-1 rounded-xl px-2 py-1 border ${statusSafe==="verified" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-800"}`}>
-        Verified <span className="opacity-70">({counts.verified})</span>
-      </a>
-      <a href={withParams({ status: "booked" })} className={`inline-flex items-center gap-1 rounded-xl px-2 py-1 border ${statusSafe==="booked" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-800"}`}>
-        Booked <span className="opacity-70">({counts.booked})</span>
-      </a>
-      <a href={withParams({ status: "paid" })} className={`inline-flex items-center gap-1 rounded-xl px-2 py-1 border ${statusSafe==="paid" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-800"}`}>
-        Paid <span className="opacity-70">({counts.paid})</span>
-      </a>
-    </div>
-    <button type="submit" className="rounded-xl bg-gray-900 text-white px-3 py-2 text-sm">
-      Search
-    </button>
-  </form>
-  <div className="mt-2 text-[11px] text-gray-500">
-    Works for all categories: dentists, astrologers, fitness, beauty — this inbox is generic by design.
-  </div>
-</div>
+      {/* === VYAPR: Inbox Recent Activity START (22.19) === */}
+      <section className="rounded-2xl border p-3 bg-white">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-semibold">Recent activity (last 24h)</div>
+          <div className="text-xs text-gray-500">From Events: playbook.sent · booking.confirmed · payment.success</div>
+        </div>
+        <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
+          <div className="rounded-xl border p-2 bg-emerald-50 border-emerald-200">
+            <div className="text-[11px] text-emerald-800">Nudges sent</div>
+            <div className="text-lg font-semibold text-emerald-900">{recent.sent24 || 0}</div>
+          </div>
+          <div className="rounded-xl border p-2 bg-amber-50 border-amber-200">
+            <div className="text-[11px] text-amber-800">Bookings</div>
+            <div className="text-lg font-semibold text-amber-900">{recent.booked24 || 0}</div>
+          </div>
+          <div className="rounded-xl border p-2 bg-indigo-50 border-indigo-200">
+            <div className="text-[11px] text-indigo-800">Payments</div>
+            <div className="text-lg font-semibold text-indigo-900">{recent.paid24 || 0}</div>
+          </div>
+        </div>
+        {Array.isArray(recent.last5) && recent.last5.length > 0 && (
+          <div className="mt-3">
+            <div className="text-xs text-gray-600 mb-1">Latest events</div>
+            <div className="flex flex-wrap gap-2">
+              {recent.last5.map((e, i) => (
+                <span key={i} className="text-[11px] rounded-full border px-2 py-0.5 bg-gray-50">
+                  {e.event} · {formatAgo(e.ts)}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
+      {/* === VYAPR: Inbox Recent Activity END (22.19) === */}
 
-{/* Calendar connect hint (only shows when token missing) */}
+      {/* Search + Filters */}
+      <div className="rounded-2xl border p-3 bg-white">
+        <form method="GET" action="/dashboard/leads" className="flex flex-col md:flex-row md:items-center gap-2">
+          {/* keep slug on submit */}
+          {slug ? <input type="hidden" name="slug" value={slug} /> : null}
+          <input
+            type="text"
+            name="q"
+            defaultValue={q}
+            placeholder="Search name or phone (all TGs)"
+            className="flex-1 min-w-0 rounded-xl border px-3 py-2 text-sm"
+          />
+          <div className="flex items-center gap-1 text-xs">
+            <a href={withParams({ status: "" })} className={`inline-flex items-center gap-1 rounded-xl px-2 py-1 border ${statusSafe==="" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-800"}`}>
+              All <span className="opacity-70">({counts.all})</span>
+            </a>
+            <a href={withParams({ status: "new" })} className={`inline-flex items-center gap-1 rounded-xl px-2 py-1 border ${statusSafe==="new" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-800"}`}>
+              New <span className="opacity-70">({counts.new})</span>
+            </a>
+            <a href={withParams({ status: "verified" })} className={`inline-flex items-center gap-1 rounded-xl px-2 py-1 border ${statusSafe==="verified" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-800"}`}>
+              Verified <span className="opacity-70">({counts.verified})</span>
+            </a>
+            <a href={withParams({ status: "booked" })} className={`inline-flex items-center gap-1 rounded-xl px-2 py-1 border ${statusSafe==="booked" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-800"}`}>
+              Booked <span className="opacity-70">({counts.booked})</span>
+            </a>
+            <a href={withParams({ status: "paid" })} className={`inline-flex items-center gap-1 rounded-xl px-2 py-1 border ${statusSafe==="paid" ? "bg-gray-900 text-white border-gray-900" : "bg-white text-gray-800"}`}>
+              Paid <span className="opacity-70">({counts.paid})</span>
+            </a>
+          </div>
+          <button type="submit" className="rounded-xl bg-gray-900 text-white px-3 py-2 text-sm">
+            Search
+          </button>
+        </form>
+        <div className="mt-2 text-[11px] text-gray-500">
+          Works for all categories: dentists, astrologers, fitness, beauty — this inbox is generic by design.
+        </div>
+      </div>
+
+      {/* Calendar connect hint (only shows when token missing) */}
       <CalendarConnectHint />
 
       {/* Quick verify widget for imported contacts */}
@@ -641,21 +731,21 @@ const counts = leadsAll.reduce(
       <TopCampaigns slug={slug} />
 
       {provider ? (
-  leadsFiltered.length > 0 ? (
-    <LeadsClientTable rows={leadsFiltered} provider={provider} />
+        leadsFiltered.length > 0 ? (
+          <LeadsClientTable rows={leadsFiltered} provider={provider} />
         ) : (
           <div className="rounded-xl border p-4 bg-gray-50 text-gray-600 text-sm">
-  {q || statusSafe
-    ? "No matching leads — clear filters to see all."
-    : "No leads yet — add your first lead using the “Quick Add” button above."}
-</div>
-)
-) : (
-  <div className="rounded-xl border p-4 bg-amber-50 text-amber-900 text-sm">
-    Provider not found for slug <code>{slug || "(empty)"}</code>.
-  </div>
-)}
-</main>
+            {q || statusSafe
+              ? "No matching leads — clear filters to see all."
+              : "No leads yet — add your first lead using the “Quick Add” button above."}
+          </div>
+        )
+      ) : (
+        <div className="rounded-xl border p-4 bg-amber-50 text-amber-900 text-sm">
+          Provider not found for slug <code>{slug || "(empty)"}</code>.
+        </div>
+      )}
+    </main>
   );
 }
 
