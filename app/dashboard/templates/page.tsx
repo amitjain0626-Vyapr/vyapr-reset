@@ -6,6 +6,9 @@ import { useEffect, useMemo, useState } from "react";
 
 type Channel = "whatsapp";
 type Category = "generic" | "dentist" | "astrologer" | "salon" | "fitness";
+// === VYAPR: Playbooks preview START (22.18) ===
+type Playbook = "reactivation" | "reminder" | "offer";
+// === VYAPR: Playbooks preview END (22.18) ===
 
 type Template = {
   key: string;
@@ -113,6 +116,38 @@ function buildWAUrl({ phone, text }: { phone: string; text: string }) {
   return `https://api.whatsapp.com/send/?phone=${digits}&text=${encode(text)}&type=phone_number&app_absent=0`;
 }
 
+// === VYAPR: Playbooks preview START (22.18) ===
+// Veli-style canonical reminder (payment) copy builder
+function waRebookReminder(vars: {
+  name: string;
+  provider: string;
+  service: string;
+  link: string;
+  ref?: string;
+}) {
+  const ref = vars.ref || Math.random().toString(36).slice(2, 8).toUpperCase();
+  const hi = (vars.name || "").trim() ? `Hi ${vars.name.trim()}!` : "Hi!";
+  return [
+    `${hi}`,
+    `This is a friendly reminder to complete your pending payment with ${vars.provider}, your ${vars.service}.`,
+    `You can pay here: ${vars.link}`,
+    `Ref: ${ref}`,
+  ].join("\n");
+}
+
+function categoryToServiceDescriptor(c: Category, fallbackService: string) {
+  // provider-facing descriptor kept short & human: "your Dentist", "your Astrologer"
+  const map: Record<Category, string> = {
+    generic: fallbackService || "provider",
+    dentist: "Dentist",
+    astrologer: "Astrologer",
+    salon: "Stylist",
+    fitness: "Coach",
+  };
+  return map[c] || (fallbackService || "provider");
+}
+// === VYAPR: Playbooks preview END (22.18) ===
+
 // -------- Component ----------
 export default function TemplatesPage() {
   // Provider + context
@@ -128,6 +163,10 @@ export default function TemplatesPage() {
   const [time, setTime] = useState("6:00 PM");
   const [linkOverride, setLinkOverride] = useState("");
 
+  // === VYAPR: Playbooks preview START (22.18) ===
+  const [playbook, setPlaybook] = useState<Playbook>("reactivation");
+  // === VYAPR: Playbooks preview END (22.18) ===
+
   const [busy, setBusy] = useState<string | null>(null);
   const [ok, setOk] = useState<boolean | null>(null);
   const [preview, setPreview] = useState<null | { text: string; whatsapp_url?: string }>(null);
@@ -137,11 +176,15 @@ export default function TemplatesPage() {
   const [pinned, setPinned] = useState<Set<string>>(new Set());
   const [pinBusy, setPinBusy] = useState<string | null>(null);
 
-  // Filter by category
-  const templates = useMemo(
-    () => ALL_TEMPLATES.filter((t) => t.category === category),
-    [category]
-  );
+  // Filter by category + playbook
+  const templates = useMemo(() => {
+    // === VYAPR: Playbooks preview START (22.18) ===
+    // Prefer templates whose keys include the selected playbook; fallback to any in category
+    const byCat = ALL_TEMPLATES.filter((t) => t.category === category);
+    const keyed = byCat.filter((t) => t.key.includes(`.${playbook}.`));
+    return keyed.length ? keyed : byCat;
+    // === VYAPR: Playbooks preview END (22.18) ===
+  }, [category, playbook]);
 
   // Load provider ID + current pinned list when slug changes
   useEffect(() => {
@@ -173,11 +216,11 @@ export default function TemplatesPage() {
   useEffect(() => {
     setOk(null);
     setPreview(null);
-  }, [slug, category, service, provider, name, phone, date, time, linkOverride]);
+  }, [slug, category, service, provider, name, phone, date, time, linkOverride, playbook]);
 
   // --- Server calls ---
 
-  // Send a test reactivation (logs an event) and simultaneously request a preview.
+  // Send a test (logs + preview); playbook-aware
   async function sendTest(t: Template) {
     setBusy(t.key);
     try {
@@ -191,6 +234,9 @@ export default function TemplatesPage() {
           preview: true,
           category,
           service,
+          // === VYAPR: Playbooks preview START (22.18) ===
+          playbook,
+          // === VYAPR: Playbooks preview END (22.18) ===
           vars: {
             name,
             provider,
@@ -199,7 +245,12 @@ export default function TemplatesPage() {
             time,
             service,
             category,
-            link: linkOverride || `${location.origin}/book/${slug}`,
+            // Reminder playbook prefers pay link; others prefer booking link
+            link:
+              linkOverride ||
+              (playbook === "reminder"
+                ? `${location.origin}/pay/TEST`
+                : `${location.origin}/book/${slug}`),
           },
         }),
       });
@@ -209,17 +260,34 @@ export default function TemplatesPage() {
       if (json?.preview?.text) {
         setPreview({ text: json.preview.text, whatsapp_url: json.preview.whatsapp_url });
       } else {
-        // Fallback: client-side substitute
-        const text = substitute(t.body, {
-          name,
-          provider,
-          phone,
-          date,
-          time,
-          service,
-          category,
-          link: linkOverride || `${location.origin}/book/${slug}`,
-        });
+        // Fallback: playbook-aware preview
+        // === VYAPR: Playbooks preview START (22.18) ===
+        let text: string;
+        if (playbook === "reminder") {
+          const descriptor = categoryToServiceDescriptor(category, service);
+          text = waRebookReminder({
+            name,
+            provider,
+            service: descriptor,
+            link:
+              linkOverride ||
+              `${location.origin}/pay/TEST`,
+          });
+        } else {
+          text = substitute(t.body, {
+            name,
+            provider,
+            phone,
+            date,
+            time,
+            service,
+            category,
+            link:
+              linkOverride ||
+              `${location.origin}/book/${slug}`,
+          });
+        }
+        // === VYAPR: Playbooks preview END (22.18) ===
         setPreview({ text, whatsapp_url: buildWAUrl({ phone, text }) });
       }
     } catch {
@@ -229,7 +297,7 @@ export default function TemplatesPage() {
     }
   }
 
-  // Preview only (no logging side-effects other than the reactivation handler)
+  // Preview only (no logging side-effects other than server handler)
   async function previewTemplate(t: Template) {
     setBusy(t.key);
     try {
@@ -243,6 +311,9 @@ export default function TemplatesPage() {
           channel: "whatsapp",
           category,
           service,
+          // === VYAPR: Playbooks preview START (22.18) ===
+          playbook,
+          // === VYAPR: Playbooks preview END (22.18) ===
           vars: {
             name,
             provider,
@@ -251,7 +322,11 @@ export default function TemplatesPage() {
             time,
             service,
             category,
-            link: linkOverride || `${location.origin}/book/${slug}`,
+            link:
+              linkOverride ||
+              (playbook === "reminder"
+                ? `${location.origin}/pay/TEST`
+                : `${location.origin}/book/${slug}`),
           },
         }),
       });
@@ -260,16 +335,34 @@ export default function TemplatesPage() {
       if (json?.preview?.text) {
         setPreview({ text: json.preview.text, whatsapp_url: json.preview.whatsapp_url });
       } else {
-        const text = substitute(t.body, {
-          name,
-          provider,
-          phone,
-          date,
-          time,
-          service,
-          category,
-          link: linkOverride || `${location.origin}/book/${slug}`,
-        });
+        // Fallback: playbook-aware preview
+        // === VYAPR: Playbooks preview START (22.18) ===
+        let text: string;
+        if (playbook === "reminder") {
+          const descriptor = categoryToServiceDescriptor(category, service);
+          text = waRebookReminder({
+            name,
+            provider,
+            service: descriptor,
+            link:
+              linkOverride ||
+              `${location.origin}/pay/TEST`,
+          });
+        } else {
+          text = substitute(t.body, {
+            name,
+            provider,
+            phone,
+            date,
+            time,
+            service,
+            category,
+            link:
+              linkOverride ||
+              `${location.origin}/book/${slug}`,
+          });
+        }
+        // === VYAPR: Playbooks preview END (22.18) ===
         setPreview({ text, whatsapp_url: buildWAUrl({ phone, text }) });
       }
     } catch {
@@ -387,6 +480,21 @@ export default function TemplatesPage() {
             <option value="fitness">Fitness</option>
           </select>
         </div>
+
+        {/* === VYAPR: Playbooks preview START (22.18) === */}
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-gray-600 w-28">Playbook</label>
+          <select
+            value={playbook}
+            onChange={(e) => setPlaybook(e.target.value as Playbook)}
+            className="border px-2 py-1 text-sm rounded w-full"
+          >
+            <option value="reactivation">Reactivation</option>
+            <option value="reminder">Reminder (payment/slot)</option>
+            <option value="offer">Offer</option>
+          </select>
+        </div>
+        {/* === VYAPR: Playbooks preview END (22.18) === */}
 
         <div className="flex items-center gap-2">
           <label className="text-sm text-gray-600 w-28">Service</label>
