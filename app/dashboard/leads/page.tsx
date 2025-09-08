@@ -406,6 +406,10 @@ export default async function LeadsPage(props: any) {
   const status = typeof searchParams?.status === "string" ? searchParams.status.trim().toLowerCase() : "";
   const validStatuses = new Set(["", "new", "verified", "booked", "paid"]);
   const statusSafe = validStatuses.has(status) ? status : "";
+  /* === VYAPR: Lang propagation START (22.19) === */
+  const lang = typeof searchParams?.lang === "string" ? searchParams.lang.trim() : "";
+  /* === VYAPR: Lang propagation END (22.19) === */
+
   const provider = await getProviderBySlugSafe(slug);
   const providerId = provider?.id || null;
 
@@ -445,25 +449,41 @@ export default async function LeadsPage(props: any) {
     { all: 0, new: 0, verified: 0, booked: 0, paid: 0, other: 0 }
   );
 
-  const nudgesHref = slug
-    ? `/dashboard/nudges?slug=${encodeURIComponent(slug)}`
-    : "/dashboard/nudges";
-  const upsellHref = slug
-    ? `/upsell?slug=${encodeURIComponent(slug)}`
-    : "/upsell";
-  const templatesHref = slug
-    ? `/templates?slug=${encodeURIComponent(slug)}`
-    : "/templates";
-
+  /* === VYAPR: Lang propagation START (22.19) === */
   function withParams(next: { q?: string; status?: string }) {
     const u = new URLSearchParams();
     if (slug) u.set("slug", slug);
+    if (lang) u.set("lang", lang);
     const qVal = typeof next.q === "string" ? next.q : q;
     const sVal = typeof next.status === "string" ? next.status : statusSafe;
     if (qVal) u.set("q", qVal);
     if (sVal) u.set("status", sVal);
     return `/dashboard/leads?${u.toString()}`;
   }
+
+  // Cross-page links: preserve ?lang=
+  const nudgesHref = (() => {
+    const u = new URLSearchParams();
+    if (slug) u.set("slug", slug);
+    if (lang) u.set("lang", lang);
+    return `/dashboard/nudges?${u.toString()}`;
+  })();
+
+  const upsellHref = (() => {
+    const u = new URLSearchParams();
+    if (slug) u.set("slug", slug);
+    if (lang) u.set("lang", lang);
+    return `/upsell?${u.toString()}`;
+  })();
+
+  const templatesHref = (() => {
+    const u = new URLSearchParams();
+    if (slug) u.set("slug", slug);
+    if (lang) u.set("lang", lang);
+    return `/templates?${u.toString()}`;
+  })();
+  /* === VYAPR: Lang propagation END (22.19) === */
+
   const showEmptySlots =
     !idle.hasActivity24h ||
     ((roi.bookings7 || 0) < 2 && (roi.payments7 || 0) < 2);
@@ -524,8 +544,11 @@ export default async function LeadsPage(props: any) {
       {/* Search + Filters */}
       <div className="rounded-2xl border p-3 bg-white">
         <form method="GET" action="/dashboard/leads" className="flex flex-col md:flex-row md:items-center gap-2">
-          {/* keep slug on submit */}
+          {/* keep slug/lang on submit */}
           {slug ? <input type="hidden" name="slug" value={slug} /> : null}
+          {/* === VYAPR: Lang propagation START (22.19) === */}
+          {lang ? <input type="hidden" name="lang" value={lang} /> : null}
+          {/* === VYAPR: Lang propagation END (22.19) === */}
           <input
             type="text"
             name="q"
