@@ -114,6 +114,18 @@ function buildText(providerName: string, leadName?: string) {
   };
 }
 
+/* two lines before
+   (helper section continues)
+<< insert >>
+   V2.3: add WA URL builder for opening WhatsApp with prefilled text
+   Works for any country code; strips non-digits from phone.
+two lines after */
+function buildWAUrl({ phone, text }: { phone: string; text: string }) {
+  const digits = (phone || '').replace(/[^\d]/g, '');
+  const enc = encodeURIComponent(text || '');
+  return `https://api.whatsapp.com/send/?phone=${digits}&text=${enc}&type=phone_number&app_absent=0`;
+}
+
 function buildTrackedHref(args: {
   providerId: string;
   leadId: string | null;
@@ -351,6 +363,48 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
                   >
                     Send on WhatsApp
                   </a>
+
+                  {/* two lines before
+                      (existing CTA group ends with the WA link above)
+                  << insert >>
+                      V2.3: “Collect ₹” CTA — fetches server-templated copy & opens WhatsApp
+                      Works even when amount isn’t present in event source.
+                  two lines after */}
+                  <button
+                    type="button"
+                    className="inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-medium border hover:shadow-sm"
+                    title="Collect pending payment"
+                    onClick={async () => {
+                      try {
+                        const lang = 'en'; // default language
+                        const amt =
+                          (n?.source?.amount_inr ?? n?.source?.pending ?? n?.source?.amount) || '';
+                        const params = new URLSearchParams();
+                        params.set('slug', provider.slug);
+                        params.set('template', 'collect_pending');
+                        if (amt) params.set('amt', String(amt));
+                        params.set('lang', lang);
+
+                        const r = await fetch(`/api/templates/preview?${params.toString()}`, { cache: 'no-store' });
+                        const j = await r.json().catch(() => ({} as any));
+                        const serverText = (j?.preview?.text || '').toString();
+
+                        const phoneDigits = (phone || '').replace(/[^\d]/g, '');
+                        if (!phoneDigits) return;
+
+                        const text = serverText || [
+                          (leadName ? `Hi ${leadName},` : 'Hi,'),
+                          `Please complete your pending payment with ${providerName}.`,
+                          `Pay here: https://vyapr-reset-5rly.vercel.app/pay/TEST`,
+                        ].join(' ');
+
+                        const wa = buildWAUrl({ phone: phoneDigits, text });
+                        window.open(wa, '_blank', 'noopener,noreferrer');
+                      } catch {}
+                    }}
+                  >
+                    Collect ₹
+                  </button>
                 </div>
               </div>
 
@@ -368,9 +422,9 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
       </div>
 
       {/* === VYAPR: Batch Send (22.15) START === */}
-
-      {/* Guard script — was nested before; now standalone */}
-      <Script id="vyapr-batch-send-guard" strategy="afterInteractive">
+      <Script id="vyapr-batch-send" strategy="afterInteractive">
+        
+         <Script id="vyapr-batch-send-guard" strategy="afterInteractive">
         {`
 /**
  * VYAPR Guard (22.16): ensure button is interactable when allowed,
@@ -405,22 +459,19 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
       }
     }
 
-    /* <<insert V2.3: allow click to log when cap exhausted >> */
+    /* === INSERT START (22.16: allow click to log when cap exhausted) === */
+    // If cap is exhausted but there are items shown, enable the button so a click can log (0).
     if(btn && !isQuiet && remaining === 0 && total > 0){
       btn.removeAttribute('disabled');
       btn.classList.remove('opacity-50','cursor-not-allowed');
       btn.setAttribute('data-cap','exhausted');
       btn.title = 'Daily cap exhausted — click will log as (0)';
     }
-    /* end insert */
-
+    /* === INSERT END === */
   }catch(_){}
 })();
         `}
       </Script>
-
-      {/* Primary script (will be replaced by the cap script later) */}
-      <Script id="vyapr-batch-send" strategy="afterInteractive">
         {`
 (function(){
   try {
@@ -437,14 +488,13 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
     const total = Number(section.getAttribute('data-total')||'0');
     const remaining = Number(section.getAttribute('data-remaining')||'0');
     const isQuiet = section.getAttribute('data-isquiet') === '1';
+    if(isQuiet || total <= 0) {
+      // Still attach handler to allow logging (0) during quiet or no items
+      // but don't attempt to open tabs.
+    }
 
     const anchors = Array.from(document.querySelectorAll('[data-test="nudge-item"] a[data-test="nudge-send"]'));
     const allowed = Math.max(0, Math.min(remaining, anchors.length));
-
-    /* <<insert V2.3: read CAP for parity in telemetry (even if not used here) >> */
-    const capAttr = section.getAttribute('data-batch-cap');
-    const CAP = Math.max(1, Number(capAttr || 6) || 6);
-    /* end insert */
 
     async function logBatch(count){
       try{
@@ -456,9 +506,7 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
             ts: Date.now(),
             provider_id: providerId,
             lead_id: null,
-            /* <<insert V2.3: include cap for consistent telemetry >> */
-            source: { via: 'ui', count, cap: CAP, window: (document.querySelector('[data-test="win-h24"].bg-black') ? 'h24' : 'd30') }
-            /* end insert */
+            source: { via: 'ui', count, window: (document.querySelector('[data-test="win-h24"].bg-black') ? 'h24' : 'd30') }
           })
         });
       }catch(_){}
@@ -565,9 +613,7 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
             ts: Date.now(),
             provider_id: providerId,
             lead_id: null,
-            /* <<insert V2.3: unified telemetry >> */
             source:{ via:'ui', count: count, cap: CAP, window: (document.querySelector('[data-test="win-h24"].bg-black') ? 'h24' : 'd30') }
-            /* end insert */
           })
         });
       }catch(_){}
