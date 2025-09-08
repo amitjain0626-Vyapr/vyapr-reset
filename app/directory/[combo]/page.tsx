@@ -81,6 +81,15 @@ export default async function DirectoryComboPage({ params }: { params: Promise<{
     providers,
   });
 
+  /* === VYAPR: Directory JSON-LD START (22.19) === */
+  const localBusinessJsonLd = getLocalBusinessGraphJsonLd({
+    site,
+    providers,
+    category: titleCat,
+    city: titleCity,
+  });
+  /* === VYAPR: Directory JSON-LD END (22.19) === */
+
   return (
     <main className="mx-auto max-w-5xl px-4 py-10">
       <div className="flex items-center justify-end">
@@ -112,6 +121,15 @@ export default async function DirectoryComboPage({ params }: { params: Promise<{
         />
       ) : null}
 
+      {/* === VYAPR: Directory JSON-LD (LocalBusiness per provider) === */}
+      {providers.length > 0 ? (
+        <script
+          type="application/ld+json"
+          // LocalBusiness/Service graph with verified/boosted flags
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(localBusinessJsonLd) }}
+        />
+      ) : null}
+
       <h1 className="text-2xl md:text-3xl font-semibold mb-2">
         <T en={pageTitle} hi={pageTitle} />
       </h1>
@@ -135,6 +153,19 @@ export default async function DirectoryComboPage({ params }: { params: Promise<{
                   Verified by Vyapr
                 </span>
               ) : null}
+
+              {/* === VYAPR: Boosted badge (display-only) START (22.19) === */}
+              {p?.boosted ? (
+                <span
+                  className="absolute -top-2 -right-2 z-10 rounded-full bg-indigo-600 px-2 py-0.5 text-xs font-semibold text-white shadow"
+                  aria-label="Boosted"
+                  title="Boosted placement"
+                >
+                  Boosted
+                </span>
+              ) : null}
+              {/* === VYAPR: Boosted badge END (22.19) === */}
+
               <ProviderCard {...p} />
             </div>
           ))
@@ -270,3 +301,51 @@ function getItemListJsonLd({
     "itemListElement": items,
   };
 }
+
+/* === VYAPR: LocalBusiness graph JSON-LD helper START (22.19) === */
+function getLocalBusinessGraphJsonLd({
+  site,
+  providers,
+  category,
+  city,
+}: {
+  site: string;
+  providers: Array<any>;
+  category: string;
+  city: string;
+}) {
+  const graph = (providers || []).slice(0, 30).map((p: any, idx: number) => {
+    const name = p.display_name || p.name || p.slug || `Provider ${idx + 1}`;
+    const url = `${site}/book/${encodeURIComponent(p.slug || "")}`;
+    const telephone = typeof p.phone === "string" ? p.phone : undefined;
+
+    // Minimal, standards-safe LocalBusiness doc with soft hints
+    const node: any = {
+      "@type": "LocalBusiness",
+      "@id": `${url}#org`,
+      "name": name,
+      "url": url,
+      "areaServed": {
+        "@type": "City",
+        "name": city,
+      },
+      "knowsAbout": category, // non-invasive hint for category
+    };
+
+    if (telephone) node.telephone = telephone;
+
+    // Flags via additionalProperty — safe & non-disruptive
+    const extra: any[] = [];
+    if (p?.verified) extra.push({ "@type": "PropertyValue", "name": "verified", "value": true });
+    if (p?.boosted)  extra.push({ "@type": "PropertyValue", "name": "boosted", "value": true });
+    if (extra.length) node.additionalProperty = extra;
+
+    return node;
+  });
+
+  return {
+    "@context": "https://schema.org",
+    "@graph": graph,
+  };
+}
+/* === VYAPR: LocalBusiness graph JSON-LD helper END (22.19) === */
