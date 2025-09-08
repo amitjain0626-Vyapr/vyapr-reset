@@ -157,6 +157,18 @@ export default function NudgesPage(props: { searchParams?: { slug?: string; wind
     } catch {}
   }
 
+  // === VYAPR: Playbooks trigger START (22.18) ===
+  async function logPlaybook(leadId: string | null, playbook: "reactivation" | "reminder" | "offer" = "reminder") {
+    try {
+      await fetch(`/api/playbooks/send?${q({ slug })}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lead_id: leadId, playbook }),
+      });
+    } catch {}
+  }
+  // === VYAPR: Playbooks trigger END (22.18) ===
+
   function onBatchSend() {
     const anchors = Array.from(document.querySelectorAll<HTMLAnchorElement>('[data-test="nudge-send"]'));
     const allowed = Math.max(0, Math.min(remaining, anchors.length));
@@ -174,12 +186,23 @@ export default function NudgesPage(props: { searchParams?: { slug?: string; wind
         if (!a) break;
         const href = a.getAttribute("href");
         if (!href) continue;
+
+        // Extract lead id from data attribute (added below)
+        const leadId = (a.dataset?.leadId || "").trim() || null;
+
+        // Open WhatsApp tab
         window.open(href, "_blank", "noopener,noreferrer");
         opened++;
+
         // gentle pacing
         // 2 lines before
         await new Promise((r) => setTimeout(r, 150));
         // << insert >>
+        // === VYAPR: Playbooks trigger START (22.18) ===
+        // When batch send opens WA for a lead, also log playbook.sent
+        // Default playbook = "reminder" for Nudge Center batch sends
+        await logPlaybook(leadId, "reminder");
+        // === VYAPR: Playbooks trigger END (22.18) ===
         // (kept small to avoid WA rate-limit spikes)
         // 2 lines after
       }
@@ -334,6 +357,10 @@ export default function NudgesPage(props: { searchParams?: { slug?: string; wind
                     className="inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700 transition"
                     title="Open WhatsApp with prefilled reminder"
                     data-test="nudge-send"
+                    // === VYAPR: Playbooks trigger START (22.18) ===
+                    // Attach lead id to the send button so batch send can log playbook.sent
+                    data-lead-id={n.lead_id || ""}
+                    // === VYAPR: Playbooks trigger END (22.18) ===
                   >
                     Send on WhatsApp
                   </a>
