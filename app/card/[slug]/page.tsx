@@ -1,3 +1,4 @@
+// app/card/[slug]/page.tsx
 // @ts-nocheck
 import type { Metadata } from "next";
 
@@ -5,14 +6,14 @@ const BASE = "https://vyapr-reset-5rly.vercel.app";
 
 export async function generateMetadata({ params }: any): Promise<Metadata> {
   const slug = params?.slug || "provider";
-  const title = `Digital Card • ${slug} • Vyapr`;
+  const title = `Digital Card • ${slug} • Korekko`;
   const url = `${BASE}/card/${slug}`;
   const bookUrl = `${BASE}/book/${slug}`;
   const ogImage = `${BASE}/api/qr?url=${encodeURIComponent(bookUrl)}`;
 
   return {
     title,
-    description: `Quick-share digital card for ${slug}. Book instantly via Vyapr.`,
+    description: `Quick-share digital card for ${slug}. Book instantly via Korekko.`,
     alternates: { canonical: url },
     openGraph: {
       type: "website",
@@ -20,6 +21,7 @@ export async function generateMetadata({ params }: any): Promise<Metadata> {
       title,
       description: `Book ${slug} instantly. Live slots & confirmations.`,
       images: [{ url: ogImage, width: 1200, height: 630, alt: `QR to book ${slug}` }],
+      siteName: "Korekko",
     },
     twitter: {
       card: "summary_large_image",
@@ -77,7 +79,7 @@ export default async function Page({ params }: any) {
           </a>
           <a
             href={qrUrl}
-            download={`vyapr-${slug}-booking-qr.png`}
+            download={`korekko-${slug}-booking-qr.png`}
             className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-300 px-4 py-2 text-gray-800 bg-white hover:bg-gray-50 transition"
           >
             ⬇️ Download QR

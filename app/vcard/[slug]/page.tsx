@@ -1,3 +1,4 @@
+// app/vcard/[slug]/page.tsx
 // @ts-nocheck
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +15,9 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
   const wa = (() => {
     const raw = (p?.whatsapp || p?.phone || "").toString().replace(/[^\d+]/g, "");
     if (!raw) return "";
-    const msg = encodeURIComponent(`Hi${p?.display_name ? " " + p.display_name : ""}, I'd like to book a slot: ${SITE}/book/${slug}`);
+    const msg = encodeURIComponent(
+      `Hi${p?.display_name ? " " + p.display_name : ""}, I'd like to book a slot via Korekko: ${SITE}/book/${slug}`
+    );
     return `https://wa.me/${raw.replace(/^\+/, "")}?text=${msg}`;
   })();
 

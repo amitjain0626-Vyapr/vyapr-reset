@@ -7,7 +7,7 @@ import { cookies } from "next/headers";
 
 function getLang(): "en" | "hi" {
   // Default English for all external-facing content
-  const v = cookies().get("vyapr.lang")?.value?.toLowerCase() || "en";
+  const v = cookies().get("korekko.lang")?.value?.toLowerCase() || "en";
   return v === "hi" ? "hi" : "en";
 }
 
