@@ -14,7 +14,7 @@ type Props = {
 };
 
 export default function OrgJsonLd({
-  name = "Vyapr",
+  name = "Korekko",
   logoPath = "/logo.png",
   sameAs = [],
 }: Props) {

@@ -18,10 +18,10 @@ export async function generateMetadata({ params }: { params: Promise<{ combo: st
   const titleCat = unslugify(rawCat);
   const titleCity = unslugify(rawCity);
 
-  const pageTitle = `${titleCat} in ${titleCity} | Vyapr Directory`;
+  const pageTitle = `${titleCat} in ${titleCity} | Korekko Directory`;
   const description =
     `Find verified ${titleCat} in ${titleCity}. View hours, prices, WhatsApp, and book online. ` +
-    `Discover trusted local providers on Vyapr.`;
+    `Discover trusted local providers on Korekko.`;
 
   const canonical = `${site}/directory/${encodeURIComponent(String(combo || ""))}`;
   const ogImage = `${site}/og/default-provider.svg`;
@@ -34,9 +34,9 @@ export async function generateMetadata({ params }: { params: Promise<{ combo: st
       title: pageTitle,
       description,
       url: canonical,
-      siteName: "Vyapr",
+      siteName: "Korekko",
       type: "website",
-      images: [{ url: ogImage, width: 1200, height: 630, alt: "Vyapr — Verified Providers" }],
+      images: [{ url: ogImage, width: 1200, height: 630, alt: "Korekko — Verified Providers" }],
     },
     twitter: { card: "summary_large_image", title: pageTitle, description, images: [ogImage] },
     robots: { index: true, follow: true, "max-image-preview": "large" },
@@ -105,8 +105,8 @@ export default async function DirectoryComboPage({ params }: { params: Promise<{
           providers.map((p: any) => (
             <div key={p.slug} className="relative">
               {p?.verified ? (
-                <span className="absolute -top-2 -left-2 z-10 rounded-full bg-emerald-600 px-2 py-0.5 text-xs font-semibold text-white shadow" aria-label="Verified by Vyapr">
-                  Verified by Vyapr
+                <span className="absolute -top-2 -left-2 z-10 rounded-full bg-emerald-600 px-2 py-0.5 text-xs font-semibold text-white shadow" aria-label="Verified by Korekko">
+                  Verified by Korekko
                 </span>
               ) : null}
               {/* Boosted badge */}
@@ -129,7 +129,7 @@ export default async function DirectoryComboPage({ params }: { params: Promise<{
         <div className="rounded-xl border p-4">
           <p className="text-sm text-gray-700">
             Looking for more options in <strong>{titleCity}</strong>? Explore our{" "}
-            <Link href="/directory" className="underline">Vyapr Directory</Link> or go back to{" "}
+            <Link href="/directory" className="underline">Korekko Directory</Link> or go back to{" "}
             <Link href="/" className="underline">Home</Link>.
           </p>
         </div>
@@ -192,7 +192,7 @@ function getItemListJsonLd({ site, providers }: { site: string; providers: Array
     "@context": "https://schema.org",
     "@type": "ItemList",
     "itemListOrder": "http://schema.org/ItemListOrderAscending",
-    "name": "Vyapr Directory Results",
+    "name": "Korekko Directory Results",
     "itemListElement": items,
   };
 }

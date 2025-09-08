@@ -35,7 +35,7 @@ function buildWhatsAppUrl({ phone, whatsapp, display_name, slug }: any) {
   if (!raw) return "";
   // NOTE: External consumer message remains English by default (policy)
   const msg = encodeURIComponent(
-    `Hi${display_name ? " " + display_name : ""}, I'd like to book a slot via Vyapr (${SITE}/book/${slug}).`
+    `Hi${display_name ? " " + display_name : ""}, I'd like to book a slot via Korekko (${SITE}/book/${slug}).`
   );
   return `https://wa.me/${raw.replace(/^\+/, "")}?text=${msg}`;
 }
@@ -171,12 +171,12 @@ export async function generateMetadata({ params }: any): Promise<Metadata> {
   const cat = prov?.category ? String(prov.category) : "";
   const loc = prov?.location ? String(prov.location) : "";
   const title =
-    cat && loc ? `${name} — ${cat} in ${loc}` : `${name} — Book with Vyapr`;
+    cat && loc ? `${name} — ${cat} in ${loc}` : `${name} — Book with Korekko`;
   const description =
     (prov?.bio && String(prov.bio).slice(0, 180)) ||
     (cat || loc
-      ? `Book ${name} via Vyapr. Services in ${[cat, loc].filter(Boolean).join(", ")}.`
-      : `Book ${name} via Vyapr.`);
+      ? `Book ${name} via Korekko. Services in ${[cat, loc].filter(Boolean).join(", ")}.`
+      : `Book ${name} via Korekko.`);
 
   const url = `${SITE}/book/${slug}`;
   const images = prov?.image ? [prov.image] : [`${SITE}/og/default-provider.png`];
@@ -191,7 +191,7 @@ export async function generateMetadata({ params }: any): Promise<Metadata> {
       title,
       description,
       images,
-      siteName: "Vyapr",
+      siteName: "Korekko",
       locale: "en_IN",
     },
     twitter: {
@@ -304,12 +304,12 @@ export default async function Page(props: any) {
         </h2>
         <p className="mt-1 text-gray-700">
           <T
-            en={`${name} offers ${cat} in ${city}. Book convenient appointments online via Vyapr. We’ll confirm your slot and send reminders on WhatsApp.`}
-            hi={`${name} ${city} mein ${cat} provide karte hain. Vyapr par online booking karein. Hum aapka slot confirm karke WhatsApp par reminders bhejenge.`}
+            en={`${name} offers ${cat} in ${city}. Book convenient appointments online via Korekko. We’ll confirm your slot and send reminders on WhatsApp.`}
+            hi={`${name} ${city} mein ${cat} provide karte hain. Korekko par online booking karein. Hum aapka slot confirm karke WhatsApp par reminders bhejenge.`}
           />
         </p>
         <div className="mt-2 text-[11px] text-gray-500">
-          <T en="Vyapr auto-generated" hi="Vyapr auto-generated" />
+          <T en="Korekko auto-generated" hi="Korekko auto-generated" />
         </div>
       </section>
     );
@@ -360,7 +360,7 @@ export default async function Page(props: any) {
           </div>
         </div>
         <div className="mt-2 text-[11px] text-gray-500">
-          <T en="Vyapr auto-generated" hi="Vyapr auto-generated" />
+          <T en="Korekko auto-generated" hi="Korekko auto-generated" />
         </div>
       </section>
     );
@@ -433,10 +433,10 @@ export default async function Page(props: any) {
           <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-emerald-600/70 bg-emerald-50 px-3 py-1">
             <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-600 animate-pulse" />
             <span className="text-[12px] font-medium text-emerald-800">
-              <T en="Verified by Vyapr" hi="Verified by Vyapr" />
+              <T en="Verified by Korekko" hi="Verified by Korekko" />
             </span>
             {/* Server-visible text for curl/grep without changing UI */}
-            <span className="sr-only">Verified by Vyapr</span>
+            <span className="sr-only">Verified by Korekko</span>
           </div>
         ) : null}
 
@@ -445,10 +445,10 @@ export default async function Page(props: any) {
           <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-emerald-600/70 bg-emerald-50 px-3 py-1">
             <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-600 animate-pulse" />
             <span className="text-[12px] font-medium text-emerald-800">
-              <T en="Verified by Vyapr" hi="Verified by Vyapr" />
+              <T en="Verified by Korekko" hi="Verified by Korekko" />
             </span>
             {/* Server-visible text for curl/grep without changing UI */}
-            <span className="sr-only">Verified by Vyapr</span>
+            <span className="sr-only">Verified by Korekko</span>
           </div>
         ) : null}
 
