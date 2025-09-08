@@ -1,30 +1,11 @@
-// @ts-nocheck
 // app/dashboard/nudges/page.tsx
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
+// @ts-nocheck
+"use client";
 
-import { createClient } from '@supabase/supabase-js';
-// === VYAPR: Batch Send (22.15) START ===
-import Script from 'next/script';
-// === VYAPR: Batch Send (22.15) END ===
+import { useEffect, useMemo, useState, useCallback } from "react";
 
-/* -------- supabase admin -------- */
-function admin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  return createClient(url, key, { auth: { persistSession: false } });
-}
-
-/* -------- types -------- */
-type Provider = { id: string; slug: string; display_name?: string | null };
+/* -------------------------------- Types --------------------------------- */
 type NudgeEvent = { lead_id: string | null; ts: number; source: any };
-type UpsellResp = {
-  ok: boolean;
-  slug: string;
-  nudges: Array<{ key: string; label: string; kind: string; action_url: string; meta?: any }>;
-} | null;
-
-/* -------- nudges config (quiet-hours / caps) -------- */
 type NudgesConfig = {
   ok: boolean;
   provider_id: string | null;
@@ -33,75 +14,23 @@ type NudgesConfig = {
   remaining: number;
   windowHours?: number;
   config?: { quiet_start?: number; quiet_end?: number; cap?: number };
-};
+} | null;
 
-async function fetchNudgesConfig(slug: string): Promise<NudgesConfig | null> {
-  const origin = process.env.NEXT_PUBLIC_BASE_URL || 'https://vyapr-reset-5rly.vercel.app';
-  try {
-    const r = await fetch(`${origin}/api/cron/nudges?slug=${encodeURIComponent(slug)}`, { cache: 'no-store' });
-    const j = await r.json().catch(() => null);
-    if (!j || j.ok !== true) return null;
-    return j as NudgesConfig;
-  } catch {
-    return null;
-  }
+type UpsellResp = {
+  ok: boolean;
+  slug: string;
+  nudges: Array<{ key: string; label: string; kind: string; action_url: string; meta?: any }>;
+} | null;
+
+/* ------------------------------ Helpers --------------------------------- */
+function maskDigits(d: string) {
+  const s = (d || "").replace(/[^\d]/g, "");
+  if (s.length <= 4) return s;
+  return `${s.slice(0, s.length - 4).replace(/\d/g, "•")}${s.slice(-4)}`;
 }
 
-/* -------- data -------- */
-async function fetchProvider(slug: string): Promise<Provider> {
-  const { data, error } = await admin()
-    .from('Providers')
-    .select('id, slug, display_name')
-    .eq('slug', slug)
-    .single();
-  if (error || !data?.id) throw new Error('provider_not_found');
-  return data as Provider;
-}
-
-function parseWindow(windowToken?: string) {
-  const t = (windowToken || '').toLowerCase().trim();
-  if (t === 'd30') return { label: 'last 30 days', since: Date.now() - 30 * 24 * 60 * 60 * 1000, key: 'd30' };
-  if (t === 'h24') return { label: 'last 24 hours', since: Date.now() - 24 * 60 * 60 * 1000, key: 'h24' };
-  // default (WIDEN to surface older suggestions easily)
-  return { label: 'last 30 days', since: Date.now() - 30 * 24 * 60 * 60 * 1000, key: 'd30' };
-}
-
-async function fetchRecentNudges(providerId: string, sinceTs: number): Promise<NudgeEvent[]> {
-  const { data = [] } = await admin()
-    .from('Events')
-    .select('lead_id, ts, source')
-    .eq('provider_id', providerId)
-    .eq('event', 'nudge.suggested')
-    .gte('ts', sinceTs)
-    .order('ts', { ascending: false })
-    .limit(1000);
-  return data as any[];
-}
-
-async function fetchLeadNames(leadIds: string[]) {
-  if (!leadIds.length) return {};
-  const { data = [] } = await admin().from('Leads').select('id, patient_name').in('id', leadIds);
-  const map: Record<string, string> = {};
-  for (const r of data) map[r.id] = (r.patient_name || '').toString();
-  return map;
-}
-
-/* -------- upsell fallback (server) -------- */
-async function fetchUpsell(slug: string): Promise<UpsellResp> {
-  const origin = process.env.NEXT_PUBLIC_BASE_URL || 'https://vyapr-reset-5rly.vercel.app';
-  try {
-    const r = await fetch(`${origin}/api/upsell?slug=${encodeURIComponent(slug)}`, { cache: 'no-store' });
-    const j = await r.json().catch(() => null);
-    if (!j?.ok || !Array.isArray(j?.nudges)) return null;
-    return j as UpsellResp;
-  } catch {
-    return null;
-  }
-}
-
-/* -------- helpers -------- */
 function buildText(providerName: string, leadName?: string) {
-  const hi = leadName?.trim() ? `Hi ${leadName.trim()},` : 'Hi!';
+  const hi = leadName?.trim() ? `Hi ${leadName.trim()},` : "Hi!";
   const ref = Math.random().toString(36).slice(2, 8).toUpperCase();
   return {
     text: [
@@ -109,27 +38,30 @@ function buildText(providerName: string, leadName?: string) {
       `This is a friendly reminder to complete your pending payment with ${providerName}.`,
       `You can pay here: https://vyapr-reset-5rly.vercel.app/pay/TEST`,
       `Ref: ${ref}`,
-    ].join('\n'),
+    ].join("\n"),
     ref,
   };
 }
 
-/* two lines before
-   (helper section continues)
-<< insert >>
-   V2.3 fix: Handle both shapes (object OR Promise) + avoid type errors by ts-nocheck.
-two lines after */
+function q(obj: Record<string, string | number | boolean | undefined | null>) {
+  const p = new URLSearchParams();
+  Object.entries(obj).forEach(([k, v]) => {
+    if (v === undefined || v === null) return;
+    p.set(k, String(v));
+  });
+  return p.toString();
+}
 
-/* -------- page -------- */
-export default async function Page(
-  props: { searchParams: { slug?: string; window?: string } } | { searchParams: Promise<{ slug?: string; window?: string }> } | any
-) {
-  const raw = props?.searchParams;
-  const sp = raw && typeof raw.then === 'function' ? await raw : (raw || {});
-  const { slug, window } = sp || {};
+/* ------------------------------- Page ----------------------------------- */
+export default function NudgesPage(props: { searchParams?: { slug?: string; window?: string } }) {
+  const slug = (props?.searchParams?.slug || "").trim();
+  const winToken = (props?.searchParams?.window || "d30").trim().toLowerCase();
 
-  const _slug = (slug || '').trim();
-  if (!_slug) {
+  // 2 lines before
+  const win = useMemo(() => (winToken === "h24" ? { key: "h24", label: "last 24 hours" } : { key: "d30", label: "last 30 days" }), [winToken]);
+  // << insert >>
+  // Defensive: require slug in URL
+  if (!slug) {
     return (
       <main className="p-6">
         <h1 className="text-xl font-semibold">Nudge Center</h1>
@@ -137,62 +69,134 @@ export default async function Page(
       </main>
     );
   }
+  // 2 lines after
 
-  let provider: Provider;
-  try {
-    provider = await fetchProvider(_slug);
-  } catch {
-    return (
-      <main className="p-6">
-        <h1 className="text-xl font-semibold">Nudge Center</h1>
-        <p className="text-sm text-red-600 mt-2">Provider not found for slug “{_slug}”.</p>
-      </main>
-    );
+  const [providerName, setProviderName] = useState<string>(slug);
+  const [providerId, setProviderId] = useState<string | null>(null);
+
+  const [cfg, setCfg] = useState<NudgesConfig>(null);
+  const [nudges, setNudges] = useState<NudgeEvent[]>([]);
+  const [fallback, setFallback] = useState<NonNullable<UpsellResp>["nudges"]>([]);
+  const [loading, setLoading] = useState(false);
+
+  /* --------------------------- Load provider ---------------------------- */
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        // Try provider info endpoint; fall back to slug
+        const r = await fetch(`/api/providers/${encodeURIComponent(slug)}`, { cache: "no-store" });
+        const j = await r.json().catch(() => ({}));
+        if (!cancelled) {
+          setProviderName((j?.provider?.business_name || j?.provider?.name || j?.provider?.slug || slug) as string);
+          setProviderId(j?.provider?.id || j?.id || null);
+        }
+      } catch {
+        if (!cancelled) {
+          setProviderName(slug);
+          setProviderId(null);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [slug]);
+
+  /* -------------------------- Load config + data ------------------------ */
+  const loadAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      // nudges config (quiet hours/cap)
+      const c = await fetch(`/api/cron/nudges?${q({ slug })}`, { cache: "no-store" }).then(r => r.json()).catch(() => null);
+      setCfg(c && c.ok ? (c as NudgesConfig) : null);
+
+      // recent suggested nudges
+      const events = await fetch(`/api/debug/events/recent?${q({ slug, event: "nudge.suggested", window: win.key })}`, { cache: "no-store" })
+        .then(r => r.json())
+        .catch(() => ({ ok: false, rows: [] }));
+      const rows: NudgeEvent[] = Array.isArray(events?.rows) ? events.rows : [];
+      setNudges(rows);
+
+      // upsell fallback (only when empty)
+      if (!rows.length) {
+        const u = await fetch(`/api/upsell?${q({ slug })}`, { cache: "no-store" }).then(r => r.json()).catch(() => null);
+        setFallback(Array.isArray(u?.nudges) ? u.nudges.slice(0, 4) : []);
+      } else {
+        setFallback([]);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [slug, win.key]);
+
+  useEffect(() => {
+    loadAll();
+  }, [loadAll]);
+
+  /* ---------------------------- Derived -------------------------------- */
+  const quietStart = cfg?.config?.quiet_start ?? 22;
+  const quietEnd = cfg?.config?.quiet_end ?? 8;
+  const cap = cfg?.config?.cap ?? 25;
+  const remaining = cfg?.remaining ?? 0;
+  const isQuiet = !!cfg?.is_quiet;
+  const allowedNow = !!cfg?.allowed;
+
+  /* -------------------------- Actions (client) -------------------------- */
+  async function logBatch(count: number) {
+    try {
+      await fetch("/api/events/log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          event: "nudge.batch.sent",
+          ts: Date.now(),
+          provider_id: providerId,
+          lead_id: null,
+          source: { via: "ui", count, window: win.key },
+        }),
+      });
+    } catch {}
   }
 
-  // Window parsing (d30 / h24 / default d30)
-  const win = parseWindow(window);
+  function onBatchSend() {
+    const anchors = Array.from(document.querySelectorAll<HTMLAnchorElement>('[data-test="nudge-send"]'));
+    const allowed = Math.max(0, Math.min(remaining, anchors.length));
+    const CAP = 6; // WA fan-out cap
+    const openN = Math.min(CAP, allowed);
 
-  // Load nudges in the requested window
-  const nudges = await fetchRecentNudges(provider.id, win.since);
-  const leadIds = Array.from(new Set(nudges.map((n) => n.lead_id).filter(Boolean))) as string[];
-  const nameMap = await fetchLeadNames(leadIds);
+    if (isQuiet || openN <= 0) {
+      logBatch(0);
+      return;
+    }
+    let opened = 0;
+    (async () => {
+      for (let i = 0; i < openN; i++) {
+        const a = anchors[i];
+        if (!a) break;
+        const href = a.getAttribute("href");
+        if (!href) continue;
+        window.open(href, "_blank", "noopener,noreferrer");
+        opened++;
+        // gentle pacing
+        // 2 lines before
+        await new Promise((r) => setTimeout(r, 150));
+        // << insert >>
+        // (kept small to avoid WA rate-limit spikes)
+        // 2 lines after
+      }
+      logBatch(opened);
+    })();
+  }
 
-  const providerName = (provider.display_name || provider.slug || 'your provider').toString();
-
-  // Fetch quiet-hours / caps
-  const nudgesCfg = await fetchNudgesConfig(provider.slug);
-  const quietStart = nudgesCfg?.config?.quiet_start ?? 22;
-  const quietEnd = nudgesCfg?.config?.quiet_end ?? 8;
-  const cap = nudgesCfg?.config?.cap ?? 25;
-  const remaining = nudgesCfg?.remaining ?? 0;
-  const isQuiet = !!nudgesCfg?.is_quiet;
-  const allowedNow = !!nudgesCfg?.allowed;
-
-  // Server-side upsell fallback if no suggested nudges in the chosen window
-  const upsell = nudges.length === 0 ? await fetchUpsell(provider.slug) : null;
-  const fallback = Array.isArray(upsell?.nudges) ? upsell!.nudges.slice(0, 4) : [];
-
-  const switchHref = (key: 'h24' | 'd30') =>
-    `/dashboard/nudges?slug=${encodeURIComponent(provider.slug)}&window=${key}`;
-
+  /* ------------------------------- Render -------------------------------- */
   return (
-    // === VYAPR: add provider UUID for telemetry (22.15) START ===
-    <main
-      className="p-6 space-y-4"
-      data-test="nudge-center-root"
-      data-provider-id={provider.id}
-    >
-      {/* === VYAPR: add provider UUID for telemetry (22.15) END === */}
+    <main className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold">Nudge Center</h1>
-          <div className="text-sm text-gray-600">
-            Provider: <span className="font-mono">{provider.slug}</span>
-          </div>
+          <div className="text-sm text-gray-600">Provider: <span className="font-mono">{slug}</span></div>
           <div className="text-xs text-gray-500">Showing: {win.label}</div>
         </div>
-        <a href={`/dashboard/leads?slug=${provider.slug}`} className="text-emerald-700 underline">
+        <a href={`/dashboard/leads?slug=${encodeURIComponent(slug)}`} className="text-emerald-700 underline">
           ← Back to Leads
         </a>
       </div>
@@ -200,95 +204,88 @@ export default async function Page(
       {/* Window switcher */}
       <nav className="flex items-center gap-2">
         <a
-          href={switchHref('h24')}
-          className={`inline-flex items-center rounded-full border px-3 py-1 text-sm ${
-            win.key === 'h24' ? 'bg-black text-white border-black' : 'bg-white hover:shadow-sm'
-          }`}
+          href={`/dashboard/nudges?${q({ slug, window: "h24" })}`}
+          className={`inline-flex items-center rounded-full border px-3 py-1 text-sm ${win.key === "h24" ? "bg-black text-white border-black" : "bg-white hover:shadow-sm"}`}
           data-test="win-h24"
         >
           Last 24h
         </a>
         <a
-          href={switchHref('d30')}
-          className={`inline-flex items-center rounded-full border px-3 py-1 text-sm ${
-            win.key === 'd30' ? 'bg-black text-white border-black' : 'bg-white hover:shadow-sm'
-          }`}
+          href={`/dashboard/nudges?${q({ slug, window: "d30" })}`}
+          className={`inline-flex items-center rounded-full border px-3 py-1 text-sm ${win.key === "d30" ? "bg-black text-white border-black" : "bg-white hover:shadow-sm"}`}
           data-test="win-d30"
         >
           Last 30d
         </a>
       </nav>
 
-      {/* Schedule & limits summary */}
+      {/* Schedule & limits */}
       <section
-        className={`rounded-lg border p-4 ${allowedNow ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}`}
+        className={`rounded-lg border p-4 ${allowedNow ? "bg-emerald-50 border-emerald-200" : "bg-amber-50 border-amber-200"}`}
         data-test="nudge-config"
       >
         <div className="text-sm font-medium">Schedule & limits</div>
         <div className="mt-1 text-sm text-gray-700">
-          Quiet hours (IST): <span className="font-mono">{quietStart}:00 → {quietEnd}:00</span> ·{' '}
-          Daily cap: <span className="font-mono">{cap}</span> ·{' '}
-          Remaining today: <span className="font-mono">{remaining}</span> ·{' '}
-          Status:{' '}
-          <span className={`font-medium ${allowedNow ? 'text-emerald-700' : 'text-amber-700'}`}>
-            {allowedNow ? 'Sends allowed now' : isQuiet ? 'Quiet hours' : 'Cap exhausted'}
+          Quiet hours (IST): <span className="font-mono">{quietStart}:00 → {quietEnd}:00</span> ·{" "}
+          Daily cap: <span className="font-mono">{cap}</span> ·{" "}
+          Remaining today: <span className="font-mono">{remaining}</span> ·{" "}
+          Status:{" "}
+          <span className={`font-medium ${allowedNow ? "text-emerald-700" : "text-amber-700"}`}>
+            {allowedNow ? "Sends allowed now" : isQuiet ? "Quiet hours" : "Cap exhausted"}
           </span>
         </div>
       </section>
 
       <div className="rounded-lg border p-4 bg-white">
-        <div className="text-sm text-gray-600">Suggested WhatsApp reminders from {win.label}.</div>
+        <div className="text-sm text-gray-600">
+          {loading ? "Loading suggestions…" : `Suggested WhatsApp reminders from ${win.label}.`}
+        </div>
       </div>
 
-      {/* Batch send summary (quiet-hours + cap aware) */}
+      {/* Batch send summary */}
       <section
         className="rounded-xl border p-4 bg-white"
         data-test="nudge-batch-ui"
-        data-ready={Math.max(0, Math.min(remaining, nudges.length))}
         data-total={nudges.length}
         data-remaining={remaining}
-        data-isquiet={isQuiet ? '1' : '0'}
+        data-isquiet={isQuiet ? "1" : "0"}
       >
         <div className="flex items-center justify-between">
           <div>
             <div className="text-sm font-semibold">Batch send (summary)</div>
             <div className="text-xs text-gray-600 mt-1">
-              Ready to send now:{' '}
-              <span className="font-mono">{Math.max(0, Math.min(remaining, nudges.length))}</span>{' '}
-              of <span className="font-mono">{nudges.length}</span> suggestions · Remaining today:{' '}
-              <span className="font-mono">{remaining}</span> · Quiet hours:{' '}
-              <span className="font-mono">{isQuiet ? 'ON' : 'OFF'}</span>
+              Ready to send now:{" "}
+              <span className="font-mono">{Math.max(0, Math.min(remaining, nudges.length))}</span>{" "}
+              of <span className="font-mono">{nudges.length}</span> suggestions · Remaining today:{" "}
+              <span className="font-mono">{remaining}</span> · Quiet hours:{" "}
+              <span className="font-mono">{isQuiet ? "ON" : "OFF"}</span>
             </div>
           </div>
           <button
             type="button"
-            disabled={isQuiet || remaining <= 0 || nudges.length === 0}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium border ${
-              isQuiet || remaining <= 0 || nudges.length === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:shadow-sm'
-            }`}
-            title={
-              isQuiet
-                ? 'Quiet hours active — sends paused'
-                : remaining <= 0
-                ? 'Daily cap exhausted'
-                : 'Next step will enable batch opening'
-            }
+            onClick={onBatchSend}
+            disabled={nudges.length === 0}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium border ${nudges.length === 0 ? "opacity-50 cursor-not-allowed" : "hover:shadow-sm"}`}
+            title={isQuiet ? "Quiet hours active — sends paused" : remaining <= 0 ? "Daily cap exhausted — click still logs (0)" : "Opens WhatsApp for allowed suggestions"}
           >
             Batch send
           </button>
         </div>
       </section>
 
-      {/* Fallback actions when there are no recent nudge.suggested events */}
+      {/* Fallback actions */}
       {nudges.length === 0 && fallback.length > 0 && (
         <section className="rounded-xl border p-4 bg-white">
           <div className="text-sm font-semibold mb-2">Quick actions</div>
           <div className="flex flex-wrap gap-2">
             {fallback.map((n) => {
-              const to = n.action_url || '#';
-              const tracked = `/api/events/redirect?event=${encodeURIComponent(
-                'upsell.nudge.clicked'
-              )}&slug=${encodeURIComponent(provider.slug)}&key=${encodeURIComponent(n.key)}&to=${encodeURIComponent(to)}`;
+              const to = n.action_url || "#";
+              const tracked = `/api/events/redirect?${q({
+                event: "upsell.nudge.clicked",
+                slug,
+                key: n.key,
+                to,
+              })}`;
               return (
                 <a
                   key={n.key}
@@ -303,31 +300,31 @@ export default async function Page(
         </section>
       )}
 
-      {/* List with PREVIEW bubble */}
+      {/* Nudges list */}
       <div className="space-y-3">
-        {nudges.length === 0 && fallback.length === 0 && (
+        {nudges.length === 0 && fallback.length === 0 && !loading && (
           <div className="text-sm text-gray-500">No suggestions right now.</div>
         )}
 
         {nudges.map((n, idx) => {
-          const phone = (n?.source?.target || '').toString();
-          const leadId = (n?.lead_id || null) as string | null;
-          const leadName = leadId ? nameMap[leadId] : '';
-          const { text, ref } = buildText(providerName, leadName);
-          const href = buildTrackedHref({
-            providerId: provider.id,
-            leadId,
-            phoneDigits: phone,
-            text,
-            ref,
-          });
+          const phone = (n?.source?.target || "").toString();
+          const leadName = ""; // optional: resolve later via names API
+          const { text } = buildText(providerName, leadName);
+
+          const p = new URLSearchParams();
+          p.set("provider_id", providerId || "");
+          if (n.lead_id) p.set("lead_id", n.lead_id);
+          p.set("phone", phone.replace(/[^\d]/g, ""));
+          p.set("text", text);
+          p.set("ref", Math.random().toString(36).slice(2, 8).toUpperCase());
+          const href = `/api/track/wa-collect?${p.toString()}`;
 
           return (
             <div key={idx} className="rounded-xl border p-3 bg-white" data-test="nudge-item">
               <div className="flex items-center justify-between">
                 <div>
-                  <div className="text-sm font-medium">{leadName ? leadName : 'Lead'} — {maskDigits(phone)}</div>
-                  <div className="text-xs text-gray-500">Suggested at {new Date(n.ts).toLocaleString('en-IN')}</div>
+                  <div className="text-sm font-medium">{leadName || "Lead"} — {maskDigits(phone)}</div>
+                  <div className="text-xs text-gray-500">Suggested at {new Date(n.ts).toLocaleString("en-IN")}</div>
                 </div>
                 <div className="flex items-center gap-2">
                   <a
@@ -340,39 +337,27 @@ export default async function Page(
                   >
                     Send on WhatsApp
                   </a>
+
                   <button
                     type="button"
                     className="inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-medium border hover:shadow-sm"
                     title="Collect pending payment"
                     onClick={async () => {
                       try {
-                        const lang = 'en';
-                        const amt =
-                          (n?.source?.amount_inr ?? n?.source?.pending ?? n?.source?.amount) || '';
-                        const params = new URLSearchParams();
-                        params.set('slug', provider.slug);
-                        params.set('template', 'collect_pending');
-                        if (amt) params.set('amt', String(amt));
-                        params.set('lang', lang);
+                        const params = { slug, template: "collect_pending", amt: (n?.source?.amount_inr ?? n?.source?.pending ?? n?.source?.amount) || "", lang: "en" };
+                        const r = await fetch(`/api/templates/preview?${q(params)}`, { cache: "no-store" });
+                        const j = await r.json().catch(() => ({}));
+                        const serverText = (j?.preview?.text || "").toString();
 
-                        const r = await fetch(`/api/templates/preview?${params.toString()}`, { cache: 'no-store' });
-                        const j = await r.json().catch(() => ({} as any));
-                        const serverText = (j?.preview?.text || '').toString();
-
-                        const phoneDigits = (phone || '').replace(/[^\d]/g, '');
+                        const phoneDigits = phone.replace(/[^\d]/g, "");
                         if (!phoneDigits) return;
 
-                        const fallbackText = [
-                          (leadName ? `Hi ${leadName},` : 'Hi,'),
-                          `Please complete your pending payment with ${providerName}.`,
-                          `Pay here: https://vyapr-reset-5rly.vercel.app/pay/TEST`,
-                        ].join(' ');
-                        const textFinal = serverText || fallbackText;
+                        const textFinal =
+                          serverText ||
+                          `Hi, please complete your pending payment with ${providerName}. Pay here: https://vyapr-reset-5rly.vercel.app/pay/TEST`;
 
-                        const wa = `https://api.whatsapp.com/send/?phone=${phoneDigits}&text=${encodeURIComponent(
-                          textFinal
-                        )}&type=phone_number&app_absent=0`;
-                        window.open(wa, '_blank', 'noopener,noreferrer');
+                        const wa = `https://api.whatsapp.com/send/?phone=${phoneDigits}&text=${encodeURIComponent(textFinal)}&type=phone_number&app_absent=0`;
+                        window.open(wa, "_blank", "noopener,noreferrer");
                       } catch {}
                     }}
                   >
@@ -381,247 +366,13 @@ export default async function Page(
                 </div>
               </div>
 
-              {/* PREVIEW bubble */}
-              <div
-                className="mt-3 rounded-lg border bg-gray-50 p-3 text-sm text-gray-800 whitespace-pre-wrap"
-                data-test="nudge-preview"
-                title="Preview of the message text that will be sent on WhatsApp"
-              >
+              <div className="mt-3 rounded-lg border bg-gray-50 p-3 text-sm text-gray-800 whitespace-pre-wrap" data-test="nudge-preview">
                 {text}
               </div>
             </div>
           );
         })}
       </div>
-
-      {/* === VYAPR: Batch Send (22.15) START === */}
-      <Script id="vyapr-batch-send" strategy="afterInteractive">
-        
-         <Script id="vyapr-batch-send-guard" strategy="afterInteractive">
-        {`
-/**
- * VYAPR Guard (22.16): ensure button is interactable when allowed,
- * and also when cap is exhausted (so a click can log count:0).
- * No overrides of server state; just client affordances.
- */
-(function(){
-  try{
-    if (window.__vyBatchGuard) return;
-    window.__vyBatchGuard = true;
-
-    const section = document.querySelector('[data-test="nudge-batch-ui"]');
-    if(!section) return;
-
-    const btn = section.querySelector('button');
-    if(btn){
-      btn.setAttribute('data-test','nudge-batch-send');
-      btn.setAttribute('aria-label','Batch send WhatsApp nudges');
-    }
-
-    const total = Number(section.getAttribute('data-total')||'0');
-    const remaining = Number(section.getAttribute('data-remaining')||'0');
-    const isQuiet = section.getAttribute('data-isquiet') === '1';
-
-    // Enable when allowed and items exist (normal happy path)
-    if(btn && !isQuiet && remaining > 0 && total > 0){
-      btn.removeAttribute('disabled');
-      btn.classList.remove('opacity-50','cursor-not-allowed');
-      if (!btn.textContent || /enable batch/i.test(btn.title||'')) {
-        btn.textContent = 'Batch send';
-        btn.title = 'Open WhatsApp for the allowed suggestions';
-      }
-    }
-
-    /* === INSERT START (22.16: allow click to log when cap exhausted) === */
-    // If cap is exhausted but there are items shown, enable the button so a click can log (0).
-    if(btn && !isQuiet && remaining === 0 && total > 0){
-      btn.removeAttribute('disabled');
-      btn.classList.remove('opacity-50','cursor-not-allowed');
-      btn.setAttribute('data-cap','exhausted');
-      btn.title = 'Daily cap exhausted — click will log as (0)';
-    }
-    /* === INSERT END === */
-  }catch(_){}
-})();
-        `}
-      </Script>
-        {`
-(function(){
-  try {
-    const section = document.querySelector('[data-test="nudge-batch-ui"]');
-    if(!section) return;
-    const btn = section.querySelector('button');
-    if(!btn) return;
-    btn.id = 'vy-batch-btn';
-
-    // read provider UUID from the root
-    const rootEl = document.querySelector('[data-test="nudge-center-root"]');
-    const providerId = rootEl ? rootEl.getAttribute('data-provider-id') : null;
-
-    const total = Number(section.getAttribute('data-total')||'0');
-    const remaining = Number(section.getAttribute('data-remaining')||'0');
-    const isQuiet = section.getAttribute('data-isquiet') === '1';
-    if(isQuiet || total <= 0) {
-      // Still attach handler to allow logging (0) during quiet or no items
-      // but don't attempt to open tabs.
-    }
-
-    const anchors = Array.from(document.querySelectorAll('[data-test="nudge-item"] a[data-test="nudge-send"]'));
-    const allowed = Math.max(0, Math.min(remaining, anchors.length));
-
-    async function logBatch(count){
-      try{
-        await fetch('/api/events/log', {
-          method: 'POST',
-          headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({
-            event: 'nudge.batch.sent',
-            ts: Date.now(),
-            provider_id: providerId,
-            lead_id: null,
-            source: { via: 'ui', count, window: (document.querySelector('[data-test="win-h24"].bg-black') ? 'h24' : 'd30') }
-          })
-        });
-      }catch(_){}
-    }
-
-    // If there are zero sendable anchors, mark it so the title explains why.
-    if(anchors.length === 0){
-      btn.setAttribute('data-empty','1');
-      if(!btn.hasAttribute('title')) {
-        btn.title = 'No sendable WhatsApp numbers found in suggestions';
-      }
-    }
-
-    btn.textContent = btn.textContent || 'Batch send';
-    btn.addEventListener('click', async function(ev){
-      ev.preventDefault();
-
-      // Always log even if none sent (quiet/cap/no-anchors)
-      if(isQuiet || allowed <= 0){
-        await logBatch(0);
-        btn.disabled = true;
-        btn.textContent = 'Batch sent (0)';
-        btn.title = btn.getAttribute('data-empty') === '1'
-          ? 'No sendable WhatsApp numbers in this list'
-          : (isQuiet ? 'Quiet hours active — sends paused' : 'Daily cap exhausted');
-        return;
-      }
-
-      let opened = 0;
-      for(let i=0;i<allowed;i++){
-        const a = anchors[i];
-        if(!a) break;
-        const href = a.getAttribute('href');
-        if(!href) continue;
-        window.open(href, '_blank');
-        opened++;
-        await new Promise(r => setTimeout(r, 150));
-      }
-      logBatch(opened);
-      btn.disabled = true;
-      btn.textContent = 'Batch sent (' + opened + ')';
-    }, { once: true });
-  } catch(e){}
-})();
-        `}
-      </Script>
-      {/* === VYAPR: Batch Send (22.15) END === */}
-
-      {/* === VYAPR: Batch Send Cap+Hint START (22.17) === */}
-      <Script id="vyapr-batch-cap" strategy="afterInteractive">
-        {`
-(function(){
-  try{
-    // Hard cap for UI fan-out to avoid WA rate-limit spikes
-    var CAP = 6;
-
-    var section = document.querySelector('[data-test="nudge-batch-ui"]');
-    if(!section) return;
-    section.setAttribute('data-batch-cap', String(CAP));
-
-    // Inject/update a small hint near the Batch button
-    var btn = section.querySelector('button');
-    if(btn){
-      var hint = section.querySelector('[data-test="batch-hint"]');
-      if(!hint){
-        hint = document.createElement('small');
-        hint.setAttribute('data-test','batch-hint');
-        hint.style.display = 'block';
-        hint.style.marginTop = '6px';
-        hint.style.color = '#4b5563'; // gray-600
-        btn.parentElement && btn.parentElement.appendChild(hint);
-      }
-      var total = Number(section.getAttribute('data-total')||'0');
-      var remaining = Number(section.getAttribute('data-remaining')||'0');
-      var allowed = Math.max(0, Math.min(remaining, total));
-      var openN = Math.min(CAP, allowed);
-      hint.textContent = 'Will open up to ' + openN + ' (cap ' + CAP + ')';
-    }
-
-    // Replace existing click handler with a capped version (no edits to earlier code)
-    var oldBtn = section.querySelector('#vy-batch-btn');
-    if(!oldBtn) return;
-
-    var clone = oldBtn.cloneNode(true);
-    oldBtn.replaceWith(clone);
-
-    var rootEl = document.querySelector('[data-test="nudge-center-root"]');
-    var providerId = rootEl ? rootEl.getAttribute('data-provider-id') : null;
-
-    var anchors = Array.from(document.querySelectorAll('[data-test="nudge-item"] a[data-test="nudge-send"]'));
-    var total = Number(section.getAttribute('data-total')||'0');
-    var remaining = Number(section.getAttribute('data-remaining')||'0');
-    var isQuiet = section.getAttribute('data-isquiet') === '1';
-    var allowed = Math.max(0, Math.min(remaining, anchors.length));
-    var openN = Math.min(CAP, allowed);
-
-    async function logBatch(count){
-      try{
-        await fetch('/api/events/log', {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({
-            event:'nudge.batch.sent',
-            ts: Date.now(),
-            provider_id: providerId,
-            lead_id: null,
-            source:{ via:'ui', count: count, cap: CAP, window: (document.querySelector('[data-test="win-h24"].bg-black') ? 'h24' : 'd30') }
-          })
-        });
-      }catch(_){}
-    }
-
-    clone.addEventListener('click', async function(ev){
-      ev.preventDefault();
-
-      // Respect quiet/cap
-      if(isQuiet || openN <= 0){
-        await logBatch(0);
-        clone.disabled = true;
-        clone.textContent = 'Batch sent (0)';
-        return;
-      }
-
-      var opened = 0;
-      for(var i=0;i<openN;i++){
-        var a = anchors[i];
-        if(!a) break;
-        var href = a.getAttribute('href');
-        if(!href) continue;
-        window.open(href, '_blank', 'noopener,noreferrer');
-        opened++;
-        await new Promise(function(r){ setTimeout(r,150); });
-      }
-      await logBatch(opened);
-      clone.disabled = true;
-      clone.textContent = 'Batch sent ('+opened+')';
-    }, { once:true });
-  }catch(_){}
-})();
-        `}
-      </Script>
-      {/* === VYAPR: Batch Send Cap+Hint END (22.17) === */}
     </main>
   );
 }
