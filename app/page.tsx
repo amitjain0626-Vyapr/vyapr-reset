@@ -8,7 +8,7 @@ function OrgJSONLD(baseUrl: string) {
   return {
     "@context": "https://schema.org",
     "@type": "Organization",
-    name: "Vyapr",
+    name: "Korekko",
     url: baseUrl,
     logo: `${baseUrl}/icon.png`,
     sameAs: [
@@ -20,7 +20,7 @@ function OrgJSONLD(baseUrl: string) {
 export const revalidate = 600;
 
 export const metadata = {
-  title: "Vyapr — Your Business. Live in 10 Minutes.",
+  title: "Korekko — Your Business. Live in 10 Minutes.",
   description:
     "Instant microsite + WhatsApp-first CRM for solos. Get found, convert faster, and grow with smart reminders.",
 };
