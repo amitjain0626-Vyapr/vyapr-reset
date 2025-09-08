@@ -114,43 +114,20 @@ function buildText(providerName: string, leadName?: string) {
   };
 }
 
+/* V2.3 insert block around the exact fix below */
 /* two lines before
    (helper section continues)
 << insert >>
-   V2.3: add WA URL builder for opening WhatsApp with prefilled text
-   Works for any country code; strips non-digits from phone.
+   V2.3: FIX — Next.js App Router passes a plain object (not a Promise) for searchParams.
+   Use object destructuring without await to prevent server crash (Digest-like errors).
 two lines after */
-function buildWAUrl({ phone, text }: { phone: string; text: string }) {
-  const digits = (phone || '').replace(/[^\d]/g, '');
-  const enc = encodeURIComponent(text || '');
-  return `https://api.whatsapp.com/send/?phone=${digits}&text=${enc}&type=phone_number&app_absent=0`;
-}
-
-function buildTrackedHref(args: {
-  providerId: string;
-  leadId: string | null;
-  phoneDigits: string;
-  text: string;
-  ref: string;
-}) {
-  const p = new URLSearchParams();
-  p.set('provider_id', args.providerId);
-  if (args.leadId) p.set('lead_id', args.leadId);
-  p.set('phone', args.phoneDigits.replace(/[^\d]/g, ''));
-  p.set('text', args.text);
-  p.set('ref', args.ref);
-  return `/api/track/wa-collect?${p.toString()}`;
-}
-
-function maskDigits(d: string) {
-  const s = d.replace(/[^\d]/g, '');
-  if (s.length <= 4) return s;
-  return `${s.slice(0, s.length - 4).replace(/\d/g, '•')}${s.slice(-4)}`;
-}
 
 /* -------- page -------- */
-export default async function Page(props: { searchParams: Promise<{ slug?: string; window?: string }> }) {
-  const { slug, window } = await props.searchParams;
+export default async function Page(
+  { searchParams }: { searchParams: { slug?: string; window?: string } }
+) {
+  const { slug, window } = searchParams;
+
   const _slug = (slug || '').trim();
   if (!_slug) {
     return (
@@ -363,20 +340,13 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
                   >
                     Send on WhatsApp
                   </a>
-
-                  {/* two lines before
-                      (existing CTA group ends with the WA link above)
-                  << insert >>
-                      V2.3: “Collect ₹” CTA — fetches server-templated copy & opens WhatsApp
-                      Works even when amount isn’t present in event source.
-                  two lines after */}
                   <button
                     type="button"
                     className="inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-medium border hover:shadow-sm"
                     title="Collect pending payment"
                     onClick={async () => {
                       try {
-                        const lang = 'en'; // default language
+                        const lang = 'en';
                         const amt =
                           (n?.source?.amount_inr ?? n?.source?.pending ?? n?.source?.amount) || '';
                         const params = new URLSearchParams();
@@ -392,13 +362,16 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
                         const phoneDigits = (phone || '').replace(/[^\d]/g, '');
                         if (!phoneDigits) return;
 
-                        const text = serverText || [
+                        const fallbackText = [
                           (leadName ? `Hi ${leadName},` : 'Hi,'),
                           `Please complete your pending payment with ${providerName}.`,
                           `Pay here: https://vyapr-reset-5rly.vercel.app/pay/TEST`,
                         ].join(' ');
+                        const textFinal = serverText || fallbackText;
 
-                        const wa = buildWAUrl({ phone: phoneDigits, text });
+                        const wa = `https://api.whatsapp.com/send/?phone=${phoneDigits}&text=${encodeURIComponent(
+                          textFinal
+                        )}&type=phone_number&app_absent=0`;
                         window.open(wa, '_blank', 'noopener,noreferrer');
                       } catch {}
                     }}
