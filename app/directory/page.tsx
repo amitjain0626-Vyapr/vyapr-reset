@@ -44,8 +44,8 @@ function ItemListJsonLd() {
 }
 
 export const metadata = {
-  title: "Directory — Vyapr",
-  description: "Explore featured category–city pages to find local providers on Vyapr.",
+  title: "Directory — Korekko",
+  description: "Explore featured category–city pages to find local providers on Korekko.",
   alternates: { canonical: url },
 };
 

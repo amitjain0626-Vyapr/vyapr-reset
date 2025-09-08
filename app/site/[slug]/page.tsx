@@ -8,7 +8,7 @@ import { createClient } from "@supabase/supabase-js";
 const SITE = process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
 
 function buildWaUrl({ phone, whatsapp, display_name, slug }: any) {
-  const msg = `Hi${display_name ? " " + display_name : ""}, I'd like to book a slot via Vyapr (${SITE}/book/${slug}).`;
+  const msg = `Hi${display_name ? " " + display_name : ""}, I'd like to book a slot via Korekko (${SITE}/book/${slug}).`;
   const raw = (whatsapp || phone || "").toString().replace(/[^\d+]/g, "");
   return raw
     ? `https://wa.me/${raw.replace(/^\+/, "")}?text=${encodeURIComponent(msg)}`
@@ -38,7 +38,7 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
   const services: Array<{ name: string; price?: number | string; desc?: string }> = Array.isArray(p?.services) ? p.services : [];
 
   const ogTitle = `${p?.display_name || p?.slug} — ${p?.category || "Services"} in ${p?.location || ""}`.trim();
-  const ogDesc = p?.bio || "Book and pay easily with Vyapr.";
+  const ogDesc = p?.bio || "Book and pay easily with Korekko.";
   const ogUrl = `${SITE}/site/${slug}`;
 
   return (
@@ -59,7 +59,7 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
             {p?.display_name || p?.slug}
             {verified ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-xs text-emerald-700">
-                ✓ Verified by Vyapr
+                ✓ Verified by Korekko
               </span>
             ) : null}
           </h1>
