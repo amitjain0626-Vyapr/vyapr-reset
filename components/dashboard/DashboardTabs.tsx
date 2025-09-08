@@ -1,4 +1,3 @@
-// components/dashboard/DashboardTabs.tsx
 "use client";
 // @ts-nocheck
 import Link from "next/link";
@@ -8,8 +7,20 @@ export default function DashboardTabs() {
   const pathname = usePathname();
   const sp = useSearchParams();
   const slug = (sp.get("slug") || "").trim();
+  /* === VYAPR: lang param support START (22.19) === */
+  const lang = (sp.get("lang") || "").trim();
+  /* === VYAPR: lang param support END (22.19) === */
 
-  const mk = (path: string) => (slug ? `${path}?slug=${encodeURIComponent(slug)}` : path);
+  const mk = (path: string) => {
+    const params = new URLSearchParams();
+    if (slug) params.set("slug", slug);
+    /* === VYAPR: lang param support START (22.19) === */
+    if (lang) params.set("lang", lang);
+    /* === VYAPR: lang param support END (22.19) === */
+    const q = params.toString();
+    return q ? `${path}?${q}` : path;
+  };
+
   const isActive = (path: string) => pathname?.startsWith(path);
 
   const Tab = ({ href, label }: { href: string; label: string }) => (
