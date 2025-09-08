@@ -146,6 +146,18 @@ function categoryToServiceDescriptor(c: Category, fallbackService: string) {
   };
   return map[c] || (fallbackService || "provider");
 }
+
+// Ensure server previews always include a deep link
+function ensureHasLink(text: string, link: string) {
+  const hasLink = /https?:\/\//i.test(text || "");
+  if (hasLink) return text;
+  const trimmed = (text || "").trim();
+  // If server text was a “book a slot” message, make CTA explicit.
+  const cta = trimmed.toLowerCase().includes("slot") || trimmed.toLowerCase().includes("book")
+    ? `Book now: ${link}`
+    : `Link: ${link}`;
+  return trimmed ? `${trimmed}\n${cta}` : cta;
+}
 // === VYAPR: Playbooks preview END (22.18) ===
 
 // -------- Component ----------
@@ -218,6 +230,14 @@ export default function TemplatesPage() {
     setPreview(null);
   }, [slug, category, service, provider, name, phone, date, time, linkOverride, playbook]);
 
+  // --- effective links (per playbook) ---
+  function effectiveLink() {
+    return (
+      linkOverride ||
+      (playbook === "reminder" ? `${location.origin}/pay/TEST` : `${location.origin}/book/${slug}`)
+    );
+  }
+
   // --- Server calls ---
 
   // Send a test (logs + preview); playbook-aware
@@ -245,23 +265,20 @@ export default function TemplatesPage() {
             time,
             service,
             category,
-            // Reminder playbook prefers pay link; others prefer booking link
-            link:
-              linkOverride ||
-              (playbook === "reminder"
-                ? `${location.origin}/pay/TEST`
-                : `${location.origin}/book/${slug}`),
+            link: effectiveLink(),
           },
         }),
       });
       const json = await res.json().catch(() => ({}));
       setOk(!!json?.ok);
-      // Prefer server preview (authoritative)
+      // Prefer server preview (authoritative) — but guard for missing link
       if (json?.preview?.text) {
-        setPreview({ text: json.preview.text, whatsapp_url: json.preview.whatsapp_url });
+        // === VYAPR: Playbooks preview LINK GUARD START (22.18) ===
+        const textWithLink = ensureHasLink(json.preview.text, effectiveLink());
+        // === VYAPR: Playbooks preview LINK GUARD END (22.18) ===
+        setPreview({ text: textWithLink, whatsapp_url: json.preview.whatsapp_url || buildWAUrl({ phone, text: textWithLink }) });
       } else {
         // Fallback: playbook-aware preview
-        // === VYAPR: Playbooks preview START (22.18) ===
         let text: string;
         if (playbook === "reminder") {
           const descriptor = categoryToServiceDescriptor(category, service);
@@ -269,9 +286,7 @@ export default function TemplatesPage() {
             name,
             provider,
             service: descriptor,
-            link:
-              linkOverride ||
-              `${location.origin}/pay/TEST`,
+            link: effectiveLink(),
           });
         } else {
           text = substitute(t.body, {
@@ -282,12 +297,9 @@ export default function TemplatesPage() {
             time,
             service,
             category,
-            link:
-              linkOverride ||
-              `${location.origin}/book/${slug}`,
+            link: effectiveLink(),
           });
         }
-        // === VYAPR: Playbooks preview END (22.18) ===
         setPreview({ text, whatsapp_url: buildWAUrl({ phone, text }) });
       }
     } catch {
@@ -322,21 +334,19 @@ export default function TemplatesPage() {
             time,
             service,
             category,
-            link:
-              linkOverride ||
-              (playbook === "reminder"
-                ? `${location.origin}/pay/TEST`
-                : `${location.origin}/book/${slug}`),
+            link: effectiveLink(),
           },
         }),
       });
       const json = await res.json().catch(() => ({}));
       setOk(!!json?.ok);
       if (json?.preview?.text) {
-        setPreview({ text: json.preview.text, whatsapp_url: json.preview.whatsapp_url });
+        // === VYAPR: Playbooks preview LINK GUARD START (22.18) ===
+        const textWithLink = ensureHasLink(json.preview.text, effectiveLink());
+        // === VYAPR: Playbooks preview LINK GUARD END (22.18) ===
+        setPreview({ text: textWithLink, whatsapp_url: json.preview.whatsapp_url || buildWAUrl({ phone, text: textWithLink }) });
       } else {
         // Fallback: playbook-aware preview
-        // === VYAPR: Playbooks preview START (22.18) ===
         let text: string;
         if (playbook === "reminder") {
           const descriptor = categoryToServiceDescriptor(category, service);
@@ -344,9 +354,7 @@ export default function TemplatesPage() {
             name,
             provider,
             service: descriptor,
-            link:
-              linkOverride ||
-              `${location.origin}/pay/TEST`,
+            link: effectiveLink(),
           });
         } else {
           text = substitute(t.body, {
@@ -357,12 +365,9 @@ export default function TemplatesPage() {
             time,
             service,
             category,
-            link:
-              linkOverride ||
-              `${location.origin}/book/${slug}`,
+            link: effectiveLink(),
           });
         }
-        // === VYAPR: Playbooks preview END (22.18) ===
         setPreview({ text, whatsapp_url: buildWAUrl({ phone, text }) });
       }
     } catch {
