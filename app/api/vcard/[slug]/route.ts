@@ -48,7 +48,7 @@ export async function GET(req: Request, context: any) {
       "BEGIN:VCARD",
       "VERSION:3.0",
       `FN:${(p?.display_name || slug).replace(/\r?\n/g, " ")}`,
-      `ORG:${(p?.display_name || "Vyapr Provider").replace(/\r?\n/g, " ")}`,
+      `ORG:${(p?.display_name || "Korekko Provider").replace(/\r?\n/g, " ")}`,
     ];
     if (tel) lines.push(`TEL;TYPE=CELL,VOICE:${tel}`);
     if (p?.location) lines.push(`ADR;TYPE=WORK:;;${p.location};;;;`);

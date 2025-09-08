@@ -11,7 +11,7 @@ const SITE = process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.verce
 
 /* ---------- tiny helpers ---------- */
 function buildWaUrl({ phone, whatsapp, display_name, slug }: any) {
-  const msg = `Hi${display_name ? " " + display_name : ""}, I'd like to book a slot via Vyapr (${SITE}/book/${slug}).`;
+  const msg = `Hi${display_name ? " " + display_name : ""}, I'd like to book a slot via Korekko (${SITE}/book/${slug}).`;
   const raw = (whatsapp || phone || "").toString().replace(/[^\d+]/g, "");
   return raw
     ? `https://wa.me/${raw.replace(/^\+/, "")}?text=${encodeURIComponent(msg)}`
@@ -44,7 +44,7 @@ export async function generateMetadata(props: any) {
 
   const p = data || { slug, display_name: slug, bio: null, image: null };
   const title = `${p?.display_name || p?.slug} — ${p?.category || "Services"}${p?.location ? " in " + p.location : ""}`;
-  const description = p?.bio || "Book and pay easily with Vyapr.";
+  const description = p?.bio || "Book and pay easily with Korekko.";
   const url = `${SITE}/microsite/${slug}`;
   // V2.3 context — 2 lines above
   // const url = `${SITE}/microsite/${slug}`;
@@ -59,7 +59,7 @@ export async function generateMetadata(props: any) {
     title,
     description,
     alternates: { canonical: url },
-    openGraph: { title, description, url, type: "website", siteName: "Vyapr", images },
+    openGraph: { title, description, url, type: "website", siteName: "Korekko", images },
     twitter: { card: "summary_large_image", title, description, images },
   };
 }
@@ -161,7 +161,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
             {/* === VYAPR: Verified badge guard (22.15) START === */}
             {showVerified ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-xs text-emerald-700">
-                ✓ Verified by Vyapr
+                ✓ Verified by Korekko
               </span>
             ) : null}
             {/* === VYAPR: Verified badge guard (22.15) END === */}

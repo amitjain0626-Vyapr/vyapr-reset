@@ -109,7 +109,7 @@ export default function ReviewLanding({ slug }: { slug: string }) {
       </div>
 
       <footer className="text-center text-xs text-gray-500">
-        Powered by Vyapr Reviews (MVP).{" "}
+        Powered by Korekko Reviews (MVP).{" "}
         <a href={origin} className="underline">
           Learn more
         </a>
