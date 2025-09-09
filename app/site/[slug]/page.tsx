@@ -1,14 +1,16 @@
+// app/site/[slug]/page.tsx
 // @ts-nocheck
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import Link from "next/link";
 import { createClient } from "@supabase/supabase-js";
+import { BRAND } from "@/lib/brand";
 
-const SITE = process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
+const SITE = BRAND.baseUrl;
 
 function buildWaUrl({ phone, whatsapp, display_name, slug }: any) {
-  const msg = `Hi${display_name ? " " + display_name : ""}, I'd like to book a slot via Korekko (${SITE}/book/${slug}).`;
+  const msg = `Hi${display_name ? " " + display_name : ""}, I'd like to book a slot via ${BRAND.name} (${SITE}/book/${slug}).`;
   const raw = (whatsapp || phone || "").toString().replace(/[^\d+]/g, "");
   return raw
     ? `https://wa.me/${raw.replace(/^\+/, "")}?text=${encodeURIComponent(msg)}`
@@ -38,7 +40,7 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
   const services: Array<{ name: string; price?: number | string; desc?: string }> = Array.isArray(p?.services) ? p.services : [];
 
   const ogTitle = `${p?.display_name || p?.slug} — ${p?.category || "Services"} in ${p?.location || ""}`.trim();
-  const ogDesc = p?.bio || "Book and pay easily with Korekko.";
+  const ogDesc = p?.bio || `Book and pay easily with ${BRAND.name}.`;
   const ogUrl = `${SITE}/site/${slug}`;
 
   return (
@@ -59,7 +61,7 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
             {p?.display_name || p?.slug}
             {verified ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-xs text-emerald-700">
-                ✓ Verified by Korekko
+                ✓ Verified by {BRAND.name}
               </span>
             ) : null}
           </h1>
@@ -97,7 +99,6 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
       <section className="rounded-2xl border bg-white p-5">
         <h2 className="text-lg font-semibold mb-3">Contact</h2>
         <div className="flex flex-wrap gap-3">
-          {/* Always enabled via fallback composer */}
           <a href={waUrl} target="_blank" rel="noopener" className="inline-flex items-center rounded-full border px-4 py-2 text-sm border-emerald-600 hover:shadow-sm">
             Chat on WhatsApp
           </a>

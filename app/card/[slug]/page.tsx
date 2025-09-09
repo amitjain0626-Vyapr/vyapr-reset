@@ -1,19 +1,20 @@
 // app/card/[slug]/page.tsx
 // @ts-nocheck
 import type { Metadata } from "next";
+import { BRAND } from "@/lib/brand";
 
-const BASE = "https://vyapr-reset-5rly.vercel.app";
+const BASE = BRAND.baseUrl;
 
 export async function generateMetadata({ params }: any): Promise<Metadata> {
   const slug = params?.slug || "provider";
-  const title = `Digital Card • ${slug} • Korekko`;
+  const title = `Digital Card • ${slug} • ${BRAND.name}`;
   const url = `${BASE}/card/${slug}`;
   const bookUrl = `${BASE}/book/${slug}`;
   const ogImage = `${BASE}/api/qr?url=${encodeURIComponent(bookUrl)}`;
 
   return {
     title,
-    description: `Quick-share digital card for ${slug}. Book instantly via Korekko.`,
+    description: `Quick-share digital card for ${slug}. Book instantly via ${BRAND.name}.`,
     alternates: { canonical: url },
     openGraph: {
       type: "website",
@@ -21,7 +22,6 @@ export async function generateMetadata({ params }: any): Promise<Metadata> {
       title,
       description: `Book ${slug} instantly. Live slots & confirmations.`,
       images: [{ url: ogImage, width: 1200, height: 630, alt: `QR to book ${slug}` }],
-      siteName: "Korekko",
     },
     twitter: {
       card: "summary_large_image",
@@ -38,7 +38,7 @@ export default async function Page({ params }: any) {
   const qrUrl = `${BASE}/api/qr?url=${encodeURIComponent(bookUrl)}`;
 
   const waText = encodeURIComponent(
-    `Namaste! Ye mera booking link hai — ${bookUrl}\nAap aage badhiye, hum saath hain aapke. 🙏`
+    `Namaste! This is my booking link — ${bookUrl}\nLet's get you scheduled. 🙏 — via ${BRAND.name}`
   );
   const waShare = `https://wa.me/?text=${waText}`;
 

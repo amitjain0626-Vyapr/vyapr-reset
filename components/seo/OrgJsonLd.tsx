@@ -2,10 +2,7 @@
 // Injects Organization JSON-LD on pages.
 
 import React from "react";
-
-function baseUrl() {
-  return process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
-}
+import { BRAND, absUrl } from "@/lib/brand";
 
 type Props = {
   name?: string;
@@ -14,7 +11,7 @@ type Props = {
 };
 
 export default function OrgJsonLd({
-  name = "Korekko",
+  name = BRAND.name,
   logoPath = "/logo.png",
   sameAs = [],
 }: Props) {
@@ -22,8 +19,8 @@ export default function OrgJsonLd({
     "@context": "https://schema.org",
     "@type": "Organization",
     name,
-    url: baseUrl(),
-    logo: `${baseUrl()}${logoPath}`,
+    url: BRAND.baseUrl,
+    logo: absUrl(logoPath),
     ...(sameAs.length ? { sameAs } : {}),
   };
 

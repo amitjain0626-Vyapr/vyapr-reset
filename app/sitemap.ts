@@ -2,13 +2,13 @@
 // @ts-nocheck
 import type { MetadataRoute } from "next";
 import { createClient } from "@supabase/supabase-js";
+import { BRAND } from "@/lib/brand";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 300;
 
-const BASE =
-  process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
+const BASE = BRAND.baseUrl;
 
 function slugify(s: string) {
   return String(s || "")
@@ -31,19 +31,16 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     );
 
-    // NOTE: Providers has no updated_at → use created_at
     const { data, error } = await supabase
       .from("Providers")
       .select("slug, created_at, category, location, published")
       .eq("published", true);
 
     if (!error && Array.isArray(data) && data.length) {
-      // Per-provider URLs
       for (const row of data) {
         if (!row?.slug) continue;
         const lastModified = row?.created_at ? new Date(row.created_at) : undefined;
 
-        // Booking page
         urls.push({
           url: `${BASE}/book/${row.slug}`,
           changeFrequency: "weekly",
@@ -51,7 +48,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
           lastModified,
         });
 
-        // Microsite (consumer profile)
         urls.push({
           url: `${BASE}/microsite/${row.slug}`,
           changeFrequency: "weekly",
@@ -59,7 +55,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
           lastModified,
         });
 
-        // Digital Card (share card UI)
         urls.push({
           url: `${BASE}/vcard/${row.slug}`,
           changeFrequency: "monthly",
@@ -68,7 +63,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         });
       }
 
-      // Directory combos (unique category+location)
       const seen = new Set<string>();
       for (const row of data) {
         const cat = slugify(row?.category);

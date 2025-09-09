@@ -1,16 +1,12 @@
 // components/i18n/T.tsx
-// @ts-nocheck
 "use client";
 
 import { useEffect, useState } from "react";
 import type { JSX as JSXRuntime } from "react";
+import { KEYS, LEGACY_KEYS } from "@/lib/brand";
 
-// Default language is English for public pages
 export type Lang = "en" | "hi";
-const STORAGE_KEY = "korekko.lang";
-const COOKIE_KEY = "korekko.lang"; // same key for cookie/local usage
-const DEFAULT_LANG: Lang = "en";
-const EVT = "korekko:lang"; // cross-component update event
+const EVT = "korekko:lang"; // brand-scoped bus
 
 type TProps = {
   en: string;
@@ -19,63 +15,64 @@ type TProps = {
   className?: string;
 };
 
-function readCookieLang(): Lang | null {
+function readCookie(name: string): string | null {
   try {
-    const m = document.cookie.match(new RegExp(`(?:^|; )${COOKIE_KEY}=([^;]+)`));
-    if (!m) return null;
-    const v = decodeURIComponent(m[1]);
-    return v === "en" || v === "hi" ? v : null;
+    const m = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]+)`));
+    return m ? decodeURIComponent(m[1]) : null;
   } catch {
     return null;
   }
 }
 
+function readCookieLang(): Lang | null {
+  const v = readCookie(KEYS.langCookie) || readCookie(LEGACY_KEYS.langCookie);
+  return v === "en" || v === "hi" ? v : null;
+}
+
 export function getStoredLang(): Lang {
   try {
-    // 1) localStorage first
-    const v = (localStorage.getItem(STORAGE_KEY) as Lang) || "";
-    if (v === "en" || v === "hi") return v;
-    // 2) cookie fallback
+    // new → legacy → default
+    const vNow = (localStorage.getItem(KEYS.langLocal) as Lang) || "";
+    if (vNow === "en" || vNow === "hi") return vNow;
+
+    const vOld = (localStorage.getItem(LEGACY_KEYS.langLocal) as Lang) || "";
+    if (vOld === "en" || vOld === "hi") return vOld;
+
     const ck = readCookieLang();
     if (ck) return ck;
-    // 3) default English
-    return DEFAULT_LANG;
+
+    return "en";
   } catch {
-    return DEFAULT_LANG;
+    return "en";
   }
 }
 
 export function setStoredLang(v: Lang) {
   try {
-    // persist in localStorage
-    localStorage.setItem(STORAGE_KEY, v);
-    // persist in cookie (1 year)
+    // write new keys
+    localStorage.setItem(KEYS.langLocal, v);
     const maxAge = 60 * 60 * 24 * 365;
-    document.cookie = `${COOKIE_KEY}=${encodeURIComponent(v)}; Path=/; Max-Age=${maxAge}; SameSite=Lax`;
+    document.cookie = `${KEYS.langCookie}=${encodeURIComponent(v)}; Path=/; Max-Age=${maxAge}; SameSite=Lax`;
 
     // reflect on <html>
     document.documentElement.setAttribute("data-lang", v);
     document.documentElement.setAttribute("lang", v);
 
-    // broadcast to this tab
+    // broadcast (brand-scoped)
     window.dispatchEvent(new CustomEvent<Lang>(EVT, { detail: v }));
-  } catch {
-    // noop
-  }
+  } catch {}
 }
 
 export default function T(props: TProps) {
   const { en, hi, as, className } = props;
-  const [lang, setLang] = useState<Lang>(DEFAULT_LANG);
+  const [lang, setLang] = useState<Lang>("en");
 
   useEffect(() => {
-    // initialize from storage/cookie
     const v = getStoredLang();
     setLang(v);
     document.documentElement.setAttribute("data-lang", v);
     document.documentElement.setAttribute("lang", v);
 
-    // listen for same-tab updates
     const onCustom = (e: Event) => {
       const v = (e as CustomEvent<Lang>).detail;
       if (v === "en" || v === "hi") {
@@ -86,9 +83,8 @@ export default function T(props: TProps) {
     };
     window.addEventListener(EVT, onCustom as EventListener);
 
-    // cross-tab via storage
     const onStorage = (e: StorageEvent) => {
-      if (e.key === STORAGE_KEY && e.newValue) {
+      if (e.key === KEYS.langLocal && e.newValue) {
         const v = e.newValue as Lang;
         if (v === "en" || v === "hi") {
           setLang(v);
@@ -98,6 +94,7 @@ export default function T(props: TProps) {
       }
     };
     window.addEventListener("storage", onStorage);
+
     return () => {
       window.removeEventListener(EVT, onCustom as EventListener);
       window.removeEventListener("storage", onStorage);
