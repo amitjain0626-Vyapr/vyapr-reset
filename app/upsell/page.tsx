@@ -6,6 +6,7 @@ export const dynamic = "force-dynamic";
 import BoostCard from "@/components/upsell/BoostCard";
 import UpsellViewPing from "@/components/telemetry/UpsellViewPing";
 import { createClient } from "@supabase/supabase-js";
+import { BRAND } from "@/lib/brand";
 
 /* ---------- Supabase admin (server) ---------- */
 function admin() {
@@ -51,7 +52,7 @@ export default async function UpsellPage(props: any) {
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold">
-            Vyapr Growth — Boost Visibility
+            {BRAND.name} Growth — Boost Visibility
           </h1>
           <p className="text-sm text-gray-600">
             Paid discovery slots put your clinic on top of search & directory.
@@ -71,7 +72,7 @@ export default async function UpsellPage(props: any) {
       <section className="rounded-2xl border p-4">
         <h2 className="text-base font-semibold mb-2">How Boost works</h2>
         <ul className="list-disc pl-5 text-sm text-gray-700 space-y-1">
-          <li>Priority placement in Vyapr directory and search.</li>
+          <li>Priority placement in {BRAND.name} directory and search.</li>
           <li>Best-performing templates unlocked for reminders &amp; offers.</li>
           <li>Cancel anytime. You only pay for the current cycle.</li>
         </ul>
