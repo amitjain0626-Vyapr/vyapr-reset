@@ -9,6 +9,7 @@ import ShareRoiButton from "@/components/dashboard/ShareRoiButton";
 import CampaignsTab from "@/components/dashboard/CampaignsTab";
 import ReviewRequestCard from "@/components/reviews/ReviewRequestCard";
 import ReplyTemplates from "@/components/reviews/ReplyTemplates";
+import { BRAND, COPY } from "@/lib/brand";
 
 type ROIConversion = {
   ok: boolean; leads?: number; bookings?: number; paid?: number;
@@ -16,12 +17,13 @@ type ROIConversion = {
 };
 type ROIPending = { ok: boolean; currency?: string; pending_amount?: number; pending_count?: number };
 type ROICollect = { ok: boolean; items?: Array<{ lead_id: string; amount_due: number; currency: string; pay_url: string; wa_url: string }>; };
-type ROIBoost = { ok: boolean; suggestions?: Array<{ key: string; label: string; action_url: string }>; };
+type ROIBoost = { ok: boolean; suggestions?: Array<{ key: string; label: string; action_url: string; meta?: any }> };
 type VerifyStatus = { ok: boolean; verified?: boolean; method?: string; referrals?: number };
 type UpsellResp = { ok: boolean; slug: string; nudges: Array<{ key: string; label: string; kind: string; action_url: string; meta?: any }> };
 type ROISummary = { ok: boolean; funnel?: { leads: number; bookings: number; revenue_inr: number } };
 
-const SITE = process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
+// Centralised base URL (no hard-coded vyapr domain)
+const SITE = (process.env.NEXT_PUBLIC_BASE_URL || BRAND.baseUrl) as string;
 
 async function getJSON<T>(url: string): Promise<T> {
   const r = await fetch(url, { cache: "no-store" });
@@ -86,7 +88,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
           <h1 className="text-2xl font-semibold">Dashboard</h1>
           {isVerified ? (
             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-xs text-emerald-700">
-              ✓ Verified by Vyapr
+              {COPY.verifiedBy}
             </span>
           ) : (
             <a
