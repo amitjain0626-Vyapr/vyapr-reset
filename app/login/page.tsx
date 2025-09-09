@@ -4,9 +4,9 @@
 
 import { useMemo, useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
+import { BRAND } from "@/lib/brand";
 
-const SITE =
-  process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
+const SITE = BRAND.baseUrl; // centralised
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const DEFAULT_PROVIDER_SLUG = "amitjain0626";
@@ -32,7 +32,7 @@ export default function LoginPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   // Inline notice for query param errors (e.g., apple_unavailable)
-const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   // Phone form
   const [phone, setPhone] = useState<string>("");
@@ -43,18 +43,18 @@ const [notice, setNotice] = useState<string | null>(null);
 
   const redirectTo = `${SITE}/auth/finish`;
   useEffect(() => {
-  try {
-    const params = new URLSearchParams(window.location.search);
-    const e = params.get("e");
-    if (e === "apple_unavailable") {
-      setNotice("Apple sign-in isn’t set up yet. Please use Google or Phone OTP for now.");
-    } else if (e === "finish") {
-      setNotice("Couldn’t finalize sign-in. Please try again.");
-    } else if (e === "calendar_reconnect") {
-      setNotice("To enable Calendar sync, please continue with Google and allow Calendar access.");
-    }
-  } catch {}
-}, []);
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const e = params.get("e");
+      if (e === "apple_unavailable") {
+        setNotice("Apple sign-in isn’t set up yet. Please use Google or Phone OTP for now.");
+      } else if (e === "finish") {
+        setNotice("Couldn’t finalize sign-in. Please try again.");
+      } else if (e === "calendar_reconnect") {
+        setNotice("To enable Calendar sync, please continue with Google and allow Calendar access.");
+      }
+    } catch {}
+  }, []);
 
   async function signInWith(provider: "google" | "apple") {
     try {
@@ -75,9 +75,9 @@ const [notice, setNotice] = useState<string | null>(null);
           redirectTo,
           // Important: scopes + consent to get refresh/grant for contacts.readonly
           scopes:
-  provider === "google"
-    ? "openid email profile https://www.googleapis.com/auth/contacts.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly"
-    : undefined,
+            provider === "google"
+              ? "openid email profile https://www.googleapis.com/auth/contacts.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly"
+              : undefined,
           queryParams:
             provider === "google"
               ? { access_type: "offline", prompt: "consent" }
@@ -101,7 +101,7 @@ const [notice, setNotice] = useState<string | null>(null);
       const payload = {
         slug: (slug || "").trim(),
         wa_number: (phone || "").trim(),
-        brand_name: "Vyapr",
+        brand_name: BRAND.name, // centralised brand
         note: "login-wa-check",
       };
 
@@ -178,16 +178,16 @@ const [notice, setNotice] = useState<string | null>(null);
 
   return (
     <main className="mx-auto max-w-md px-4 py-10">
-      <h1 className="text-2xl font-semibold">Sign in to Vyapr</h1>
+      <h1 className="text-2xl font-semibold">Sign in to {BRAND.name}</h1>
       <p className="text-sm text-gray-600 mt-1">
         Choose any method. For phone, we’ll ping your WhatsApp first.
       </p>
 
-{notice ? (
-  <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-    {notice}
-  </div>
-) : null}
+      {notice ? (
+        <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          {notice}
+        </div>
+      ) : null}
 
       {/* OAuth buttons */}
       <div className="mt-6 grid gap-2">

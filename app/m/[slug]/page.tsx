@@ -1,3 +1,4 @@
+// app/m/[slug]/page.tsx
 // @ts-nocheck
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -6,6 +7,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
+import { BRAND, COPY } from "@/lib/brand";
 
 function supabaseAnon() {
   const cookieStore = cookies();
@@ -38,12 +40,12 @@ export async function generateMetadata({
     .eq("is_published", true)
     .maybeSingle();
 
-  const title = data?.name ? `${data.name} • ${data.city || "Dentist"}` : "Microsite";
+  const title = data?.name ? `${data.name} • ${data.city || "Dentist"}` : COPY.micrositeName;
   const description = data?.name
     ? `Book an appointment with ${data.name}${data.city ? ` in ${data.city}` : ""}.`
-    : "Vyapr Microsite";
+    : COPY.micrositeName; // (was "Vyapr Microsite")
 
-  return { title, description };
+  return { title, description, robots: { index: true, follow: true } };
 }
 
 export default async function MicrositePage({
