@@ -4,11 +4,15 @@ import "./globals.css";
 import type { ReactNode } from "react";
 import Footer from "@/components/Footer";
 import { cookies } from "next/headers";
+import { KEYS, LEGACY_KEYS } from "@/lib/brand";
 
 function getLang(): "en" | "hi" {
-  // Default English for all external-facing content
-  const v = cookies().get("korekko.lang")?.value?.toLowerCase() || "en";
-  return v === "hi" ? "hi" : "en";
+  // Read new cookie first, then legacy; default English
+  const ck =
+    cookies().get(KEYS.langCookie)?.value?.toLowerCase() ||
+    cookies().get(LEGACY_KEYS.langCookie)?.value?.toLowerCase() ||
+    "en";
+  return ck === "hi" ? "hi" : "en";
 }
 
 export default function RootLayout({ children }: { children: ReactNode }) {
