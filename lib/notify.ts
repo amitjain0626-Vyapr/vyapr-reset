@@ -1,5 +1,7 @@
 // lib/notify.ts
 // @ts-nocheck
+import { BRAND } from "@/lib/brand";
+
 type LeadNotice = {
   toEmail: string | null;
   dentistName?: string | null;
@@ -14,19 +16,19 @@ export async function sendLeadEmail(notice: LeadNotice) {
 
   // Fallback to console if no recipient or no Resend key
   if (!toEmail || !process.env.RESEND_API_KEY) {
-    console.log('[Notify] New lead', { toEmail, dentistName, micrositeSlug, patientName, patientPhone, note });
+    console.log("[Notify] New lead", { toEmail, dentistName, micrositeSlug, patientName, patientPhone, note });
     return { ok: true, fallback: true };
   }
 
-  const from = process.env.NOTIFY_FROM_EMAIL || 'onboarding@resend.dev';
-  const replyTo = process.env.NOTIFY_REPLY_TO || '';
+  const from = process.env.NOTIFY_FROM_EMAIL || "onboarding@resend.dev";
+  const replyTo = process.env.NOTIFY_REPLY_TO || "";
 
-  const { Resend } = await import('resend');
+  const { Resend } = await import("resend");
   const resend = new Resend(process.env.RESEND_API_KEY!);
 
-  const subject = `🆕 New lead from ${micrositeSlug || 'microsite'}`;
+  const subject = `🆕 New lead from ${micrositeSlug || "microsite"}`;
   const lines = [
-    `Hi${dentistName ? ' ' + dentistName : ''},`,
+    `Hi${dentistName ? " " + dentistName : ""},`,
     ``,
     `You’ve received a new appointment request.`,
     ``,
@@ -35,10 +37,10 @@ export async function sendLeadEmail(notice: LeadNotice) {
     note ? `Note: ${note}` : null,
     micrositeSlug ? `Microsite: /book/${micrositeSlug}` : null,
     ``,
-    `— Vyapr`,
+    `— ${BRAND.name}`,
   ].filter(Boolean);
 
-  const html = `<pre style="font:14px/1.6 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">${lines.join('\n')}</pre>`;
+  const html = `<pre style="font:14px/1.6 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">${lines.join("\n")}</pre>`;
 
   const { error } = await resend.emails.send({
     from,
