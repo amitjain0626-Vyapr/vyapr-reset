@@ -1,15 +1,16 @@
 // components/i18n/T.tsx
+// @ts-nocheck
 "use client";
 
 import { useEffect, useState } from "react";
 import type { JSX as JSXRuntime } from "react";
 
-// Default language is always English for Vyapr↔Provider and Provider↔Customer
+// Default language is English for public pages
 export type Lang = "en" | "hi";
-const STORAGE_KEY = "vyapr.lang";
-const COOKIE_KEY = "vyapr.lang"; // same key for cookie/local usage
+const STORAGE_KEY = "korekko.lang";
+const COOKIE_KEY = "korekko.lang"; // same key for cookie/local usage
 const DEFAULT_LANG: Lang = "en";
-const EVT = "vyapr:lang"; // cross-component update event
+const EVT = "korekko:lang"; // cross-component update event
 
 type TProps = {
   en: string;

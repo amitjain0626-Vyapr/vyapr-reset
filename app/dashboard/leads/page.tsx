@@ -135,7 +135,6 @@ async function fetchRoiSafe(providerId: string | null) {
       prevVerified7 = 0;
 
     const paid7 = new Set<string>();
-    // Track booking rows inside last 7d with optional expected amount
     const bookings7Rows: Array<{ lead_id?: string | null; amount: number }> = [];
 
     for (const r of rows) {
@@ -191,6 +190,9 @@ async function fetchRoiSafe(providerId: string | null) {
       if (!paid7.has(lead)) pendingAmount7 += b.amount || 0;
     }
 
+    // Declare paidLeads7 before using it in %s (bug fix)
+    const paidLeads7 = paid7.size;
+
     // Conversion % helpers (7d)
     const verifiedToBookingsPct7 =
       verified7 > 0 ? Math.round((bookings7 / verified7) * 100) : 0;
@@ -214,7 +216,7 @@ async function fetchRoiSafe(providerId: string | null) {
       prevPayments7,
       deltaBookings7Text: mkDelta(bookings7, prevBookings7),
       deltaPayments7Text: mkDelta(payments7, prevPayments7),
-      paidLeads7: paid7.size,
+      paidLeads7,
       pending7: Math.max(bookings7 - paidLeads7, 0),
       verified7,
       prevVerified7,
@@ -600,7 +602,7 @@ export default async function LeadsPage(props: any) {
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
               <div className="text-sm font-semibold">
-                ⚡ Grow faster with Vyapr Growth
+                ⚡ Grow faster with Korekko
               </div>
               <div className="text-xs">
                 More bookings and fewer no-shows — unlock paid discovery,
@@ -743,7 +745,7 @@ export default async function LeadsPage(props: any) {
       {/* Weekly trend line */}
       <div className="rounded-2xl border p-4">
         <div className="flex items-center justify-between mb-2">
-          <h2 className="text-base font-semibold">Weekly growth (last 8 weeks)</h2>
+          <h2 className="text/base font-semibold">Weekly growth (last 8 weeks)</h2>
           <div className="text-xs text-gray-500">
             Source: Events.payment.success
           </div>

@@ -29,14 +29,20 @@ function maskDigits(d: string) {
   return `${s.slice(0, s.length - 4).replace(/\d/g, "•")}${s.slice(-4)}`;
 }
 
+function originSafe() {
+  if (typeof window !== "undefined" && window.location?.origin) return window.location.origin;
+  return process.env.NEXT_PUBLIC_BASE_URL || "https://app.korekko.com";
+}
+
 function buildText(providerName: string, leadName?: string) {
   const hi = leadName?.trim() ? `Hi ${leadName.trim()},` : "Hi!";
   const ref = Math.random().toString(36).slice(2, 8).toUpperCase();
+  const payUrl = `${originSafe()}/pay/TEST`;
   return {
     text: [
       hi,
       `This is a friendly reminder to complete your pending payment with ${providerName}.`,
-      `You can pay here: https://vyapr-reset-5rly.vercel.app/pay/TEST`,
+      `You can pay here: ${payUrl}`,
       `Ref: ${ref}`,
     ].join("\n"),
     ref,
@@ -57,10 +63,8 @@ export default function NudgesPage(props: { searchParams?: { slug?: string; wind
   const slug = (props?.searchParams?.slug || "").trim();
   const winToken = (props?.searchParams?.window || "d30").trim().toLowerCase();
 
-  // 2 lines before
   const win = useMemo(() => (winToken === "h24" ? { key: "h24", label: "last 24 hours" } : { key: "d30", label: "last 30 days" }), [winToken]);
-  // << insert >>
-  // Defensive: require slug in URL
+
   if (!slug) {
     return (
       <main className="p-6">
@@ -69,7 +73,6 @@ export default function NudgesPage(props: { searchParams?: { slug?: string; wind
       </main>
     );
   }
-  // 2 lines after
 
   const [providerName, setProviderName] = useState<string>(slug);
   const [providerId, setProviderId] = useState<string | null>(null);
@@ -84,7 +87,6 @@ export default function NudgesPage(props: { searchParams?: { slug?: string; wind
     let cancelled = false;
     (async () => {
       try {
-        // Try provider info endpoint; fall back to slug
         const r = await fetch(`/api/providers/${encodeURIComponent(slug)}`, { cache: "no-store" });
         const j = await r.json().catch(() => ({}));
         if (!cancelled) {
@@ -105,18 +107,15 @@ export default function NudgesPage(props: { searchParams?: { slug?: string; wind
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      // nudges config (quiet hours/cap)
       const c = await fetch(`/api/cron/nudges?${q({ slug })}`, { cache: "no-store" }).then(r => r.json()).catch(() => null);
       setCfg(c && c.ok ? (c as NudgesConfig) : null);
 
-      // recent suggested nudges
       const events = await fetch(`/api/debug/events/recent?${q({ slug, event: "nudge.suggested", window: win.key })}`, { cache: "no-store" })
         .then(r => r.json())
         .catch(() => ({ ok: false, rows: [] }));
       const rows: NudgeEvent[] = Array.isArray(events?.rows) ? events.rows : [];
       setNudges(rows);
 
-      // upsell fallback (only when empty)
       if (!rows.length) {
         const u = await fetch(`/api/upsell?${q({ slug })}`, { cache: "no-store" }).then(r => r.json()).catch(() => null);
         setFallback(Array.isArray(u?.nudges) ? u.nudges.slice(0, 4) : []);
@@ -172,7 +171,7 @@ export default function NudgesPage(props: { searchParams?: { slug?: string; wind
   function onBatchSend() {
     const anchors = Array.from(document.querySelectorAll<HTMLAnchorElement>('[data-test="nudge-send"]'));
     const allowed = Math.max(0, Math.min(remaining, anchors.length));
-    const CAP = 6; // WA fan-out cap
+    const CAP = 6;
     const openN = Math.min(CAP, allowed);
 
     if (isQuiet || openN <= 0) {
@@ -187,24 +186,13 @@ export default function NudgesPage(props: { searchParams?: { slug?: string; wind
         const href = a.getAttribute("href");
         if (!href) continue;
 
-        // Extract lead id from data attribute (added below)
         const leadId = (a.dataset?.leadId || "").trim() || null;
 
-        // Open WhatsApp tab
         window.open(href, "_blank", "noopener,noreferrer");
         opened++;
 
-        // gentle pacing
-        // 2 lines before
         await new Promise((r) => setTimeout(r, 150));
-        // << insert >>
-        // === VYAPR: Playbooks trigger START (22.18) ===
-        // When batch send opens WA for a lead, also log playbook.sent
-        // Default playbook = "reminder" for Nudge Center batch sends
         await logPlaybook(leadId, "reminder");
-        // === VYAPR: Playbooks trigger END (22.18) ===
-        // (kept small to avoid WA rate-limit spikes)
-        // 2 lines after
       }
       logBatch(opened);
     })();
@@ -331,7 +319,7 @@ export default function NudgesPage(props: { searchParams?: { slug?: string; wind
 
         {nudges.map((n, idx) => {
           const phone = (n?.source?.target || "").toString();
-          const leadName = ""; // optional: resolve later via names API
+          const leadName = "";
           const { text } = buildText(providerName, leadName);
 
           const p = new URLSearchParams();
@@ -357,10 +345,7 @@ export default function NudgesPage(props: { searchParams?: { slug?: string; wind
                     className="inline-flex items-center rounded-lg px-3 py-1.5 text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700 transition"
                     title="Open WhatsApp with prefilled reminder"
                     data-test="nudge-send"
-                    // === VYAPR: Playbooks trigger START (22.18) ===
-                    // Attach lead id to the send button so batch send can log playbook.sent
                     data-lead-id={n.lead_id || ""}
-                    // === VYAPR: Playbooks trigger END (22.18) ===
                   >
                     Send on WhatsApp
                   </a>
@@ -381,7 +366,7 @@ export default function NudgesPage(props: { searchParams?: { slug?: string; wind
 
                         const textFinal =
                           serverText ||
-                          `Hi, please complete your pending payment with ${providerName}. Pay here: https://vyapr-reset-5rly.vercel.app/pay/TEST`;
+                          `Hi, please complete your pending payment with ${providerName}. Pay here: ${originSafe()}/pay/TEST`;
 
                         const wa = `https://api.whatsapp.com/send/?phone=${phoneDigits}&text=${encodeURIComponent(textFinal)}&type=phone_number&app_absent=0`;
                         window.open(wa, "_blank", "noopener,noreferrer");

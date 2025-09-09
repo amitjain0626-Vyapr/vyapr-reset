@@ -11,6 +11,11 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const DEFAULT_FALLBACK_SLUG = "amitjain0626";
 
+/**
+ * NOTE (branding):
+ * - User-visible copy says “Korekko”.
+ * - We KEEP existing localStorage key `vyapr:lastSlug` for backward compat.
+ */
 function makeSb() {
   return createClient(SUPABASE_URL, SUPABASE_ANON, {
     auth: { persistSession: true, detectSessionInUrl: true },
@@ -59,7 +64,7 @@ async function resolveProviderSlug(): Promise<string> {
     if (s2) return s2;
   } catch {}
 
-  // 3) LocalStorage hint
+  // 3) LocalStorage hint (back-compat key)
   try {
     const ls = localStorage.getItem("vyapr:lastSlug");
     if (ls) return ls;
@@ -109,13 +114,13 @@ export default function AuthFinishPage() {
           safeLog("lead.imported", { from: "gmail", confidence: "stub", ts_hint: now + i });
         }
 
-        // 5) Resolve slug, remember locally for future, and redirect
+        // 5) Resolve slug, remember locally (back-compat key), and redirect
         const slug = await resolveProviderSlug();
         try {
           localStorage.setItem("vyapr:lastSlug", slug);
         } catch {}
 
-        setMsg("Signed in. Taking you to dashboard…");
+        setMsg("Signed in. Taking you to the Korekko dashboard…");
         // Important: go straight to the Leads page with the slug
         window.location.replace(`/dashboard/leads?slug=${encodeURIComponent(slug)}`);
       } catch (e: any) {

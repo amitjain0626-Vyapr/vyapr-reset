@@ -35,7 +35,7 @@ export default async function OnboardingPage({
 
   return (
     <div className="mx-auto max-w-2xl p-6 space-y-6">
-      <h1 className="text-2xl font-semibold">Create your Vyapr microsite</h1>
+      <h1 className="text-2xl font-semibold">Create your Korekko microsite</h1>
       <ol className="list-decimal space-y-2 pl-6 text-sm text-gray-700">
         <li>Choose your preferred language.</li>
         <li>Review your details.</li>
