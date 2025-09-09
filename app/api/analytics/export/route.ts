@@ -1,8 +1,10 @@
+// app/api/analytics/export/route.ts
 // @ts-nocheck
 export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
+import { BRAND } from "@/lib/brand";
 
-const SITE = process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
+const SITE = BRAND.baseUrl; // centralized (no hard-coded vyapr domain)
 
 /**
  * Builds a forwardable WhatsApp ROI-proof text card.
@@ -31,13 +33,13 @@ export async function GET(req: NextRequest) {
   const pendingAmt = pending?.pending_amount ?? 0;
   const pendingCnt = pending?.pending_count ?? 0;
 
-  const header = `Vyapr ROI (Provider: ${slug})`;
+  const header = `${BRAND.name} ROI (Provider: ${slug})`; // was "Vyapr ROI"
   const lines = [
     header,
     `Leads → Bookings → Paid: ${leads} → ${bookings} → ${paid}`,
     `Conversions: L→B ${pctLB}%, B→P ${pctBP}%, L→P ${pctLP}%`,
     `Pending ₹: ₹${Math.round(pendingAmt)} (${pendingCnt} dues)`,
-    `Proof link: ${SITE}/dashboard?slug=${encodeURIComponent(slug)}`
+    `Proof link: ${SITE}/dashboard?slug=${encodeURIComponent(slug)}`,
   ];
 
   const text = lines.join("\n");
