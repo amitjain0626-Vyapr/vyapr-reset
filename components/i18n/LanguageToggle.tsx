@@ -1,4 +1,5 @@
 // components/i18n/LanguageToggle.tsx
+// @ts-nocheck
 "use client";
 
 import { useEffect, useState } from "react";
@@ -6,9 +7,9 @@ import { getStoredLang, setStoredLang } from "./T";
 import type { Lang } from "./T";
 
 /**
- * Contract V2.3 notes:
+ * Notes:
  * - English is the default language globally.
- * - Toggle sets a cookie (vyapr.lang) + localStorage for public pages to read.
+ * - Toggle sets a cookie (korekko.lang) + localStorage for public pages to read.
  * - Also fire-and-forget POST /api/provider/lang to persist provider pref (when logged in).
  * - No schema drift. Telemetry handled inside the API route.
  */

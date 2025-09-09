@@ -12,10 +12,10 @@ function mkText(kind: Kind, { provider, amount, name, slot }: any) {
   const who = name ? ` ${name}` : "";
 
   const map: Record<Kind, string> = {
-    confirm: `Hi${who}, your booking with ${provider} is confirmed${when}. See you soon! — via Vyapr`,
-    remind:  `Hi${who}, gentle reminder about your booking with ${provider}${when}. Reply here if you need to reschedule. — via Vyapr`,
-    reschedule: `Hi${who}, I have a couple of alternate slots this week. Tell me your preference and I’ll confirm. — ${provider} via Vyapr`,
-    receipt: `Hi${who}, thanks for ${amt} to ${provider}. Your booking is confirmed${when}. — via Vyapr`,
+    confirm: `Hi${who}, your booking with ${provider} is confirmed${when}. See you soon! — via Korekko`,
+    remind:  `Hi${who}, gentle reminder about your booking with ${provider}${when}. Reply here if you need to reschedule. — via Korekko`,
+    reschedule: `Hi${who}, I have a couple of alternate slots this week. Tell me your preference and I’ll confirm. — ${provider} via Korekko`,
+    receipt: `Hi${who}, thanks for ${amt} to ${provider}. Your booking is confirmed${when}. — via Korekko`,
   };
   return map[kind];
 }
