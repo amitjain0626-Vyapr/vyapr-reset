@@ -1,5 +1,7 @@
+// app/api/t/route.ts
 // @ts-nocheck
 import { NextRequest, NextResponse } from "next/server";
+import { BRAND } from "@/lib/brand";
 
 const PROVIDER_ID_FALLBACKS: Record<string, string> = {
   amitjain0626: "c56d7dac-c9ed-4828-9c52-56a445fce7b3",
@@ -46,7 +48,8 @@ export async function GET(req: NextRequest) {
     });
   } catch {}
 
-  const msg = clientMsg || "Hello! This message was sent via Vyapr.";
+  // Centralized brand in default message (no hard-coded Vyapr)
+  const msg = clientMsg || `Hello! This message was sent via ${BRAND.name}.`;
   const wa = `https://wa.me/?text=${encodeURIComponent(msg)}`;
   return NextResponse.redirect(wa, { status: 302 });
 }
