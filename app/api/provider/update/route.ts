@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
   const origin =
     process.env.NEXT_PUBLIC_BASE_URL ||
     url.origin ||
-    "https://vyapr-reset-5rly.vercel.app";
+    "https://korekko-reset-5rly.vercel.app";
 
   let body: any = {};
   try {

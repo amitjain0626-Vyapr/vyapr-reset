@@ -37,7 +37,7 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.redirect(
-      `${process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app"}/settings/verification?slug=${encodeURIComponent(slug)}`
+      `${process.env.NEXT_PUBLIC_BASE_URL || "https://korekko-reset-5rly.vercel.app"}/settings/verification?slug=${encodeURIComponent(slug)}`
     );
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message || "failed" }, { status: 500 });

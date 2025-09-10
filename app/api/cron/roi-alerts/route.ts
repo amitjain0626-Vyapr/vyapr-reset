@@ -10,7 +10,7 @@
 //   (Later: without slug -> iterate all published providers)
 //
 // Verify:
-//  curl -s "https://vyapr-reset-5rly.vercel.app/api/cron/roi-alerts?slug=amitjain0626&dry=1" | jq
+//  curl -s "https://korekko-reset-5rly.vercel.app/api/cron/roi-alerts?slug=amitjain0626&dry=1" | jq
 //
 // Event logged (when triggered):
 //  roi.alert.triggered

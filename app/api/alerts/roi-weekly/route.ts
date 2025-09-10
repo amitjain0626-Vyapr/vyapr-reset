@@ -2,7 +2,7 @@
 export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 
-const SITE = process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
+const SITE = process.env.NEXT_PUBLIC_BASE_URL || "https://korekko-reset-5rly.vercel.app";
 
 /**
  * Computes last 7d vs previous 7d "paid" count as proxy for ROI trend.

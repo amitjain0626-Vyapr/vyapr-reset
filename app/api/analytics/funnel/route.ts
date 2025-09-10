@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
  *    • Surfaces 7d template.sent (sent7d) and booking.landing.opened (opens7d)
  * - If explicit leads are absent, uses opens7d as provisional "leads".
  */
-const SITE = process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
+const SITE = process.env.NEXT_PUBLIC_BASE_URL || "https://korekko-reset-5rly.vercel.app";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
