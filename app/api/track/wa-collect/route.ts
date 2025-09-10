@@ -12,7 +12,7 @@ function admin() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-// build /r/x?uRaw=...&s=... against our BASE (no base64)
+// build /r/x?uRaw=...&s=... against our BASE
 function shortLinkOf(longUrl: string, slug?: string): string {
   const base =
     process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "") ||
@@ -36,22 +36,21 @@ export async function GET(req: NextRequest) {
     const tier = (searchParams.get("tier") || "").trim();
     const ref = (searchParams.get("ref") || "").trim();
 
-    // OPTIONAL: long URL to append as a short /r/x
+    // Decode link param if present
+    let linkDecoded = "";
     const linkParam = (searchParams.get("link") || "").trim();
+    if (linkParam) {
+      try {
+        linkDecoded = decodeURIComponent(linkParam);
+      } catch {
+        linkDecoded = linkParam; // fallback
+      }
+    }
+
     const slug =
       (searchParams.get("slug") || searchParams.get("provider_slug") || "").trim();
 
     const digits = (phoneRaw || "").replace(/[^\d]/g, "");
-
-    // --- FIX: safely decode link (handles links passed as https%3A%2F%2F...) ---
-    let linkDecoded = linkParam;
-    try {
-      // decodeURIComponent is idempotent for non-encoded strings (throws only on malformed)
-      linkDecoded = decodeURIComponent(linkParam);
-    } catch {
-      // keep original if decoding fails
-      linkDecoded = linkParam;
-    }
 
     // Compose WA message text; append short link when provided
     let composed = textRaw || "";
@@ -60,7 +59,7 @@ export async function GET(req: NextRequest) {
         const short = shortLinkOf(linkDecoded, slug || undefined);
         composed = (composed ? `${composed} ` : "") + short;
       } catch {
-        // ignore; fallback to original text
+        // ignore
       }
     }
 
@@ -70,7 +69,7 @@ export async function GET(req: NextRequest) {
       `https://api.whatsapp.com/send/?phone=${digits}` +
       `&text=${msg}&type=phone_number&app_absent=0`;
 
-    // telemetry (best-effort; strict shape)
+    // telemetry (best-effort)
     try {
       await admin().from("Events").insert({
         event: "upsell.wa.clicked",
