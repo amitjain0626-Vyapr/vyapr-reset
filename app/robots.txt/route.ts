@@ -1,15 +1,12 @@
+// app/robots.txt/route.ts
 // @ts-nocheck
 import { NextResponse } from "next/server";
+import { BRAND } from "@/lib/brand";
 
 export const dynamic = "force-dynamic";
 
-function baseUrl() {
-  const env = process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "");
-  return env && /^https?:\/\//i.test(env) ? env : "https://vyapr-reset-5rly.vercel.app";
-}
-
 export async function GET() {
-  const BASE = baseUrl();
+  const BASE = BRAND.baseUrl;
   const body = [
     "User-agent: *",
     "Allow: /",

@@ -107,7 +107,7 @@ export async function GET(req: NextRequest) {
     const convPct = leads > 0 ? Math.round(((paid_count || 0) / leads) * 100) : 0;
 
     const bookLink = `${base}/book/${slug}`;
-    const headline = `Vyapr ROI (last ${windowDays} day${windowDays > 1 ? "s" : ""})`;
+    const headline = `Korekko ROI (last ${windowDays} day${windowDays > 1 ? "s" : ""})`;
     const body = `${providerName}: Leads ${leads} • Bookings ${bookings} • Paid ₹${inr(paid_sum)} (${convPct}% conv)`;
     const tail = `Share: ${bookLink}`;
     const text = `${headline}\n${body}\n${tail}`;

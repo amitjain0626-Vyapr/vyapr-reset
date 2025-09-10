@@ -114,7 +114,7 @@ export default function BookingForm({
   const waHref = useMemo(() => {
     const waNumber = normalizePhoneForWA(whatsapp ?? phone ?? "");
     if (!waNumber) return null;
-    const waText = encodeURIComponent(`Hi ${providerName}, I submitted a booking request from your Vyapr page (${pageUrl}).`);
+    const waText = encodeURIComponent(`Hi ${providerName}, I submitted a booking request from your Korekko page (${pageUrl}).`);
     return `https://wa.me/${waNumber}?text=${waText}`;
   }, [whatsapp, phone, providerName, pageUrl]);
 

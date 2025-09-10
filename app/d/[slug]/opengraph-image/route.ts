@@ -5,7 +5,7 @@ import { COPY } from "@/lib/brand";
 export const runtime = "edge";
 
 export async function GET(): Promise<ImageResponse> {
-  const name = COPY.micrositeName; // was 'Vyapr Microsite'
+  const name = COPY.micrositeName; // was 'Korekko Microsite'
 
   return new ImageResponse(
     React.createElement(

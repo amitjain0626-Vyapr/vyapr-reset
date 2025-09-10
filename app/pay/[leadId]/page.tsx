@@ -54,13 +54,13 @@ export default async function Page({
 
   const amt = Math.max(0, Math.round(Number(amount || "0")));
   const vpa = (upi || DEFAULT_UPI).trim();
-  const payeeName = (name || slug || "Vyapr Provider").trim();
+  const payeeName = (name || slug || "Korekko Provider").trim();
 
   const upiLink = `upi://pay?pa=${encodeURIComponent(
     vpa
   )}&pn=${encodeURIComponent(payeeName)}&am=${encodeURIComponent(
     String(amt)
-  )}&cu=INR&tn=${encodeURIComponent(`Vyapr payment ${leadId}`)}`;
+  )}&cu=INR&tn=${encodeURIComponent(`Korekko payment ${leadId}`)}`;
 
   const qrSrc = `/api/qr?url=${encodeURIComponent(upiLink)}`;
   const bookUrl = slug ? `/book/${slug}` : "/";
