@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
     });
   } catch {}
 
-  // Centralized brand in default message (no hard-coded Vyapr)
+  // Centralized brand in default message (no hard-coded Korekko)
   const msg = clientMsg || `Hello! This message was sent via ${BRAND.name}.`;
   const wa = `https://wa.me/?text=${encodeURIComponent(msg)}`;
   return NextResponse.redirect(wa, { status: 302 });
