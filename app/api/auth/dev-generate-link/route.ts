@@ -29,10 +29,12 @@ export async function POST(request: Request) {
     request.headers.get('host') ??
     'localhost:3000';
   const baseUrl = `${proto}://${host}`;
-  const redirectTo = `${baseUrl}/auth/callback`;
+  // Korekko flow: finalize on /auth/finish (not /auth/callback)
+  const redirectTo = `${baseUrl}/auth/finish`;
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE, {
     auth: { autoRefreshToken: false, persistSession: false },
+    global: { headers: { 'X-Client-Info': 'korekko-admin' } },
   });
 
   const { data, error } = await admin.auth.admin.generateLink({

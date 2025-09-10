@@ -6,13 +6,13 @@
 import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE!; // set in Vercel
+const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY!; // unified name
 
 if (!SUPABASE_URL) {
   throw new Error("Missing env NEXT_PUBLIC_SUPABASE_URL");
 }
 if (!SUPABASE_SERVICE_ROLE) {
-  throw new Error("Missing env SUPABASE_SERVICE_ROLE");
+  throw new Error("Missing env SUPABASE_SERVICE_ROLE_KEY");
 }
 
 export function createAdminClient() {
@@ -24,7 +24,7 @@ export function createAdminClient() {
     },
     global: {
       headers: {
-        "X-Client-Info": "vyapr-admin",
+        "X-Client-Info": "korekko-admin",
       },
     },
   });
