@@ -41,7 +41,7 @@ export async function POST(req: Request) {
     await sb.from("Events").insert(row);
 
     return NextResponse.redirect(
-  `${process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app"}/dashboard/settings?slug=${encodeURIComponent(slug)}`
+  `${process.env.NEXT_PUBLIC_BASE_URL || "https://korekko-reset-5rly.vercel.app"}/dashboard/settings?slug=${encodeURIComponent(slug)}`
 );
 
   } catch (e: any) {

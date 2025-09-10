@@ -15,7 +15,7 @@ function j(body: any, code = 200) {
 }
 
 const ORIGIN =
-  process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
+  process.env.NEXT_PUBLIC_BASE_URL || "https://korekko-reset-5rly.vercel.app";
 
 function admin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;

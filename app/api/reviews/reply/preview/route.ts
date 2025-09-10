@@ -83,7 +83,7 @@ export async function GET(req: Request) {
     });
   }
 
-  const origin = process.env.NEXT_PUBLIC_BASE_URL || url.origin || "https://vyapr-reset-5rly.vercel.app";
+  const origin = process.env.NEXT_PUBLIC_BASE_URL || url.origin || "https://korekko-reset-5rly.vercel.app";
   const link = `${origin}/review/${encodeURIComponent(slug)}`;
 
   // Resolve provider → display + profession

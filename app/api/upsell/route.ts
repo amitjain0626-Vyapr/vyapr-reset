@@ -31,7 +31,7 @@ export async function GET(req: Request) {
   const origin =
     process.env.NEXT_PUBLIC_BASE_URL ||
     url.origin ||
-    "https://vyapr-reset-5rly.vercel.app";
+    "https://korekko-reset-5rly.vercel.app";
 
   // Pull existing CTAs (server-to-server)
   const [collectRes, boostRes] = await Promise.all([

@@ -137,7 +137,7 @@ export async function PATCH(req: Request, ctx: { params?: { slug?: string } }) {
     // Best-effort telemetry; do not block response
     try {
       await fetch(
-        `${process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app"}/api/events/log`,
+        `${process.env.NEXT_PUBLIC_BASE_URL || "https://korekko-reset-5rly.vercel.app"}/api/events/log`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

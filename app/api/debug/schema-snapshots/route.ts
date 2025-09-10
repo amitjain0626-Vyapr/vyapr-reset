@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const BASE =
-  (process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app").replace(/\/+$/, "");
+  (process.env.NEXT_PUBLIC_BASE_URL || "https://korekko-reset-5rly.vercel.app").replace(/\/+$/, "");
 const TARGET_TYPES = new Set(["LocalBusiness", "FAQPage", "BreadcrumbList", "ItemList"]);
 
 function json(data: any, status = 200) {

@@ -58,7 +58,7 @@ export async function POST(req: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
   // telemetry (best-effort)
-  const base = process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
+  const base = process.env.NEXT_PUBLIC_BASE_URL || "https://korekko-reset-5rly.vercel.app";
   fetch(`${base}/api/events/log`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

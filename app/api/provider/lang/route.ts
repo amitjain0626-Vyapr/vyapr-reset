@@ -66,7 +66,7 @@ export async function POST(req: Request) {
 
     // Telemetry (best-effort, allowed fields only)
     try {
-      await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app"}/api/events/log`, {
+      await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || "https://korekko-reset-5rly.vercel.app"}/api/events/log`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -87,7 +87,7 @@ export async function POST(req: Request) {
 
 /* ------------------------------- GET (resolve) ---------------------------- */
 /* Public, read-only resolver for UI/automation:
-   Priority: ?lang → Cookie(vyapr.lang) → (if logged in) Providers.lang_pref → "en"
+   Priority: ?lang → Cookie(korekko.lang) → (if logged in) Providers.lang_pref → "en"
    Keeps default language English globally. */
 export async function GET(req: Request) {
   try {
@@ -98,7 +98,7 @@ export async function GET(req: Request) {
     // Cookie
     const cookieHeader = req.headers.get("cookie");
     const cookies = parseCookie(cookieHeader);
-    const cLang = normLang(cookies["vyapr.lang"]);
+    const cLang = normLang(cookies["korekko.lang"]);
     if (cLang) return NextResponse.json({ ok: true, lang: cLang, via: "cookie" });
 
     // If user is logged in, try Providers.lang_pref; otherwise fall back to "en"
