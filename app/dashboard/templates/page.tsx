@@ -307,7 +307,7 @@ export default function TemplatesPage() {
 
         <div className="md:col-span-3 flex items-center gap-2">
           <label className="text-sm text-gray-600 w-28">Link override</label>
-          <input value={linkOverride} onChange={(e) => setLinkOverride(e.target.value)} className="border px-2 py-1 text-sm rounded w-full" placeholder={`https://vyapr-reset-5rly.vercel.app/book/${slug}`} />
+          <input value={linkOverride} onChange={(e) => setLinkOverride(e.target.value)} className="border px-2 py-1 text-sm rounded w-full" placeholder={`https://korekko-reset.vercel.app/book/${slug}`} />
           {ok !== null && <span className={`text-xs ${ok ? "text-emerald-700" : "text-red-700"} ml-2`}>{ok ? "OK" : "Failed"}</span>}
         </div>
       </div>
@@ -350,8 +350,8 @@ export default function TemplatesPage() {
 
       {/* Helper links */}
       <section className="text-xs text-gray-500 pt-2 space-y-1">
-        <div>Slots feed: <a className="underline" target="_blank" href={`https://vyapr-reset-5rly.vercel.app/api/debug/slots?slug=${encode(slug)}`}>https://vyapr-reset-5rly.vercel.app/api/debug/slots?slug={slug}</a></div>
-        <div>Booking page: <a className="underline" target="_blank" href={`https://vyapr-reset-5rly.vercel.app/book/${encode(slug)}`}>https://vyapr-reset-5rly.vercel.app/book/{slug}</a></div>
+        <div>Slots feed: <a className="underline" target="_blank" href={`https://korekko-reset-5rly.vercel.app/api/debug/slots?slug=${encode(slug)}`}>https://korekko-reset-5rly.vercel.app/api/debug/slots?slug={slug}</a></div>
+        <div>Booking page: <a className="underline" target="_blank" href={`https://korekko-reset-5rly.vercel.app/book/${encode(slug)}`}>https://korekko-reset-5rly.vercel.app/book/{slug}</a></div>
       </section>
     </main>
   );
