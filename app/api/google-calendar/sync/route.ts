@@ -51,7 +51,7 @@ export async function POST(req: Request) {
 
     const booking = {
       slug: provider_slug,
-      title: body.title || "Vyapr booking",
+      title: body.title || "korekko booking",
       startISO: body.startISO || null,
       endISO: body.endISO || null,
       lead_id: body.lead_id || null,
@@ -188,7 +188,7 @@ export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
     const provider_slug = (url.searchParams.get("slug") || "").trim() || null;
-    const title = url.searchParams.get("title") || "Vyapr booking";
+    const title = url.searchParams.get("title") || "korekko booking";
     const lead_id = url.searchParams.get("lead_id") || null;
     const startISO =
       url.searchParams.get("startISO") ||
@@ -248,8 +248,8 @@ export async function GET(req: NextRequest) {
     // Push event
     const desc =
       provider_slug || lead_id
-        ? `Vyapr • provider:${provider_slug || "-"} • lead:${lead_id || "-"}`
-        : "Vyapr";
+        ? `korekko • provider:${provider_slug || "-"} • lead:${lead_id || "-"}`
+        : "korekko";
     const pushed = await pushCalendarEvent(
       providerToken,
       title,

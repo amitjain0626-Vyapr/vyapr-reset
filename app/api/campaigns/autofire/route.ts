@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 /* ----------------------------- lang helpers ------------------------------ */
-/* No schema drift. English default. Honors: ?lang → cookie(vyapr.lang) → Providers.lang_pref → "en" */
+/* No schema drift. English default. Honors: ?lang → cookie(Korekko.lang) → Providers.lang_pref → "en" */
 type Lang = "en" | "hi";
 function normalizeLangToken(v?: string | null): "en" | "hi" | "hinglish" | null {
   const t = (v || "").toLowerCase().trim();
@@ -31,7 +31,7 @@ async function resolveLang(req: NextRequest, slug: string): Promise<Lang> {
   const url = new URL(req.url);
   const qLang = normalizeLangToken(url.searchParams.get("lang"));
   if (qLang) return qLang;
-  const cookieLang = normalizeLangToken(req.cookies.get("vyapr.lang")?.value);
+  const cookieLang = normalizeLangToken(req.cookies.get("Korekko.lang")?.value);
   if (cookieLang) return cookieLang;
   const pref = await resolveProviderLangPref(url.origin, slug);
   return pref || "en";
@@ -180,7 +180,7 @@ export async function POST(req: NextRequest) {
       source: {
         slotISO,
         channel: "whatsapp",
-        template: "vyapr.default.reminder",
+        template: "Korekko.default.reminder",
         mode: "test",
         lang, // record chosen language (allowed inside source)
       },
@@ -242,7 +242,7 @@ export async function POST(req: NextRequest) {
       source: {
         slotISO: item.slotISO,
         channel: "whatsapp",
-        template: "vyapr.default.reminder",
+        template: "Korekko.default.reminder",
         lang, // record chosen language
       },
     });

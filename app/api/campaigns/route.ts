@@ -80,7 +80,7 @@ function defaultCampaign(origin: string, slug: string) {
   const triggerTest = `${origin}/api/campaigns/autofire?slug=${encodeURIComponent(slug)}&test=1`;
   const triggerNormal = `${origin}/api/campaigns/autofire?slug=${encodeURIComponent(slug)}`;
   return {
-    id: "vyapr.default.wa.reminders",
+    id: "korekko.default.wa.reminders",
     label: "WhatsApp Reminders (Auto)",
     channel: "wa",
     kind: "reminder",
