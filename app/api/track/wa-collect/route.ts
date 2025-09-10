@@ -12,38 +12,14 @@ function admin() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-// Portable base64url encoder: works on Edge (Web APIs) and Node
-function b64url(input: string): string {
-  try {
-    // Edge/web path: TextEncoder + btoa
-    const bytes = new TextEncoder().encode(input);
-    let bin = "";
-    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-    // @ts-ignore
-    const b64 = typeof btoa === "function" ? btoa(bin) : null;
-    if (b64) {
-      return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-    }
-  } catch {
-    // fall through to Node path
-  }
-  // Node path: Buffer
-  // eslint-disable-next-line no-undef
-  return Buffer.from(input, "utf8")
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-}
-
-// build /r/x?u=...&s=... against our BASE
+// build /r/x?uRaw=...&s=... against our BASE (no base64)
 function shortLinkOf(longUrl: string, slug?: string): string {
   const base =
     process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "") ||
     "https://vyapr-reset-5rly.vercel.app";
-  const u = b64url(longUrl);
+  const uRaw = encodeURIComponent(longUrl);
   const s = slug ? `&s=${encodeURIComponent(slug)}` : "";
-  return `${base}/r/x?u=${u}${s}`;
+  return `${base}/r/x?uRaw=${uRaw}${s}`;
 }
 
 export async function GET(req: NextRequest) {
@@ -74,13 +50,12 @@ export async function GET(req: NextRequest) {
         const short = shortLinkOf(linkRaw, slug || undefined);
         composed = (composed ? `${composed} ` : "") + short;
       } catch {
-        // ignore encoding errors; fallback to original text
+        // ignore; fallback to original text
       }
     }
 
     const msg = encodeURIComponent(composed);
 
-    // Stable WA endpoint
     const waUrl =
       `https://api.whatsapp.com/send/?phone=${digits}` +
       `&text=${msg}&type=phone_number&app_absent=0`;
