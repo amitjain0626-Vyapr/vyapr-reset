@@ -1,4 +1,3 @@
-// components/upsell/BoostCard.tsx
 // @ts-nocheck
 "use client";
 
@@ -29,10 +28,10 @@ export default function BoostCard({ providerId, slug }: Props) {
     } catch {}
 
     // 2) open UPI intent (₹500 demo)
-    const note = `Vyapr Boost - ${slug || "provider"}`;
+    const note = `Korekko Boost - ${slug || "provider"}`;
     const url = `upi://pay?pa=${encodeURIComponent(
       upi
-    )}&pn=${encodeURIComponent("Vyapr Boost")}&mc=0000&tid=${
+    )}&pn=${encodeURIComponent("Korekko Boost")}&mc=0000&tid=${
       Date.now() + ""
     }&tr=${Date.now()}&tn=${encodeURIComponent(note)}&am=500&cu=INR`;
     window.location.href = url;
