@@ -69,7 +69,7 @@ export default function LoginPage() {
           scope: "contacts.readonly",
         });
       }
-const localRedirectTo = `${window.location.origin}/auth/finish`;
+      const localRedirectTo = `${window.location.origin}/auth/finish`;
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
