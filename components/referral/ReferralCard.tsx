@@ -3,7 +3,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { BRAND } from "@/lib/brand";
+import { absUrl, BRAND } from "@/lib/brand";
 
 export default function ReferralCard({
   slug,
@@ -12,17 +12,12 @@ export default function ReferralCard({
   slug: string;
   providerName?: string | null;
 }) {
-  // Centralized base URL (no hard-coded vyapr domain)
-  const base = BRAND.baseUrl;
-
-  const referralUrl = useMemo(
-    () => `${base}/r/${encodeURIComponent(slug)}`,
-    [base, slug]
-  );
+  // Single source of truth for base URL
+  const referralUrl = useMemo(() => absUrl(`/r/${encodeURIComponent(slug)}`), [slug]);
 
   const waText = useMemo(() => {
     const lines = [
-      "Hi!",
+      `Hi!`,
       `I’m using ${BRAND.name} to manage bookings and payments.`,
       `You can set up your page in minutes — here’s my invite link: ${referralUrl}`,
     ];
@@ -49,9 +44,7 @@ export default function ReferralCard({
             Share your link. When they sign up, we’ll attribute the referral to you.
           </div>
           <div className="mt-2">
-            <code className="text-xs bg-gray-50 border rounded px-2 py-1">
-              {referralUrl}
-            </code>
+            <code className="text-xs bg-gray-50 border rounded px-2 py-1">{referralUrl}</code>
           </div>
         </div>
         <div className="flex items-center gap-2">
