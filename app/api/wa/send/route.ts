@@ -14,9 +14,14 @@ import { createClient } from "@supabase/supabase-js";
  *   provider_id=...  (optional)
  *   lead_id=...      (optional)
  *   ref=reminder|rebook|...  (optional; defaults to "reminder")
+ *   // INSERTS:
+ *   link=https://... (optional; long URL to be appended as short /r/x?u=...&s=...)
+ *   slug=...         (optional; provider slug to resolve provider_id in telemetry)
+ *   provider_slug=... (alias of slug)
  *
  * Behavior:
  *   - Normalizes phone to digits
+ *   - If link is present and looks like http(s), appends short link (/r/x?u=...&s=slug)
  *   - Redirects 302 to https://api.whatsapp.com/send/?phone=<digits>&text=<encoded>
  *   - Logs telemetry with strict shape:
  *       {event, ts, provider_id, lead_id, source:{channel:"wa", target:"<digits>", ref, tone:"veli"}}
@@ -36,6 +41,26 @@ function digitsOnly(raw?: string | null) {
   return (raw || "").toString().replace(/[^\d]/g, "");
 }
 
+// INSERT: base64url encode helper for shortlinks
+function b64url(input: string): string {
+  // eslint-disable-next-line no-undef
+  return Buffer.from(input, "utf8")
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+// INSERT: build short /r/x?u=...&s=... against our base
+function shortLinkOf(longUrl: string, slug?: string): string {
+  const base =
+    process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "") ||
+    "https://vyapr-reset-5rly.vercel.app";
+  const u = b64url(longUrl);
+  const s = slug ? `&s=${encodeURIComponent(slug)}` : "";
+  return `${base}/r/x?u=${u}${s}`;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -46,12 +71,27 @@ export async function GET(req: NextRequest) {
     const lead_id = (searchParams.get("lead_id") || "").trim() || null;
     const ref = (searchParams.get("ref") || "reminder").trim().toLowerCase();
 
-    const digits = digitsOnly(phoneRaw);
-    const msg = encodeURIComponent(textRaw);
+    // INSERTS: optional link+slug to auto-append short link
+    const linkRaw = searchParams.get("link") || "";
+    const slug =
+      (searchParams.get("slug") || searchParams.get("provider_slug") || "").trim() || "";
 
+    const digits = digitsOnly(phoneRaw);
     if (!digits || !textRaw) {
       return NextResponse.json({ ok: false, error: "missing_phone_or_text" }, { status: 400 });
     }
+
+    // Build final message (append short link if provided)
+    let composed = textRaw;
+    if (/^https?:\/\//i.test(linkRaw)) {
+      try {
+        const short = shortLinkOf(linkRaw, slug || undefined);
+        composed = `${textRaw} ${short}`.trim();
+      } catch {
+        // ignore encoding issues; proceed without link
+      }
+    }
+    const msg = encodeURIComponent(composed);
 
     // Event name by ref (Veli tone variants)
     let event = "wa.message.sent.veli";
