@@ -1,4 +1,3 @@
-// components/dashboard/OnboardingClient.tsx
 "use client";
 // @ts-nocheck
 
@@ -112,7 +111,7 @@ export default function OnboardingClient({ slug }: { slug: string }) {
   const testHref = `https://wa.me/${encodeURIComponent(
     "919873284544"
   )}?text=${encodeURIComponent(
-    `Hi, this is a test reminder from Vyapr for slug ${slug}.`
+    `Hi, this is a test reminder from Korekko for slug ${slug}.`
   )}`;
 
   return (

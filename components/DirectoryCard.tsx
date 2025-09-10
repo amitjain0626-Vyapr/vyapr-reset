@@ -4,7 +4,7 @@ import Link from "next/link";
 export default function DirectoryCard({ p, city }: { p: any; city?: string }) {
   const name = p.display_name || p.slug;
   const wa = p.whatsapp || p.phone;
-  const prefill = encodeURIComponent(`Hi ${name}, found you on Vyapr. Can we chat?`);
+  const prefill = encodeURIComponent(`Hi ${name}, found you on Korekko. Can we chat?`);
   const waHref = wa ? `https://wa.me/${wa.replace(/\D/g, "")}?text=${prefill}` : undefined;
 
   return (

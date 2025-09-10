@@ -1,4 +1,3 @@
-// components/reschedule/RescheduleForm.tsx
 // @ts-nocheck
 "use client";
 
@@ -44,12 +43,12 @@ export default function RescheduleForm({
     const bodyHi = [
       `${hi} आपकी नई समय वरीयता ${slotPretty || "चुना गया समय"} (IST) प्राप्त हुई।`,
       "हम जल्द पुष्टि करेंगे।",
-      `— ${provider} • Vyapr`
+      `— ${provider} • Korekko`
     ].join(" ");
     const bodyEn = [
       `${enHi} your reschedule request for ${slotPretty || "the selected slot"} (IST) has been received.`,
       "We’ll confirm shortly.",
-      `— ${provider} (via Vyapr)`
+      `— ${provider} (via Korekko)`
     ].join(" ");
     return `https://wa.me/?text=${encodeURIComponent(bodyHi + "\n\n" + bodyEn)}`;
   }, [name, provider, slotPretty]);
