@@ -5,6 +5,7 @@
 import { useMemo, useState, useEffect } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { BRAND } from "@/lib/brand";
+import { getSupabaseBrowser } from "@/lib/supabaseBrowser";
 
 const SITE = BRAND.baseUrl; // centralised
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -28,7 +29,7 @@ async function logEvent(event: string, source: any = {}) {
 }
 
 export default function LoginPage() {
-  const supabase = useMemo(() => makeSb(), []);
+  const supabase = useMemo(() => getSupabaseBrowser(), []);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   // Inline notice for query param errors (e.g., apple_unavailable)
@@ -68,11 +69,12 @@ export default function LoginPage() {
           scope: "contacts.readonly",
         });
       }
+const localRedirectTo = `${window.location.origin}/auth/finish`;
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
-          redirectTo,
+          redirectTo: localRedirectTo,
           // Important: scopes + consent to get refresh/grant for contacts.readonly
           scopes:
             provider === "google"
