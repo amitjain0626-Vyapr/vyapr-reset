@@ -2,6 +2,7 @@
 // @ts-nocheck
 import { NextResponse } from "next/server";
 
+export const runtime = "nodejs";          // ← INSERT: ensure Node runtime (Buffer available)
 export const dynamic = "force-dynamic";
 
 /**
@@ -14,6 +15,32 @@ export const dynamic = "force-dynamic";
  * Telemetry (non-blocking): event = "shortlink.opened"
  * source = { medium:"short", path:"<this_short_url>", provider_slug:"<s or ref>" }
  */
+
+// INSERT: portable base64url decoder (Edge/Node safe, no throw)
+function decodeBase64UrlSafe(input: string): string | null {
+  if (!input || typeof input !== "string") return null;
+  try {
+    // add missing padding for base64url
+    const padLen = (4 - (input.length % 4)) % 4;
+    const padded = input + "=".repeat(padLen);
+    // replace url-safe chars with standard base64
+    const b64 = padded.replace(/-/g, "+").replace(/_/g, "/");
+
+    // Prefer Web API atob (Edge), else Buffer (Node)
+    if (typeof atob === "function") {
+      const bin = atob(b64);
+      // convert binary string to UTF-8
+      const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+      return new TextDecoder("utf-8").decode(bytes);
+    }
+    // Node path
+    // eslint-disable-next-line no-undef
+    return Buffer.from(b64, "base64").toString("utf8");
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(req: Request, ctx: any) {
   const base =
     process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "") ||
@@ -33,16 +60,9 @@ export async function GET(req: Request, ctx: any) {
   let target = "";
 
   if (u) {
-    // base64url decode without padding
-    try {
-      const pad = u.length % 4 === 2 ? "==" : u.length % 4 === 3 ? "=" : "";
-      const decoded = Buffer.from(u + pad, "base64url").toString("utf8");
-      // basic safety: only allow http(s) absolute targets
-      if (/^https?:\/\//i.test(decoded)) {
-        target = decoded;
-      }
-    } catch {
-      // ignore decode errors; fall through to legacy path
+    const decoded = decodeBase64UrlSafe(u);      // ← INSERT: robust decoding
+    if (decoded && /^https?:\/\//i.test(decoded)) {
+      target = decoded;
     }
   }
 
