@@ -57,7 +57,7 @@ function buildWaText({ patientName, amountINR, providerName, note, upi, slotPret
     slotPretty ? `Your booking is confirmed for ${slotPretty} (IST).` : `Your booking is confirmed.`,
     note ? `Note: ${note}` : null,
     upi ? `UPI Ref: ${upi}` : null,
-    `— ${providerName} (via Vyapr)`
+    `— ${providerName} (via Korekko)`
   ].filter(Boolean).join("\n");
 
   const hiIn = [
@@ -66,7 +66,7 @@ function buildWaText({ patientName, amountINR, providerName, note, upi, slotPret
     slotPretty ? `आपकी बुकिंग ${slotPretty} (IST) के लिए पक्की है।` : `आपकी बुकिंग कन्फर्म कर दी गई है।`,
     note ? `टिप्पणी: ${note}` : null,
     upi ? `UPI संदर्भ: ${upi}` : null,
-    `— ${providerName} (Vyapr)`
+    `— ${providerName} (Korekko)`
   ].filter(Boolean).join("\n");
 
   return hiIn + "\n\n" + en;
