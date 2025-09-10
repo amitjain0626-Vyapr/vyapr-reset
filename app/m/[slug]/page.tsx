@@ -43,7 +43,7 @@ export async function generateMetadata({
   const title = data?.name ? `${data.name} • ${data.city || "Dentist"}` : COPY.micrositeName;
   const description = data?.name
     ? `Book an appointment with ${data.name}${data.city ? ` in ${data.city}` : ""}.`
-    : COPY.micrositeName; // (was "Vyapr Microsite")
+    : COPY.micrositeName; // (was "Korekko Microsite")
 
   return { title, description, robots: { index: true, follow: true } };
 }

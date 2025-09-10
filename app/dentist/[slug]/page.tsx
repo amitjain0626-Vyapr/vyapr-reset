@@ -64,7 +64,7 @@ export default async function DentistPage({ params }) {
       </section>
 
       <footer className="mt-12 text-xs text-gray-500">
-        Powered by Vyapr • microsite
+        Powered by Korekko • microsite
       </footer>
     </main>
   );
