@@ -1,5 +1,8 @@
 // app/api/track/wa-collect/route.ts
 // @ts-nocheck
+export const runtime = "nodejs";            // ← INSERT: ensure Node (Buffer available)
+export const dynamic = "force-dynamic";     // ← INSERT: avoid caching variability
+
 import { NextResponse, NextRequest } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
@@ -56,9 +59,7 @@ export async function GET(req: NextRequest) {
       try {
         const short = shortLinkOf(linkRaw, slug || undefined);
         composed = (composed ? `${composed} ` : '') + short;
-      } catch {
-        // ignore encoding errors; fall back to original text
-      }
+    } catch { /* ignore encoding errors; fall back */ }
     }
 
     const msg = encodeURIComponent(composed);
