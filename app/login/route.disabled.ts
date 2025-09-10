@@ -15,7 +15,7 @@ export async function GET(req: Request) {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>Sign in • Vyapr</title>
+    <title>Sign in • Korekko</title>
     <style>
       body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin:0; padding:40px 16px; background:#f9fafb; color:#0f172a;}
       .card { max-width:420px; margin:0 auto; background:#fff; border:1px solid #e5e7eb; border-radius:16px; padding:24px;}
