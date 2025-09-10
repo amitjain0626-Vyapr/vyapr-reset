@@ -32,7 +32,7 @@ export default function ClientPayNow({ slug, amount, currency = "INR" }) {
         key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
         amount: order.amount,
         currency: order.currency,
-        name: "Vyapr",
+        name: "Korekko",
         description: "Service Booking Payment",
         order_id: order.id,
         handler: async (response: any) => {

@@ -16,7 +16,7 @@ import LanguageToggle from "@/components/i18n/LanguageToggle";
 
 // -------- helpers --------
 const SITE =
-  process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
+process.env.NEXT_PUBLIC_BASE_URL || "https://korekko-reset.vercel.app";
 
 function slugify(s?: string) {
   return String(s || "")

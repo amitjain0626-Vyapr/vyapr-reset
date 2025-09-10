@@ -99,7 +99,7 @@ export default function RoiPage() {
 
   // ---- Boost visibility link ----
   const boostHref = useMemo(() => {
-    const u = new URL(`/upsell`, typeof window === "undefined" ? "https://vyapr-reset-5rly.vercel.app" : window.location.origin);
+    const u = new URL(`/upsell`, typeof window === "undefined" ? "https://korekko-reset.vercel.app" : window.location.origin);
     u.searchParams.set("slug", (slug || "").trim());
     u.searchParams.set("utm_source", "dashboard");
     u.searchParams.set("utm_medium", "cta");
