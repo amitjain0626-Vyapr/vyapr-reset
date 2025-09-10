@@ -7,8 +7,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabaseAdmin";
 
 function hasServiceKey() {
-  // Only treat SUPABASE_SERVICE_ROLE as the signal.
-  return !!process.env.SUPABASE_SERVICE_ROLE;
+  // Only treat SUPABASE_SERVICE_ROLE_KEY as the signal.
+return !!process.env.SUPABASE_SERVICE_ROLE_KEY;
 }
 
 function baseUrl(req: Request) {

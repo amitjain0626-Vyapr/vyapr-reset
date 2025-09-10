@@ -10,7 +10,7 @@ import { createAdminClient } from "@/lib/supabaseAdmin";
 
 /* ----------------- helpers (shared) ----------------- */
 function adminOn() {
-  return !!process.env.SUPABASE_SERVICE_ROLE;
+  return !!process.env.SUPABASE_SERVICE_ROLE_KEY;
 }
 function baseUrl(req: Request) {
   const h = (n: string) => req.headers.get(n);
