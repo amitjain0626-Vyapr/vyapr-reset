@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   const pendingAmt = pending?.pending_amount ?? 0;
   const pendingCnt = pending?.pending_count ?? 0;
 
-  const header = `${BRAND.name} ROI (Provider: ${slug})`; // was "Vyapr ROI"
+  const header = `${BRAND.name} ROI (Provider: ${slug})`; // was "Korekko ROI"
   const lines = [
     header,
     `Leads → Bookings → Paid: ${leads} → ${bookings} → ${paid}`,

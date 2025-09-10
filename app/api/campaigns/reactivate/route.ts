@@ -8,7 +8,7 @@ import { createClient } from "@supabase/supabase-js";
 import { waRebook } from "@/lib/wa/templates";
 
 /* ----------------------------- lang helpers ------------------------------ */
-/* No schema drift. English default. Honors: ?lang → cookie(vyapr.lang) → Providers.lang_pref → "en" */
+/* No schema drift. English default. Honors: ?lang → cookie(korekko.lang) → Providers.lang_pref → "en" */
 type Lang = "en" | "hi";
 function normalizeLangToken(v?: string | null): "en" | "hi" | "hinglish" | null {
   const t = (v || "").toLowerCase().trim();
@@ -32,7 +32,7 @@ async function resolveLang(req: NextRequest, slug: string): Promise<Lang> {
   const url = new URL(req.url);
   const qLang = normalizeLangToken(url.searchParams.get("lang"));
   if (qLang) return qLang;
-  const cookieLang = normalizeLangToken(req.cookies.get("vyapr.lang")?.value);
+  const cookieLang = normalizeLangToken(req.cookies.get("korekko.lang")?.value);
   if (cookieLang) return cookieLang;
   const pref = await resolveProviderLangPref(url.origin, slug);
   return pref || "en";
@@ -113,13 +113,13 @@ async function logEvent_direct(
 /* ----------------------- template catalog (legacy) ------------------------ */
 /* Kept for backwards-compat preview; new preview uses waRebook() */
 const TEMPLATES: Record<string, { body: string }> = {
-  "vyapr.default.reactivation.1": {
+  "korekko.default.reactivation.1": {
     body: "👋 Hi {{name}}, it’s {{provider}}. Haven’t seen you in a while — book your next appointment today? Tap here: {{link}}",
   },
-  "vyapr.default.reminder.1": {
+  "korekko.default.reminder.1": {
     body: "⏰ Reminder: Healthy smiles need regular care 😁 — schedule now: {{link}}",
   },
-  "vyapr.default.offer.1": {
+  "korekko.default.offer.1": {
     body: "🎉 Special for returning patients — limited slots this week. Book here: {{link}}",
   },
   "wa.confirm.booking": {
@@ -249,7 +249,7 @@ export async function POST(req: NextRequest) {
       lead_id,
       source: {
         channel: "whatsapp",
-        template: "vyapr.default.reactivation",
+        template: "korekko.default.reactivation",
         mode: "test",
         lang, // record chosen language (allowed inside source)
       },
@@ -306,7 +306,7 @@ export async function POST(req: NextRequest) {
       lead_id,
       source: {
         channel: "whatsapp",
-        template: "vyapr.default.reactivation",
+        template: "korekko.default.reactivation",
         lang, // record chosen language
       },
     });
@@ -334,7 +334,7 @@ export async function GET(req: NextRequest) {
         url: `${url.origin}/api/campaigns/reactivate?slug=YOUR_SLUG`,
         body: {
           preview: true,
-          template_key: "vyapr.default.reactivation.1",
+          template_key: "korekko.default.reactivation.1",
           channel: "whatsapp",
           vars: { name: "Amit", provider: "Dr. Amit", link: `${url.origin}/book/YOUR_SLUG` }
         }

@@ -37,7 +37,7 @@ async function fetchWithTimeout(url: string, ms = 8000): Promise<Response> {
   try {
     return await fetch(url, {
       cache: "no-store",
-      headers: { "User-Agent": "Vyapr-Debug/9.8" },
+      headers: { "User-Agent": "korekko-Debug/9.8" },
       signal: ctrl.signal,
     });
   } finally {
@@ -173,7 +173,7 @@ async function analyzePath(path: string, expected: Record<string, number>): Prom
   const payload: PathResult = {
     ok: true,
     path,
-    markers: ["VYAPR-9.8"],
+    markers: ["KOREKKO-9.8"],
     counts: {
       scripts: 0,
       byType: { LocalBusiness: 0, FAQPage: 0, BreadcrumbList: 0, ItemList: 0 },
@@ -256,7 +256,7 @@ export async function GET(req: NextRequest) {
         results.push({
           ok: true,
           path: p,
-          markers: ["VYAPR-9.8", ...(Object.keys(expected).length ? ["EXPECT", "ASSERT-FAIL"] : [])],
+          markers: ["KOREKKO-9.8", ...(Object.keys(expected).length ? ["EXPECT", "ASSERT-FAIL"] : [])],
           counts: {
             scripts: 0,
             byType: { LocalBusiness: 0, FAQPage: 0, BreadcrumbList: 0, ItemList: 0 },
@@ -276,7 +276,7 @@ export async function GET(req: NextRequest) {
     return json(
       {
         ok: true,
-        markers: ["VYAPR-9.8", "BATCH", ...(Object.keys(expected).length ? ["EXPECT", pass ? "ASSERT-PASS" : "ASSERT-FAIL"] : [])],
+        markers: ["KOREKKO-9.8", "BATCH", ...(Object.keys(expected).length ? ["EXPECT", pass ? "ASSERT-PASS" : "ASSERT-FAIL"] : [])],
         expected,
         results,
         summary: {
