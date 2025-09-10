@@ -100,9 +100,9 @@ function ItemListJSONLD(baseUrl: string, combos: Combo[]) {
 }
 
 export const metadata = {
-  title: "Directory | Vyapr",
+  title: "Directory | Korekko",
   description:
-    "Explore top service categories across cities on Vyapr — quick booking and WhatsApp contact for solo providers.",
+    "Explore top service categories across cities on Korekko — quick booking and WhatsApp contact for solo providers.",
 };
 
 export default async function DirectoryIndexPage() {
@@ -111,7 +111,7 @@ export default async function DirectoryIndexPage() {
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-10">
-      <SeoBreadcrumbs baseUrl={process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app"} trail={[{ name: "Home", url: "/" }, { name: "Directory" }]} className="mb-4" />
+      <SeoBreadcrumbs baseUrl={process.env.NEXT_PUBLIC_BASE_URL || "https://korekko-reset-5rly.vercel.app"} trail={[{ name: "Home", url: "/" }, { name: "Directory" }]} className="mb-4" />
 
       <section className="mb-6 text-sm text-gray-500">
         <nav className="flex items-center gap-2">
