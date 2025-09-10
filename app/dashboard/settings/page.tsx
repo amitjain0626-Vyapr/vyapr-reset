@@ -21,7 +21,7 @@ export default async function Page(props: { searchParams: Promise<{ slug?: strin
         <h2 className="text-base font-medium">Trust badge — upload document</h2>
         <p className="text-xs text-gray-500">
           Upload a gov/clinic ID (PDF/JPG/PNG). Once reviewed, your microsite shows
-          <span className="font-semibold"> “Verified by Vyapr”</span>.
+          <span className="font-semibold"> “Verified by Korekko”</span>.
         </p>
 
         <form

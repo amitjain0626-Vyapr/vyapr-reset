@@ -58,7 +58,7 @@ export default function BookingInstrumentation({ providerId }: { providerId?: st
       });
     };
 
-    const btn = document.getElementById("vyapr-book-now");
+    const btn = document.getElementById("Korekko-book-now");
     btn?.addEventListener("click", handleClick);
 
     return () => {

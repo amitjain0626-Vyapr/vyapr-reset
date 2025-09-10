@@ -474,7 +474,7 @@ export default async function Page(props: any) {
           <T en="Chat on WhatsApp" hi="WhatsApp par baat karein" />
         </a>
         <a
-          id="vyapr-book-now"
+          id="Korekko-book-now"
           href="#booking"
           className="inline-flex items-center rounded-full border px-4 py-2 text-sm border-gray-800 hover:shadow-sm"
         >

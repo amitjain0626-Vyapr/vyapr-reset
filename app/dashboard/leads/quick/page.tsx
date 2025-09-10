@@ -54,7 +54,7 @@ export default async function LeadsPage({ searchParams }: PageProps) {
   if (!slug) {
     return (
       <div className="p-6 space-y-6">
-        <h1 className="text-2xl font-semibold">Vyapr — Dashboard</h1>
+        <h1 className="text-2xl font-semibold">Korekko — Dashboard</h1>
         <p className="text-sm opacity-80">
           You don’t have a provider yet. Please complete{" "}
           <Link href="/onboarding" className="underline">onboarding</Link> to create your microsite.
@@ -112,7 +112,7 @@ export default async function LeadsPage({ searchParams }: PageProps) {
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Vyapr — Dashboard</h1>
+        <h1 className="text-2xl font-semibold">Korekko — Dashboard</h1>
         <div className="flex items-center gap-2">
           <Link
             href={`/dashboard/leads?slug=${encodeURIComponent(provider.slug)}`}

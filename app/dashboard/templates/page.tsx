@@ -18,19 +18,19 @@ type Template = {
 
 // -------- Seeded templates ----------
 const ALL_TEMPLATES: Template[] = [
-  { key: "vyapr.generic.reactivation.1", title: "We miss you", channel: "whatsapp", category: "generic", body: "👋 Hi {{name}}, it’s {{provider}}. Haven’t seen you in a while — book your next visit today: {{link}}" },
-  { key: "vyapr.generic.reminder.1", title: "Friendly reminder", channel: "whatsapp", category: "generic", body: "⏰ Reminder: your slot on {{date}} at {{time}}. Reply YES to confirm, or tap to reschedule: {{link}}" },
-  { key: "vyapr.generic.offer.1", title: "Limited slots this week", channel: "whatsapp", category: "generic", body: "🎉 Popular slots are filling fast this week. Tap to find a time that works for you: {{link}}" },
+  { key: "Korekko.generic.reactivation.1", title: "We miss you", channel: "whatsapp", category: "generic", body: "👋 Hi {{name}}, it’s {{provider}}. Haven’t seen you in a while — book your next visit today: {{link}}" },
+  { key: "Korekko.generic.reminder.1", title: "Friendly reminder", channel: "whatsapp", category: "generic", body: "⏰ Reminder: your slot on {{date}} at {{time}}. Reply YES to confirm, or tap to reschedule: {{link}}" },
+  { key: "Korekko.generic.offer.1", title: "Limited slots this week", channel: "whatsapp", category: "generic", body: "🎉 Popular slots are filling fast this week. Tap to find a time that works for you: {{link}}" },
 
-  { key: "vyapr.dentist.reactivation.1", title: "Dental check-up due", channel: "whatsapp", category: "dentist", body: "🦷 Hi {{name}}, {{provider}} here. You’re due for a dental check-up — pick a slot here: {{link}}" },
-  { key: "vyapr.dentist.reminder.1", title: "Today’s appointment", channel: "whatsapp", category: "dentist", body: "🗓️ Reminder: {{service}} on {{date}} at {{time}}. Reply YES to confirm, or reschedule here: {{link}}" },
+  { key: "Korekko.dentist.reactivation.1", title: "Dental check-up due", channel: "whatsapp", category: "dentist", body: "🦷 Hi {{name}}, {{provider}} here. You’re due for a dental check-up — pick a slot here: {{link}}" },
+  { key: "Korekko.dentist.reminder.1", title: "Today’s appointment", channel: "whatsapp", category: "dentist", body: "🗓️ Reminder: {{service}} on {{date}} at {{time}}. Reply YES to confirm, or reschedule here: {{link}}" },
 
-  { key: "vyapr.astro.reactivation.1", title: "New consultation window", channel: "whatsapp", category: "astrologer", body: "🔮 Hi {{name}}, {{provider}} here. New consultation slots are open — book now: {{link}}" },
-  { key: "vyapr.astro.reminder.1", title: "Consult reminder", channel: "whatsapp", category: "astrologer", body: "🌙 Reminder: session on {{date}} at {{time}}. Reply YES to confirm, or change your slot: {{link}}" },
+  { key: "Korekko.astro.reactivation.1", title: "New consultation window", channel: "whatsapp", category: "astrologer", body: "🔮 Hi {{name}}, {{provider}} here. New consultation slots are open — book now: {{link}}" },
+  { key: "Korekko.astro.reminder.1", title: "Consult reminder", channel: "whatsapp", category: "astrologer", body: "🌙 Reminder: session on {{date}} at {{time}}. Reply YES to confirm, or change your slot: {{link}}" },
 
-  { key: "vyapr.salon.reactivation.1", title: "Time for a refresh", channel: "whatsapp", category: "salon", body: "💇 Hi {{name}}, {{provider}} here. Fancy a quick refresh? Pick a convenient time: {{link}}" },
+  { key: "Korekko.salon.reactivation.1", title: "Time for a refresh", channel: "whatsapp", category: "salon", body: "💇 Hi {{name}}, {{provider}} here. Fancy a quick refresh? Pick a convenient time: {{link}}" },
 
-  { key: "vyapr.fitness.reminder.1", title: "Class reminder", channel: "whatsapp", category: "fitness", body: "💪 Reminder: your {{service}} on {{date}} at {{time}}. Confirm with YES, or choose another slot: {{link}}" },
+  { key: "Korekko.fitness.reminder.1", title: "Class reminder", channel: "whatsapp", category: "fitness", body: "💪 Reminder: your {{service}} on {{date}} at {{time}}. Confirm with YES, or choose another slot: {{link}}" },
 ];
 
 // -------- Helpers ----------

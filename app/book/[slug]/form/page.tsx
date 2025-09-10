@@ -33,7 +33,7 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
         Fill your details and we’ll notify the provider instantly.
       </p>
 
-      <div id="vyapr-toast" className="hidden mb-4 rounded-lg border px-3 py-2 text-sm"></div>
+      <div id="Korekko-toast" className="hidden mb-4 rounded-lg border px-3 py-2 text-sm"></div>
 
       <form id="leadForm" className="space-y-4 rounded-2xl border p-4 shadow-sm">
         <input type="hidden" name="slug" value={slug} />
@@ -100,7 +100,7 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
           __html: `
 (function(){
   const form = document.getElementById('leadForm');
-  const toast = document.getElementById('vyapr-toast');
+  const toast = document.getElementById('Korekko-toast');
   const ty = document.getElementById('thankyou');
   const wa = document.getElementById('waLink');
 
