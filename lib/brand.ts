@@ -11,9 +11,9 @@ export const BRAND = {
     (process.env.NEXT_PUBLIC_BASE_URL || "").replace(/\/+$/, "") ||
     "https://korekko-reset.vercel.app",
 
-  // Storage/cookie prefixes (new) — keep legacy read for Vyapr
+  // Storage/cookie prefixes (new) — keep legacy read for Korekko
   storagePrefix: "korekko",
-  legacyStoragePrefix: "vyapr",
+  legacyStoragePrefix: "korekko",
 };
 
 // ---- Helpers ----
@@ -38,7 +38,7 @@ export const LEGACY_KEYS = {
 // === KOREKKO: Brand migration helpers START (safe, insert-only) ===
 // @ts-nocheck
 
-// Human-facing phrases centralised here to avoid hard-coding "Vyapr" anywhere.
+// Human-facing phrases centralised here to avoid hard-coding "Korekko" anywhere.
 export const COPY = {
   verifiedBy: `✓ Verified by ${BRAND.name}`,
   viaShort: `via ${BRAND.name}`,
@@ -55,7 +55,7 @@ export const COPY = {
 // Minimal “brandify” helper for rare dynamic strings still containing old brand.
 export function brandify(s: string) {
   if (!s) return s;
-  return s.replace(/\bVyapr\b/g, BRAND.name);
+  return s.replace(/\bKorekko\b/g, BRAND.name);
 }
 
 // ------- Storage/Cookie migration (dual-read, write-new) -------
