@@ -17,7 +17,7 @@ const FEATURED_COMBOS: Array<{ combo: string; labelEn: string; labelHi: string; 
 ];
 
 // Helpers
-const site = process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
+const site = process.env.NEXT_PUBLIC_BASE_URL || "https://korekko-reset-5rly.vercel.app";
 const url = `${site}/directory`;
 
 function BreadcrumbsJsonLd() {
