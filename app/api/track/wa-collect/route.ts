@@ -37,17 +37,27 @@ export async function GET(req: NextRequest) {
     const ref = (searchParams.get("ref") || "").trim();
 
     // OPTIONAL: long URL to append as a short /r/x
-    const linkRaw = (searchParams.get("link") || "").trim();
+    const linkParam = (searchParams.get("link") || "").trim();
     const slug =
       (searchParams.get("slug") || searchParams.get("provider_slug") || "").trim();
 
     const digits = (phoneRaw || "").replace(/[^\d]/g, "");
 
+    // --- FIX: safely decode link (handles links passed as https%3A%2F%2F...) ---
+    let linkDecoded = linkParam;
+    try {
+      // decodeURIComponent is idempotent for non-encoded strings (throws only on malformed)
+      linkDecoded = decodeURIComponent(linkParam);
+    } catch {
+      // keep original if decoding fails
+      linkDecoded = linkParam;
+    }
+
     // Compose WA message text; append short link when provided
     let composed = textRaw || "";
-    if (/^https?:\/\//i.test(linkRaw)) {
+    if (/^https?:\/\//i.test(linkDecoded)) {
       try {
-        const short = shortLinkOf(linkRaw, slug || undefined);
+        const short = shortLinkOf(linkDecoded, slug || undefined);
         composed = (composed ? `${composed} ` : "") + short;
       } catch {
         // ignore; fallback to original text
