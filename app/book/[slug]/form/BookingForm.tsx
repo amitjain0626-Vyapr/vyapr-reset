@@ -182,15 +182,15 @@ export default function BookingForm({
       if (typeof iso === "string" && iso.length > 10) applyISO(iso);
     };
     const onStorage = (e: StorageEvent) => {
-      if (e.key === "vyapr.selectedSlot" && e.newValue) applyISO(e.newValue);
+      if (e.key === "Korekko.selectedSlot" && e.newValue) applyISO(e.newValue);
     };
 
-    document.addEventListener("vyapr:slot-selected", onCustom as any);
+    document.addEventListener("Korekko:slot-selected", onCustom as any);
     if (typeof window !== "undefined") window.addEventListener("storage", onStorage);
 
     return () => {
       clearInterval(iv);
-      document.removeEventListener("vyapr:slot-selected", onCustom as any);
+      document.removeEventListener("Korekko:slot-selected", onCustom as any);
       if (typeof window !== "undefined") window.removeEventListener("storage", onStorage);
     };
   }, []);
