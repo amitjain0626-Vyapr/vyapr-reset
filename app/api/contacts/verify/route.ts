@@ -51,12 +51,108 @@ async function logEvent(req: NextRequest, payload: any) {
   }
 }
 
+/* === KOREKKO: Contact scoring START (22.17) ===
+   v1 (metadata-only) Engagement Score, tiering & reasons.
+   - No schema drift. All app-side logic.
+   - Signals:
+     • Recency by created_at (<=180d, <=365d)
+     • Identity quality: phone (India-like), email present
+     • Cross-channel: Events presence for this lead_id
+       booking.* / payment.* (strong), lead.imported (weak)
+   - Tiers:
+     • score >= 80 → "auto"
+     • 60..79     → "review"
+     • < 60       → "low"
+*/
+type LeadLite = {
+  id: string;
+  provider_id: string;
+  phone: string | null;
+  email: string | null;
+  patient_name?: string | null;
+  created_at?: string | null;
+};
+
+type EventLite = { event: string; ts: number; lead_id: string | null };
+
+function toMs(d: string | null | undefined): number | null {
+  if (!d) return null;
+  const t = Date.parse(d);
+  return Number.isFinite(t) ? t : null;
+}
+
+function isIndiaLikePhone(p?: string | null): boolean {
+  if (!p) return false;
+  const digits = p.replace(/[^\d]/g, "");
+  // accept 10-digit, 11 with 0, 12 with 91, or 13 with +91 formats
+  return (
+    digits.length === 10 ||
+    (digits.length === 11 && digits.startsWith("0")) ||
+    (digits.length === 12 && digits.startsWith("91"))
+  );
+}
+
+function tierFor(score: number): "auto" | "review" | "low" {
+  if (score >= 80) return "auto";
+  if (score >= 60) return "review";
+  return "low";
+}
+
+function scoreLead(lead: LeadLite, eventsByLead: Map<string, EventLite[]>): { score: number; tier: string; reasons: string[] } {
+  let score = 0;
+  const reasons: string[] = [];
+
+  // Identity quality
+  if (isIndiaLikePhone(lead.phone)) {
+    score += 20;
+    reasons.push("valid_phone_india_like");
+  }
+  if (lead.email && lead.email.includes("@")) {
+    score += 10;
+    reasons.push("has_email");
+  }
+
+  // Recency by created_at (proxy for freshness of this record)
+  const createdMs = toMs(lead.created_at || null);
+  if (createdMs) {
+    const now = Date.now();
+    const days = (now - createdMs) / (1000 * 60 * 60 * 24);
+    if (days <= 180) {
+      score += 20;
+      reasons.push("recent_record_<=180d");
+    } else if (days <= 365) {
+      score += 10;
+      reasons.push("recent_record_<=365d");
+    }
+  }
+
+  // Cross-channel signals from Events
+  const evts = eventsByLead.get(lead.id) || [];
+  const hasStrong = evts.some((e) => /^payment\.|^booking\./.test(e.event));
+  const hasImported = evts.some((e) => e.event === "lead.imported");
+
+  if (hasStrong) {
+    score += 40;
+    reasons.push("events_payment_or_booking_present");
+  } else if (hasImported) {
+    score += 10;
+    reasons.push("event_lead_imported_present");
+  }
+
+  // Clamp & tier
+  if (score > 100) score = 100;
+  const t = tierFor(score);
+  return { score, tier: t, reasons };
+}
+/* === KOREKKO: Contact scoring END (22.17) === */
+
 /* ---------- GET: surface ambiguous contacts (safe heuristic) ---------- */
 /**
  * Heuristic only (no schema drift):
  * - Look at recent Leads for this provider.
  * - Group by phone/email in app logic.
  * - Return groups with >1 occurrences as merge candidates.
+ * - ENRICH: each lead now includes {score, tier, reasons[]} (metadata-only).
  */
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
@@ -80,6 +176,27 @@ export async function GET(req: NextRequest) {
     rows = [];
   }
 
+  // === KOREKKO: pull recent Events to power cross-channel scoring (metadata-only)
+  const eventsByLead = new Map<string, EventLite[]>();
+  try {
+    const since = Date.now() - 365 * 24 * 60 * 60 * 1000 * 1.5; // ~18 months
+    const { data: evts } = await admin()
+      .from("Events")
+      .select("event, ts, lead_id")
+      .eq("provider_id", provider.id)
+      .gte("ts", since)
+      .limit(5000);
+    (evts || []).forEach((e: any) => {
+      const lid = e?.lead_id || null;
+      if (!lid) return;
+      const arr = eventsByLead.get(lid) || [];
+      arr.push({ event: e.event, ts: e.ts, lead_id: lid });
+      eventsByLead.set(lid, arr);
+    });
+  } catch {
+    // ignore
+  }
+
   // Group by phone / email to find duplicates
   const byPhone: Record<string, any[]> = {};
   const byEmail: Record<string, any[]> = {};
@@ -99,13 +216,19 @@ export async function GET(req: NextRequest) {
         key: `phone:${k}`,
         kind: "phone-dup",
         hint: k,
-        leads: arr.map((r) => ({
-          id: r.id,
-          name: r.patient_name || null,
-          phone: r.phone || null,
-          email: r.email || null,
-          created_at: r.created_at || null,
-        })),
+        leads: arr.map((r) => {
+          const scored = scoreLead(r, eventsByLead);
+          return {
+            id: r.id,
+            name: r.patient_name || null,
+            phone: r.phone || null,
+            email: r.email || null,
+            created_at: r.created_at || null,
+            score: scored.score,
+            tier: scored.tier,
+            reasons: scored.reasons,
+          };
+        }),
       });
     }
   }
@@ -116,13 +239,19 @@ export async function GET(req: NextRequest) {
         key: `email:${k}`,
         kind: "email-dup",
         hint: k,
-        leads: arr.map((r) => ({
-          id: r.id,
-          name: r.patient_name || null,
-          phone: r.phone || null,
-          email: r.email || null,
-          created_at: r.created_at || null,
-        })),
+        leads: arr.map((r) => {
+          const scored = scoreLead(r, eventsByLead);
+          return {
+            id: r.id,
+            name: r.patient_name || null,
+            phone: r.phone || null,
+            email: r.email || null,
+            created_at: r.created_at || null,
+            score: scored.score,
+            tier: scored.tier,
+            reasons: scored.reasons,
+          };
+        }),
       });
     }
   }
