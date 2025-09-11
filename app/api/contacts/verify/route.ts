@@ -14,8 +14,9 @@ function j(body: any, code = 200) {
   });
 }
 
+// Use live host as safe default (can be overridden by NEXT_PUBLIC_BASE_URL)
 const ORIGIN =
-  process.env.NEXT_PUBLIC_BASE_URL || "https://korekko-reset-5rly.vercel.app";
+  process.env.NEXT_PUBLIC_BASE_URL || "https://vyapr-reset-5rly.vercel.app";
 
 function admin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -84,7 +85,7 @@ function toMs(d: string | null | undefined): number | null {
 function isIndiaLikePhone(p?: string | null): boolean {
   if (!p) return false;
   const digits = p.replace(/[^\d]/g, "");
-  // accept 10-digit, 11 with 0, 12 with 91, or 13 with +91 formats
+  // accept 10-digit, 11 with 0, 12 with 91
   return (
     digits.length === 10 ||
     (digits.length === 11 && digits.startsWith("0")) ||
@@ -98,7 +99,10 @@ function tierFor(score: number): "auto" | "review" | "low" {
   return "low";
 }
 
-function scoreLead(lead: LeadLite, eventsByLead: Map<string, EventLite[]>): { score: number; tier: string; reasons: string[] } {
+function scoreLead(
+  lead: LeadLite,
+  eventsByLead: Map<string, EventLite[]>
+): { score: number; tier: string; reasons: string[] } {
   let score = 0;
   const reasons: string[] = [];
 
@@ -112,7 +116,7 @@ function scoreLead(lead: LeadLite, eventsByLead: Map<string, EventLite[]>): { sc
     reasons.push("has_email");
   }
 
-  // Recency by created_at (proxy for freshness of this record)
+  // Recency by created_at
   const createdMs = toMs(lead.created_at || null);
   if (createdMs) {
     const now = Date.now();
@@ -126,7 +130,7 @@ function scoreLead(lead: LeadLite, eventsByLead: Map<string, EventLite[]>): { sc
     }
   }
 
-  // Cross-channel signals from Events
+  // Cross-channel Events
   const evts = eventsByLead.get(lead.id) || [];
   const hasStrong = evts.some((e) => /^payment\.|^booking\./.test(e.event));
   const hasImported = evts.some((e) => e.event === "lead.imported");
@@ -176,10 +180,10 @@ export async function GET(req: NextRequest) {
     rows = [];
   }
 
-  // === KOREKKO: pull recent Events to power cross-channel scoring (metadata-only)
+  // Pull recent Events for cross-channel scoring (metadata-only)
   const eventsByLead = new Map<string, EventLite[]>();
   try {
-    const since = Date.now() - 365 * 24 * 60 * 60 * 1000 * 1.5; // ~18 months
+    const since = Date.now() - 18 * 30 * 24 * 60 * 60 * 1000; // ~18 months
     const { data: evts } = await admin()
       .from("Events")
       .select("event, ts, lead_id")
