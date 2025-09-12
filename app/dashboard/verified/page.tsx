@@ -23,19 +23,21 @@ async function fetchVerifiedFlat(slug: string) {
   return { ok: true, items: Array.isArray(j.items) ? j.items : [] };
 }
 
-export default async function VerifiedPage({
-  searchParams,
-}: {
-  searchParams: Record<string, string | string[] | undefined>;
-}) {
-  const slug = String(searchParams?.slug || "").trim();
+// NOTE: In Next.js 15, `searchParams` may be a Promise.
+// We normalize by awaiting if it looks like a Promise.
+export default async function VerifiedPage(props: any) {
+  const maybePromise = props?.searchParams;
+  const sp = (maybePromise && typeof maybePromise.then === "function")
+    ? await maybePromise
+    : (maybePromise || {});
+  const slug = String(sp?.slug || "").trim();
+
   if (!slug) {
     return (
       <main className="p-6">
         <h1 className="text-xl font-semibold">Verified Patients</h1>
         <p className="mt-2 text-sm text-red-600">
-          Missing <code>slug</code>. Append
-          {" "}
+          Missing <code>slug</code>. Append{" "}
           <code>?slug=YOUR_PROVIDER_SLUG</code> to the URL.
         </p>
       </main>
