@@ -33,17 +33,26 @@ export async function generateMetadata({
 }) {
   const { slug } = await params;
   const supabase = supabaseAnon();
+  // Read BOTH possible columns; do not change schema.
   const { data } = await supabase
     .from("Providers")
-    .select("name, city, is_published")
+    .select("name, city, is_published, published")
     .eq("slug", slug)
-    .eq("is_published", true)
     .maybeSingle();
+
+  const isPublished = !!(data?.is_published ?? data?.published);
+  if (!isPublished) {
+    return {
+      title: COPY.micrositeName,
+      description: COPY.micrositeName,
+      robots: { index: false, follow: false },
+    };
+  }
 
   const title = data?.name ? `${data.name} • ${data.city || "Dentist"}` : COPY.micrositeName;
   const description = data?.name
     ? `Book an appointment with ${data.name}${data.city ? ` in ${data.city}` : ""}.`
-    : COPY.micrositeName; // (was "Korekko Microsite")
+    : COPY.micrositeName;
 
   return { title, description, robots: { index: true, follow: true } };
 }
@@ -56,14 +65,16 @@ export default async function MicrositePage({
   const { slug } = await params;
 
   const supabase = supabaseAnon();
+  // Read BOTH columns; don’t filter by a specific one
   const { data, error } = await supabase
     .from("Providers")
-    .select("name, slug, city, phone, is_published")
+    .select("name, slug, city, phone, is_published, published")
     .eq("slug", slug)
-    .eq("is_published", true)
     .maybeSingle();
 
-  if (error || !data) {
+  const isPublished = !!(data?.is_published ?? data?.published);
+
+  if (error || !data || !isPublished) {
     notFound();
   }
 
@@ -72,16 +83,16 @@ export default async function MicrositePage({
       {/* Header */}
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold">{data.name}</h1>
-        {/* INSERT: Public Verified badge (gated by publish flag) */}
-      {data?.is_published ? (
-      <span
-        data-test="public-verified-badge"
-        className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700"
-        title="This microsite is published. Verified badge is visible publicly."
-      >
-        ✓ Verified
-      </span>
-    ) : null}
+
+        {/* Public Verified badge (publish-gated, no schema drift) */}
+        <span
+          data-test="public-verified-badge"
+          className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700"
+          title="This microsite is published. Verified badge is visible publicly."
+        >
+          ✓ Verified
+        </span>
+
         <div className="text-sm text-gray-600">
           {data.city ? `${data.city}` : ""}
           {data.city && data.phone ? " • " : ""}
