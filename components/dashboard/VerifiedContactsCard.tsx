@@ -134,8 +134,8 @@ function normalizeReasons(raw: string[] | undefined): string[] {
   const map: Record<string, string> = {
     valid_phone_india_like: "Valid mobile number",
     has_email: "Email present",
-    recent_record_<=180d: "Recent record (≤ 180 days)",
-    recent_record_<=365d: "Recent record (≤ 365 days)",
+    "recent_record_<=180d": "Recent record (≤ 180 days)",
+    "recent_record_<=365d": "Recent record (≤ 365 days)",
     events_payment_or_booking_present: "Made a payment or booking",
     event_lead_imported_present: "Imported contact",
     tg_boost_applied: "Category match (extra confidence)",
