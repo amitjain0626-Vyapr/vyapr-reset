@@ -313,6 +313,53 @@ export async function GET(req: NextRequest) {
   });
 }
 
+/* === INSERT (22.23): Auto-merge exact phone dupes === */
+// Helper: normalize phone to digits with basic India-like handling (no schema drift)
+function normPhone(p?: string | null): string {
+  if (!p) return "";
+  const digits = p.toString().replace(/[^\d]/g, "");
+  // Normalize common India patterns: 0XXXXXXXXX, 91XXXXXXXXXX
+  if (digits.length === 11 && digits.startsWith("0")) return digits.slice(1);
+  if (digits.length === 12 && digits.startsWith("91")) return digits.slice(2);
+  return digits;
+}
+
+async function fetchLeadsForProvider(provider_id: string) {
+  try {
+    const { data } = await admin()
+      .from("Leads")
+      .select("id, provider_id, phone, email, patient_name, created_at")
+      .eq("provider_id", provider_id)
+      .order("created_at", { ascending: false })
+      .limit(1000);
+    return data || [];
+  } catch {
+    return [];
+  }
+}
+
+async function fetchEventsByLead(provider_id: string) {
+  const map = new Map<string, EventLite[]>();
+  try {
+    const since = Date.now() - 18 * 30 * 24 * 60 * 60 * 1000; // ~18 months
+    const { data: evts } = await admin()
+      .from("Events")
+      .select("event, ts, lead_id")
+      .eq("provider_id", provider_id)
+      .gte("ts", since)
+      .limit(5000);
+    (evts || []).forEach((e: any) => {
+      const lid = e?.lead_id || null;
+      if (!lid) return;
+      const arr = map.get(lid) || [];
+      arr.push({ event: e.event, ts: e.ts, lead_id: lid });
+      map.set(lid, arr);
+    });
+  } catch {}
+  return map;
+}
+/* === INSERT END (22.23 helpers) === */
+
 /* ---------- POST: merge/reject (unchanged) ---------- */
 export async function POST(req: NextRequest) {
   const url = new URL(req.url);
@@ -332,6 +379,76 @@ export async function POST(req: NextRequest) {
   const action = (body?.action || "").toString().toLowerCase();
   const a_id = (body?.a_id || "").toString();
   const b_id = (body?.b_id || "").toString();
+    /* === INSERT (22.23): action=automerge_exact_phone === */
+  if (action === "automerge_exact_phone") {
+    const now = Date.now();
+
+    // 1) Load leads + recent events for scoring
+    const rows = await fetchLeadsForProvider(provider.id);
+    const eventsByLead = await fetchEventsByLead(provider.id);
+
+    // 2) Group by normalized phone
+    const groups: Record<string, any[]> = {};
+    for (const r of rows) {
+      const key = normPhone(r.phone || "");
+      if (key && key.length >= 10) (groups[key] ||= []).push(r);
+    }
+
+    // 3) For each group with >1, pick keeper by (score desc → created_at desc)
+    const merges: Array<{ keeper: string; child: string; key: string }> = [];
+
+    for (const [key, arr] of Object.entries(groups)) {
+      if (!arr || arr.length <= 1) continue;
+
+      // Score each
+      const scored = arr.map((r) => {
+        const s = scoreLead(r, eventsByLead, provider?.category || null);
+        return { row: r, score: s.score, createdMs: toMs(r.created_at || null) || 0 };
+      });
+
+      scored.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return b.createdMs - a.createdMs;
+      });
+
+      const keeper = scored[0].row;
+      const children = scored.slice(1).map((x) => x.row);
+
+      // 4) Persist duplicate flag + merged_into for children (best-effort) and log telemetry
+      for (const child of children) {
+        try {
+          await admin().from("Leads").update({ merged_into: keeper.id }).eq("id", child.id);
+          await admin().from("Leads").update({ is_duplicate: true }).eq("id", child.id);
+        } catch {}
+
+        await logEvent(req, {
+          event: "contact.merge.auto",
+          ts: now,
+          provider_id: provider.id,
+          lead_id: child.id,
+          source: {
+            via: "contacts.verify",
+            slug,
+            key: `phone:${key}`,
+            keeper_id: keeper.id,
+          },
+        });
+
+        merges.push({ keeper: keeper.id, child: child.id, key: `phone:${key}` });
+      }
+    }
+
+    return j({
+      ok: true,
+      slug,
+      provider_id: provider.id,
+      action,
+      mergedCount: merges.length,
+      merges,
+      note: "Auto-merged exact phone duplicates; one telemetry event per child.",
+    });
+  }
+  /* === INSERT END (22.23) === */
 
   if (!["merge", "reject"].includes(action))
     return j({ ok: false, error: "invalid_action" }, 400);
