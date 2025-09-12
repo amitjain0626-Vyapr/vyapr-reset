@@ -72,6 +72,16 @@ export default async function MicrositePage({
       {/* Header */}
       <header className="space-y-1">
         <h1 className="text-2xl font-semibold">{data.name}</h1>
+        {/* INSERT: Public Verified badge (gated by publish flag) */}
+      {data?.is_published ? (
+      <span
+        data-test="public-verified-badge"
+        className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700"
+        title="This microsite is published. Verified badge is visible publicly."
+      >
+        ✓ Verified
+      </span>
+    ) : null}
         <div className="text-sm text-gray-600">
           {data.city ? `${data.city}` : ""}
           {data.city && data.phone ? " • " : ""}
