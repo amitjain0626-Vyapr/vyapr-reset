@@ -1,29 +1,43 @@
+// app/d/[slug]/opengraph-image.tsx
+// @ts-nocheck
 import { ImageResponse } from "next/og";
-import React from "react";
-import { COPY } from "@/lib/brand";
 
 export const runtime = "edge";
 
-export async function GET(): Promise<ImageResponse> {
-  const name = COPY.micrositeName; // was 'Korekko Microsite'
+/**
+ * Minimal OG route:
+ * - Always returns a 1200x630 PNG.
+ * - Uses our static fallback asset `/og/default-provider.png`.
+ * - No schema drift, no provider lookups. Safe and fast.
+ */
+export async function GET() {
+  const BASE =
+    process.env.NEXT_PUBLIC_BASE_URL || "https://korekko-reset.vercel.app";
 
+  // Render the static default asset full-bleed
   return new ImageResponse(
-    React.createElement(
-      "div",
-      {
-        style: {
-          fontSize: 60,
-          background: "white",
-          color: "#000",
-          width: "100%",
-          height: "100%",
+    (
+      <div
+        style={{
+          width: "1200px",
+          height: "630px",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          padding: "50px",
-        },
-      },
-      name
+          // In case the asset fails to load, keep a neutral background.
+          background: "#ffffff",
+        }}
+      >
+        {/* Next/OG can fetch external images; give it an absolute URL */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={`${BASE}/og/default-provider.png`}
+          alt="Korekko"
+          width={1200}
+          height={630}
+          style={{ objectFit: "cover", width: "1200px", height: "630px" }}
+        />
+      </div>
     ),
     { width: 1200, height: 630 }
   );
