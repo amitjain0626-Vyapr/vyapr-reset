@@ -30,10 +30,44 @@ function fmtINR(n: number) {
   }
 }
 
+/* === INSERT: IST helpers + events typing (no schema drift) === */
+type EvRow = { event: string; ts: number; source?: any };
+function startOfTodayIST(): number {
+  const parts = new Intl.DateTimeFormat("en-IN", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const y = Number(parts.find(p => p.type === "year")?.value || "0");
+  const m = Number(parts.find(p => p.type === "month")?.value || "0");
+  const d = Number(parts.find(p => p.type === "day")?.value || "0");
+  // IST midnight expressed in UTC
+  return Date.UTC(y, m - 1, d, -5, -30);
+}
+/* === INSERT END === */
+
 export default function RoiPage() {
   const [slug, setSlug] = useState("amitjain0626");
   const [sum, setSum] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(false);
+
+  /* === INSERT: Revenue states (Today/7D/30D) === */
+  const [revToday, setRevToday] = useState(0);
+  const [rev7, setRev7] = useState(0);
+  const [rev30, setRev30] = useState(0);
+  const [evtLoading, setEvtLoading] = useState(false);
+  /* === INSERT END === */
+
+  /* === INSERT: read ?slug= from URL on mount (keeps your input too) === */
+  useEffect(() => {
+    try {
+      const u = new URL(window.location.href);
+      const qSlug = (u.searchParams.get("slug") || "").trim();
+      if (qSlug) setSlug(qSlug);
+    } catch {}
+  }, []);
+  /* === INSERT END === */
 
   async function load(nextSlug?: string) {
     const s = (nextSlug ?? slug).trim();
@@ -48,8 +82,45 @@ export default function RoiPage() {
     }
   }
 
+  /* === INSERT: fetch recent payment.success events to compute ₹ totals === */
+  async function loadRevenue(s: string) {
+    const use = (s || "").trim();
+    if (!use) return;
+    setEvtLoading(true);
+    try {
+      const r = await fetch(`/api/debug/events?limit=1000`, { cache: "no-store" });
+      const j = await r.json().catch(() => null);
+      const rows: EvRow[] = Array.isArray(j?.rows) ? j.rows : (Array.isArray(j?.items) ? j.items : (Array.isArray(j) ? j : []));
+
+      const pay = rows.filter(
+        (e) =>
+          e?.event === "payment.success" &&
+          (e?.source?.slug === use || e?.source?.provider_slug === use)
+      );
+
+      const amtINR = (e: EvRow) => {
+        const a = Number(e?.source?.amount);
+        const cur = String(e?.source?.currency || "INR").toUpperCase();
+        return Number.isFinite(a) && cur === "INR" ? a : 0;
+      };
+
+      const now = Date.now();
+      const t0 = startOfTodayIST();
+      const t7 = now - 7 * 24 * 60 * 60 * 1000;
+      const t30 = now - 30 * 24 * 60 * 60 * 1000;
+
+      setRevToday(pay.filter((e) => e.ts >= t0).reduce((s, e) => s + amtINR(e), 0));
+      setRev7(pay.filter((e) => e.ts >= t7).reduce((s, e) => s + amtINR(e), 0));
+      setRev30(pay.filter((e) => e.ts >= t30).reduce((s, e) => s + amtINR(e), 0));
+    } finally {
+      setEvtLoading(false);
+    }
+  }
+  /* === INSERT END === */
+
   useEffect(() => {
     load(slug);
+    loadRevenue(slug);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -107,6 +178,19 @@ export default function RoiPage() {
     return u.toString();
   }, [slug]);
 
+  /* === INSERT: simulate button + refresh === */
+  async function simulate500() {
+    try {
+      await fetch(`/api/payments/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug, amount: 500, currency: "INR", via: "roi" }),
+      });
+      await Promise.all([load(slug), loadRevenue(slug)]);
+    } catch {}
+  }
+  /* === INSERT END === */
+
   return (
     <main className="p-6 space-y-6">
       <h1 className="text-xl font-semibold">ROI</h1>
@@ -119,12 +203,38 @@ export default function RoiPage() {
           className="border px-2 py-1 text-sm rounded"
         />
         <button
-          onClick={() => load(slug)}
+          onClick={() => { load(slug); loadRevenue(slug); }}
           className="ml-2 rounded bg-blue-600 px-3 py-1 text-sm text-white"
         >
-          {loading ? "Refreshing…" : "Refresh"}
+          {loading || evtLoading ? "Refreshing…" : "Refresh"}
+        </button>
+        {/* Quick simulate to avoid blank dashboards */}
+        <button
+          onClick={simulate500}
+          className="ml-2 rounded border px-3 py-1 text-sm"
+          title="Simulate a ₹500 payment event"
+        >
+          Simulate ₹500
         </button>
       </div>
+
+      {/* === INSERT: Revenue (Today / 7D / 30D) tiles === */}
+      <section className="grid gap-4 sm:grid-cols-3">
+        <div className="rounded border p-4" title="Payments captured today (IST)">
+          <div className="text-sm text-gray-500">Revenue Today</div>
+          <div className="text-2xl font-semibold">{fmtINR(revToday)}</div>
+          <div className="text-xs text-gray-500 mt-1">Sum of payment.success (INR)</div>
+        </div>
+        <div className="rounded border p-4" title="Payments in last 7 days">
+          <div className="text-sm text-gray-500">Revenue (7d)</div>
+          <div className="text-2xl font-semibold">{fmtINR(rev7)}</div>
+        </div>
+        <div className="rounded border p-4" title="Payments in last 30 days">
+          <div className="text-sm text-gray-500">Revenue (30d)</div>
+          <div className="text-2xl font-semibold">{fmtINR(rev30)}</div>
+        </div>
+      </section>
+      {/* === INSERT END === */}
 
       <section className="grid gap-4 sm:grid-cols-4">
         <div className="rounded border p-4" title="Leads verified in last 7 days → Bookings made in last 7 days">
