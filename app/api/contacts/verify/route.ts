@@ -55,6 +55,38 @@ async function logEvent(req: NextRequest, payload: any) {
   }
 }
 
+/* === INSERT (22.23): keyword helpers (no schema drift) === */
+function normLower(s: any): string {
+  return (s ?? "").toString().toLowerCase();
+}
+
+/** Return the first matching TG keyword for this lead, or null. */
+function findKeywordHit(
+  lead: { patient_name?: string | null; email?: string | null },
+  providerCategory?: string | null
+): string | null {
+  try {
+    const cat = normLower(providerCategory).trim();
+    const terms: string[] = (TG_TERMS as any)?.[cat] || [];
+    if (!terms?.length) return null;
+
+    // Combine simple text fields we have on LeadLite
+    const hay = `${normLower(lead.patient_name)} ${normLower(lead.email)}`;
+    if (!hay.trim()) return null;
+
+    for (const t of terms) {
+      const term = normLower(t).trim();
+      if (!term) continue;
+      // simple contains match (no regex), safe for user input
+      if (hay.includes(term)) return t;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+/* === INSERT END (22.23) === */
+
 /* === KOREKKO: Contact scoring START (22.17 + TG boost 22.22) === */
 type LeadLite = {
   id: string;
@@ -145,6 +177,14 @@ function scoreLead(
   } catch {
     // ignore
   }
+
+    /* === INSERT (22.23): contextual keyword boost (+10) with reason kw:<term> === */
+  const kwHit = findKeywordHit(lead, providerCategory);
+  if (kwHit) {
+    score += 10;
+    reasons.push(`kw:${kwHit}`);
+  }
+  /* === INSERT END (22.23) === */
 
   if (score > 100) score = 100;
   const t = tierFor(score);
