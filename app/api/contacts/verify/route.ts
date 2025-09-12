@@ -5,6 +5,9 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+/* === INSERT: TG cohort dictionary (no schema drift) === */
+import { TG_TERMS } from "@/lib/copy/tg";
+/* === INSERT END === */
 
 /* ---------- utils ---------- */
 function j(body: any, code = 200) {
@@ -52,7 +55,7 @@ async function logEvent(req: NextRequest, payload: any) {
   }
 }
 
-/* === KOREKKO: Contact scoring START (22.17) ===
+/* === KOREKKO: Contact scoring START (22.17 + TG boost 22.22) ===
    v1 (metadata-only) Engagement Score, tiering & reasons.
    - No schema drift. All app-side logic.
    - Signals:
@@ -60,6 +63,7 @@ async function logEvent(req: NextRequest, payload: any) {
      • Identity quality: phone (India-like), email present
      • Cross-channel: Events presence for this lead_id
        booking.* / payment.* (strong), lead.imported (weak)
+     • TG cohort boost (+10) when provider.category is recognized (baseline)
    - Tiers:
      • score >= 80 → "auto"
      • 60..79     → "review"
@@ -99,9 +103,11 @@ function tierFor(score: number): "auto" | "review" | "low" {
   return "low";
 }
 
+/* === INSERT: add providerCategory input to apply TG +10 === */
 function scoreLead(
   lead: LeadLite,
-  eventsByLead: Map<string, EventLite[]>
+  eventsByLead: Map<string, EventLite[]>,
+  providerCategory?: string | null
 ): { score: number; tier: string; reasons: string[] } {
   let score = 0;
   const reasons: string[] = [];
@@ -143,12 +149,24 @@ function scoreLead(
     reasons.push("event_lead_imported_present");
   }
 
+  /* === INSERT: TG cohort boost (+10) when provider.category recognized === */
+  try {
+    const cat = String(providerCategory || "").toLowerCase().trim();
+    if (cat && TG_TERMS && Object.prototype.hasOwnProperty.call(TG_TERMS, cat)) {
+      score += 10;
+      reasons.push("tg_boost_applied");
+    }
+  } catch {
+    // ignore
+  }
+  /* === INSERT END === */
+
   // Clamp & tier
   if (score > 100) score = 100;
   const t = tierFor(score);
   return { score, tier: t, reasons };
 }
-/* === KOREKKO: Contact scoring END (22.17) === */
+/* === KOREKKO: Contact scoring END (22.17 + TG boost 22.22) === */
 
 /* ---------- GET: surface ambiguous contacts (safe heuristic) ---------- */
 /**
@@ -221,7 +239,7 @@ export async function GET(req: NextRequest) {
         kind: "phone-dup",
         hint: k,
         leads: arr.map((r) => {
-          const scored = scoreLead(r, eventsByLead);
+          const scored = scoreLead(r, eventsByLead, provider?.category || null);
           return {
             id: r.id,
             name: r.patient_name || null,
@@ -244,7 +262,7 @@ export async function GET(req: NextRequest) {
         kind: "email-dup",
         hint: k,
         leads: arr.map((r) => {
-          const scored = scoreLead(r, eventsByLead);
+          const scored = scoreLead(r, eventsByLead, provider?.category || null);
           return {
             id: r.id,
             name: r.patient_name || null,
