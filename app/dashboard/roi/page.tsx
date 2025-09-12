@@ -1,6 +1,6 @@
-"use client";
 // app/dashboard/roi/page.tsx
 // @ts-nocheck
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 
@@ -30,7 +30,6 @@ function fmtINR(n: number) {
   }
 }
 
-/* === INSERT: IST helpers + events typing (no schema drift) === */
 type EvRow = { event: string; ts: number; source?: any };
 function startOfTodayIST(): number {
   const parts = new Intl.DateTimeFormat("en-IN", {
@@ -45,21 +44,19 @@ function startOfTodayIST(): number {
   // IST midnight expressed in UTC
   return Date.UTC(y, m - 1, d, -5, -30);
 }
-/* === INSERT END === */
 
 export default function RoiPage() {
   const [slug, setSlug] = useState("amitjain0626");
   const [sum, setSum] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(false);
 
-  /* === INSERT: Revenue states (Today/7D/30D) === */
+  // Revenue states (Today/7D/30D)
   const [revToday, setRevToday] = useState(0);
   const [rev7, setRev7] = useState(0);
   const [rev30, setRev30] = useState(0);
   const [evtLoading, setEvtLoading] = useState(false);
-  /* === INSERT END === */
 
-  /* === INSERT: read ?slug= from URL on mount (keeps your input too) === */
+  // read ?slug= from URL on mount (keeps your input too)
   useEffect(() => {
     try {
       const u = new URL(window.location.href);
@@ -67,7 +64,6 @@ export default function RoiPage() {
       if (qSlug) setSlug(qSlug);
     } catch {}
   }, []);
-  /* === INSERT END === */
 
   async function load(nextSlug?: string) {
     const s = (nextSlug ?? slug).trim();
@@ -82,7 +78,7 @@ export default function RoiPage() {
     }
   }
 
-  /* === INSERT: fetch recent payment.success events to compute ₹ totals === */
+  // fetch recent payment.success events to compute ₹ totals
   async function loadRevenue(s: string) {
     const use = (s || "").trim();
     if (!use) return;
@@ -116,7 +112,6 @@ export default function RoiPage() {
       setEvtLoading(false);
     }
   }
-  /* === INSERT END === */
 
   useEffect(() => {
     load(slug);
@@ -178,7 +173,7 @@ export default function RoiPage() {
     return u.toString();
   }, [slug]);
 
-  /* === INSERT: simulate button + refresh === */
+  // Quick simulate to avoid blank dashboards
   async function simulate500() {
     try {
       await fetch(`/api/payments/create`, {
@@ -189,7 +184,6 @@ export default function RoiPage() {
       await Promise.all([load(slug), loadRevenue(slug)]);
     } catch {}
   }
-  /* === INSERT END === */
 
   return (
     <main className="p-6 space-y-6">
@@ -208,7 +202,6 @@ export default function RoiPage() {
         >
           {loading || evtLoading ? "Refreshing…" : "Refresh"}
         </button>
-        {/* Quick simulate to avoid blank dashboards */}
         <button
           onClick={simulate500}
           className="ml-2 rounded border px-3 py-1 text-sm"
@@ -218,7 +211,7 @@ export default function RoiPage() {
         </button>
       </div>
 
-      {/* === INSERT: Revenue (Today / 7D / 30D) tiles === */}
+      {/* Revenue tiles */}
       <section className="grid gap-4 sm:grid-cols-3">
         <div className="rounded border p-4" title="Payments captured today (IST)">
           <div className="text-sm text-gray-500">Revenue Today</div>
@@ -234,7 +227,6 @@ export default function RoiPage() {
           <div className="text-2xl font-semibold">{fmtINR(rev30)}</div>
         </div>
       </section>
-      {/* === INSERT END === */}
 
       <section className="grid gap-4 sm:grid-cols-4">
         <div className="rounded border p-4" title="Leads verified in last 7 days → Bookings made in last 7 days">

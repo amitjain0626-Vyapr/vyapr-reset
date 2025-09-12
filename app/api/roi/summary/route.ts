@@ -134,8 +134,8 @@ export async function GET(req: Request) {
       verified7: res.verified7,
       bookings7: res.bookings7,
       verifiedToBookingsPct7: res.verifiedToBookingsPct7,
-      funnel,              // NEW: never-blank funnel {leads, bookings, revenue_inr}
-      wow: res.wow || { leads: 0, bookings: 0, revenue_inr: 0 }, // NEW
+      funnel,              // never-blank funnel {leads, bookings, revenue_inr}
+      wow: res.wow || { leads: 0, bookings: 0, revenue_inr: 0 },
       window_days: 7,
     });
   } catch (e: any) {
