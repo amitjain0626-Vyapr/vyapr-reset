@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-/* === INSERT: TG cohort dictionary (no schema drift) === */
+/* === INSERT (22.22): TG cohort dictionary for +10 boost (already present) === */
 import { TG_TERMS } from "@/lib/copy/tg";
 /* === INSERT END === */
 
@@ -55,20 +55,7 @@ async function logEvent(req: NextRequest, payload: any) {
   }
 }
 
-/* === KOREKKO: Contact scoring START (22.17 + TG boost 22.22) ===
-   v1 (metadata-only) Engagement Score, tiering & reasons.
-   - No schema drift. All app-side logic.
-   - Signals:
-     • Recency by created_at (<=180d, <=365d)
-     • Identity quality: phone (India-like), email present
-     • Cross-channel: Events presence for this lead_id
-       booking.* / payment.* (strong), lead.imported (weak)
-     • TG cohort boost (+10) when provider.category is recognized (baseline)
-   - Tiers:
-     • score >= 80 → "auto"
-     • 60..79     → "review"
-     • < 60       → "low"
-*/
+/* === KOREKKO: Contact scoring START (22.17 + TG boost 22.22) === */
 type LeadLite = {
   id: string;
   provider_id: string;
@@ -89,7 +76,6 @@ function toMs(d: string | null | undefined): number | null {
 function isIndiaLikePhone(p?: string | null): boolean {
   if (!p) return false;
   const digits = p.replace(/[^\d]/g, "");
-  // accept 10-digit, 11 with 0, 12 with 91
   return (
     digits.length === 10 ||
     (digits.length === 11 && digits.startsWith("0")) ||
@@ -103,7 +89,7 @@ function tierFor(score: number): "auto" | "review" | "low" {
   return "low";
 }
 
-/* === INSERT: add providerCategory input to apply TG +10 === */
+/* NOTE: providerCategory param enables TG +10 */
 function scoreLead(
   lead: LeadLite,
   eventsByLead: Map<string, EventLite[]>,
@@ -149,7 +135,7 @@ function scoreLead(
     reasons.push("event_lead_imported_present");
   }
 
-  /* === INSERT: TG cohort boost (+10) when provider.category recognized === */
+  // TG cohort boost (+10) when provider.category recognized
   try {
     const cat = String(providerCategory || "").toLowerCase().trim();
     if (cat && TG_TERMS && Object.prototype.hasOwnProperty.call(TG_TERMS, cat)) {
@@ -159,26 +145,28 @@ function scoreLead(
   } catch {
     // ignore
   }
-  /* === INSERT END === */
 
-  // Clamp & tier
   if (score > 100) score = 100;
   const t = tierFor(score);
   return { score, tier: t, reasons };
 }
-/* === KOREKKO: Contact scoring END (22.17 + TG boost 22.22) === */
+/* === KOREKKO: Contact scoring END === */
 
-/* ---------- GET: surface ambiguous contacts (safe heuristic) ---------- */
+/* ---------- GET ---------- */
 /**
- * Heuristic only (no schema drift):
- * - Look at recent Leads for this provider.
- * - Group by phone/email in app logic.
- * - Return groups with >1 occurrences as merge candidates.
- * - ENRICH: each lead now includes {score, tier, reasons[]} (metadata-only).
+ * Modes (no schema drift for default):
+ * - default (no mode): return duplicate groups (existing behavior)
+ * - mode=flat: return a flat list of scored leads (limit N)
  */
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const slug = (url.searchParams.get("slug") || "").trim();
+  const mode = (url.searchParams.get("mode") || "").toLowerCase();
+  const limit = Math.min(
+    200,
+    Math.max(1, parseInt(url.searchParams.get("limit") || "50", 10) || 50)
+  );
+
   if (!slug) return j({ ok: false, error: "missing slug" }, 400);
 
   const provider = await resolveProvider(slug);
@@ -219,7 +207,42 @@ export async function GET(req: NextRequest) {
     // ignore
   }
 
-  // Group by phone / email to find duplicates
+  /* === INSERT: mode=flat branch (new) === */
+  if (mode === "flat") {
+    const scored = rows.map((r) => {
+      const s = scoreLead(r, eventsByLead, provider?.category || null);
+      return {
+        id: r.id,
+        name: r.patient_name || null,
+        phone: r.phone || null,
+        email: r.email || null,
+        created_at: r.created_at || null,
+        score: s.score,
+        tier: s.tier,
+        reasons: s.reasons,
+      };
+    });
+
+    // Sort by score desc, then recency desc; then limit
+    scored.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      const ta = toMs(a.created_at) || 0, tb = toMs(b.created_at) || 0;
+      return tb - ta;
+    });
+
+    return j({
+      ok: true,
+      slug,
+      provider_id: provider.id,
+      mode: "flat",
+      limit,
+      items: scored.slice(0, limit),
+      note: "Flat scored list (no schema drift to default mode).",
+    });
+  }
+  /* === INSERT END === */
+
+  // ===== existing behavior (duplicate groups) =====
   const byPhone: Record<string, any[]> = {};
   const byEmail: Record<string, any[]> = {};
 
@@ -290,13 +313,7 @@ export async function GET(req: NextRequest) {
   });
 }
 
-/* ---------- POST: merge/reject (telemetry-first, fail-open DB) ---------- */
-/**
- * Body: { action: "merge"|"reject", a_id: string, b_id: string }
- * - merge: treat b as duplicate of a (best-effort DB updates if columns exist)
- * - reject: record decision only (no DB change)
- * Always logs telemetry (strict schema).
- */
+/* ---------- POST: merge/reject (unchanged) ---------- */
 export async function POST(req: NextRequest) {
   const url = new URL(req.url);
   const slug = (url.searchParams.get("slug") || "").trim();
@@ -325,7 +342,6 @@ export async function POST(req: NextRequest) {
   const eventName =
     action === "merge" ? "contact.merge.accepted" : "contact.merge.rejected";
 
-  // Telemetry (strict schema)
   const logged = await logEvent(req, {
     event: eventName,
     ts: now,
@@ -339,10 +355,8 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  // Best-effort DB adjustments (NO schema drift; ignore failures)
   if (action === "merge") {
     try {
-      // If your schema has a "merged_into" or "is_duplicate" column, this will succeed.
       await admin().from("Leads").update({ merged_into: a_id }).eq("id", b_id);
       await admin().from("Leads").update({ is_duplicate: true }).eq("id", b_id);
     } catch {}
