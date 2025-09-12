@@ -27,11 +27,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "invalid_slot" }, { status: 400 });
   }
 
-  // Base URL
-  const baseUrl =
-    (req.headers.get("x-forwarded-proto") && req.headers.get("x-forwarded-host"))
-      ? `${req.headers.get("x-forwarded-proto")}://${req.headers.get("x-forwarded-host")}`
-      : (process.env.NEXT_PUBLIC_BASE_URL || req.nextUrl.origin);
+  // Base URL for internal call
+  const xfProto = req.headers.get("x-forwarded-proto");
+  const xfHost = req.headers.get("x-forwarded-host");
+  const baseUrl = (xfProto && xfHost)
+    ? `${xfProto}://${xfHost}`
+    : (process.env.NEXT_PUBLIC_BASE_URL || req.nextUrl.origin);
 
   // Telemetry — booking.intent.clicked
   try {
@@ -50,7 +51,7 @@ export async function POST(req: NextRequest) {
       }),
     }).catch(() => {});
   } catch {
-    // ignore telemetry failure
+    // non-fatal
   }
 
   return NextResponse.json({ ok: true, slug, slot, telemetry_logged: true });
