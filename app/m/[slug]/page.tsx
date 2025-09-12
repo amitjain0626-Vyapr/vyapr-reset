@@ -5,76 +5,47 @@ export const revalidate = 0;
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
 import { BRAND, COPY } from "@/lib/brand";
 
-function supabaseAnon() {
-  const cookieStore = cookies();
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-        set() {},
-        remove() {},
-      },
-    }
-  );
+const ORIGIN =
+  process.env.NEXT_PUBLIC_BASE_URL || "https://korekko-reset.vercel.app";
+
+async function fetchProvider(slug: string) {
+  try {
+    const r = await fetch(`${ORIGIN}/api/providers/${encodeURIComponent(slug)}`, {
+      cache: "no-store",
+    });
+    const j = await r.json().catch(() => null);
+    if (!j?.ok || !j?.provider) return null;
+    return j.provider; // includes .published (service-role-backed)
+  } catch {
+    return null;
+  }
 }
 
-export async function generateMetadata({
-  params,
-}: {
-  params: Promise<{ slug: string }>;
-}) {
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  const supabase = supabaseAnon();
-  // Read BOTH possible columns; do not change schema.
-  const { data } = await supabase
-    .from("Providers")
-    .select("name, city, is_published, published")
-    .eq("slug", slug)
-    .maybeSingle();
-
-  const isPublished = !!(data?.is_published ?? data?.published);
-  if (!isPublished) {
+  const p = await fetchProvider(slug);
+  if (!p?.published) {
     return {
       title: COPY.micrositeName,
       description: COPY.micrositeName,
       robots: { index: false, follow: false },
     };
   }
-
-  const title = data?.name ? `${data.name} • ${data.city || "Dentist"}` : COPY.micrositeName;
-  const description = data?.name
-    ? `Book an appointment with ${data.name}${data.city ? ` in ${data.city}` : ""}.`
+  const title = p?.name ? `${p.name} • ${p.city || "Dentist"}` : COPY.micrositeName;
+  const description = p?.name
+    ? `Book an appointment with ${p.name}${p.city ? ` in ${p.city}` : ""}.`
     : COPY.micrositeName;
-
   return { title, description, robots: { index: true, follow: true } };
 }
 
-export default async function MicrositePage({
-  params,
-}: {
-  params: Promise<{ slug: string }>;
-}) {
+export default async function MicrositePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
+  const p = await fetchProvider(slug);
 
-  const supabase = supabaseAnon();
-  // Read BOTH columns; don’t filter by a specific one
-  const { data, error } = await supabase
-    .from("Providers")
-    .select("name, slug, city, phone, is_published, published")
-    .eq("slug", slug)
-    .maybeSingle();
-
-  const isPublished = !!(data?.is_published ?? data?.published);
-
-  if (error || !data || !isPublished) {
+  // Gate public visibility on published flag; avoid RLS issues entirely
+  if (!p?.published) {
     notFound();
   }
 
@@ -82,7 +53,7 @@ export default async function MicrositePage({
     <main className="mx-auto max-w-2xl p-6 space-y-6">
       {/* Header */}
       <header className="space-y-1">
-        <h1 className="text-2xl font-semibold">{data.name}</h1>
+        <h1 className="text-2xl font-semibold">{p.name}</h1>
 
         {/* Public Verified badge (publish-gated, no schema drift) */}
         <span
@@ -94,19 +65,19 @@ export default async function MicrositePage({
         </span>
 
         <div className="text-sm text-gray-600">
-          {data.city ? `${data.city}` : ""}
-          {data.city && data.phone ? " • " : ""}
-          {data.phone || ""}
+          {p.city ? `${p.city}` : ""}
+          {p.city && p.phone ? " • " : ""}
+          {p.phone || ""}
         </div>
       </header>
 
       {/* Intro */}
       <section className="rounded-2xl border p-5 space-y-3">
         <p className="text-sm">
-          Public preview for <strong>{data.name}</strong>.
+          Public preview for <strong>{p.name}</strong>.
         </p>
         <div className="text-sm text-gray-600">
-          Slug: <span className="font-mono">{data.slug}</span>
+          Slug: <span className="font-mono">{p.slug}</span>
         </div>
         <div className="text-sm">Online booking and payments coming soon.</div>
       </section>
@@ -118,7 +89,7 @@ export default async function MicrositePage({
           Pick a time and leave your details. You’ll get a confirmation on WhatsApp/SMS.
         </p>
         <Link
-          href={`/book/${data.slug}`}
+          href={`/book/${p.slug}`}
           className="inline-block rounded-xl border px-4 py-2 text-sm hover:bg-gray-50"
         >
           Book appointment
