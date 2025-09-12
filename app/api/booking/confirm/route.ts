@@ -1,4 +1,4 @@
-// app/api/booking/create/route.ts
+// app/api/booking/confirm/route.ts
 // @ts-nocheck
 
 import type { NextRequest } from "next/server";
@@ -8,10 +8,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * 22.22 — Booking Spine: Intent (stub)
+ * 22.22 — Booking Spine: Confirm (stub)
  * No schema drift. No DB writes.
  * Telemetry strict: {event, ts, provider_id, lead_id, source}
- * Event: "booking.intent.clicked"
+ * Event: "booking.confirmed"
  */
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
@@ -27,14 +27,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "invalid_slot" }, { status: 400 });
   }
 
-  // Base URL for internal call
+  // Base URL (Vercel-safe)
   const xfProto = req.headers.get("x-forwarded-proto");
   const xfHost = req.headers.get("x-forwarded-host");
   const baseUrl = (xfProto && xfHost)
     ? `${xfProto}://${xfHost}`
     : (process.env.NEXT_PUBLIC_BASE_URL || req.nextUrl.origin);
 
-  // Telemetry — booking.intent.clicked
+  // Telemetry — booking.confirmed
   try {
     const u = new URL("/api/events/log", baseUrl);
     u.searchParams.set("slug", slug);
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
       body: JSON.stringify({
-        event: "booking.intent.clicked",
+        event: "booking.confirmed",
         ts: Date.now(),
         provider_id: null,
         lead_id: null,
@@ -51,8 +51,8 @@ export async function POST(req: NextRequest) {
       }),
     }).catch(() => {});
   } catch {
-    // non-fatal
+    // ignore telemetry failure (non-blocking)
   }
 
-  return NextResponse.json({ ok: true, slug, slot, telemetry_logged: true });
+  return NextResponse.json({ ok: true, confirmed: true, slug, slot });
 }
