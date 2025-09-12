@@ -4,15 +4,12 @@ import React from "react";
 import { ImageResponse } from "next/og";
 
 export const runtime = "edge";
-export const contentType = "image/png";
-export const size = { width: 1200, height: 630 };
-export const alt = "Korekko Microsite";
 
 /**
  * Minimal OG route:
- * - Always returns a 1200x630 PNG.
+ * - Returns a 1200x630 PNG.
  * - Uses static fallback asset `/og/default-provider.png`.
- * - No schema drift, no DB calls.
+ * - No DB calls, no schema drift.
  */
 export async function GET() {
   const BASE =
