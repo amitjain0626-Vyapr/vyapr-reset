@@ -11,10 +11,9 @@ import { NextRequest, NextResponse } from "next/server";
 // Flow:
 //  1) Compose preview via /api/journeys/pulse/compose (single source).
 //  2) Build a clean text message.
-//  3) Call /api/wa/send {to, text}.
-//  4) Log STRICT telemetry: {event:"journey.pulse.sent", ts, provider_id, lead_id:null, source:{via, to, provider_slug}}.
+//  3) Try POST /api/wa/send {to,text}; if 405/!ok, fallback to GET /api/wa/send?to=..&text=..
+//  4) Log STRICT telemetry: {event:"journey.pulse.sent", ts, provider_id, lead_id:null, source:{via,to,provider_slug}}
 // Inputs: POST /api/journeys/pulse/send?slug=...  body: { to:"+91..." }
-// No schema/name drift. Insert-only.
 // Verify (use www until domain cutover):
 //   BASE="https://www.vyapr.com"; \
 //   curl -sS -X POST "$BASE/api/journeys/pulse/send?slug=amitjain0626" \
@@ -52,6 +51,32 @@ function buildText(preview: any) {
   return `${heading}${bullet}${tail}`;
 }
 
+async function waSend(base: string, to: string, text: string) {
+  // Try POST first
+  try {
+    const r = await fetch(`${base}/api/wa/send`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({ to, text }),
+    });
+    if (r.ok) return { ok: true, mode: "POST", status: r.status, body: await r.json().catch(() => ({})) };
+    if (r.status !== 405) {
+      return { ok: false, mode: "POST", status: r.status, body: await r.text().catch(() => "") };
+    }
+  } catch (_) {
+    // swallow and try GET
+  }
+
+  // Fallback: GET with query params
+  const url = `${base}/api/wa/send?to=${encodeURIComponent(to)}&text=${encodeURIComponent(text)}`;
+  const g = await fetch(url, { method: "GET", cache: "no-store" });
+  if (!g.ok) {
+    return { ok: false, mode: "GET", status: g.status, body: await g.text().catch(() => "") };
+  }
+  return { ok: true, mode: "GET", status: g.status, body: await g.json().catch(() => ({})) };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
@@ -79,18 +104,11 @@ export async function POST(req: NextRequest) {
     const composed = await compRes.json();
     const text = buildText(composed?.preview || {});
 
-    // 2) Send via existing WA endpoint
-    const waRes = await fetch(`${base}/api/wa/send`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify({ to, text }),
-    });
-    if (!waRes.ok) {
-      const detail = await waRes.text().catch(() => "");
-      return json(502, { ok: false, error: "wa_send_failed", detail });
+    // 2) Send via existing WA endpoint (POST→GET fallback)
+    const wa = await waSend(base, to, text);
+    if (!wa.ok) {
+      return json(502, { ok: false, error: "wa_send_failed", mode: wa.mode, status: wa.status, detail: wa.body });
     }
-    const wa = await waRes.json().catch(() => ({}));
 
     // 3) STRICT telemetry
     const telemetry = {
@@ -98,11 +116,7 @@ export async function POST(req: NextRequest) {
       ts: Date.now(),
       provider_id,
       lead_id: null,
-      source: {
-        via: "api.journeys.pulse.send",
-        to,
-        provider_slug: slug,
-      },
+      source: { via: "api.journeys.pulse.send", to, provider_slug: slug, transport: wa.mode },
     };
     const tRes = await fetch(`${base}/api/events/log`, {
       method: "POST",
@@ -121,7 +135,7 @@ export async function POST(req: NextRequest) {
       provider_slug: slug,
       provider_id,
       to,
-      wa, // passthrough response from /api/wa/send (opaque; for debugging only)
+      wa, // includes {ok, mode, status, body}
     });
   } catch (e: any) {
     return json(500, { ok: false, error: "unexpected_error", detail: e?.message || String(e) });
