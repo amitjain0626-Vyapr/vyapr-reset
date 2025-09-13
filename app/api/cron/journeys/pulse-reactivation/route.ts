@@ -8,15 +8,14 @@ import { NextRequest, NextResponse } from "next/server";
 
 // === KOREKKO<>Provider: Journeys (1.0) ===
 // Purpose: Execute reactivation batch for providers who accepted "Yes" in Morning Pulse.
-// Reads Events (journey.pulse.accepted) for *today* (IST), checks time window ~19:00 IST,
-// triggers existing /api/playbooks/send (playbook:"reactivation"), and logs journey.pulse.executed.
-// Idempotent: skips if an executed event exists for the provider today.
-// No schema drift. Contract-only telemetry.
-// Verify (manual run; force bypasses time window):
+// Reads Events (journey.pulse.accepted) for today (IST), skips if a cancel exists today,
+// triggers /api/playbooks/send (playbook:"reactivation"), logs journey.pulse.executed.
+// Idempotent: skips if already executed today.
+// Verify (manual; force bypasses time window):
 //   BASE="https://www.vyapr.com"; \
 //   curl -sS -X POST "$BASE/api/cron/journeys/pulse-reactivation?force=1" \
 //     -H "Content-Type: application/json"
-// Pass: {"ok":true,"event":"journey.pulse.executed"} present in any item.
+// Pass: {"ok":true,...} with results entries (executed/skipped_*).
 // === KOREKKO<>Provider: Journeys (1.0) ===
 
 function json(status: number, body: any) {
@@ -40,9 +39,7 @@ async function getAdmin() {
   }
 }
 
-// Start/end of today in Asia/Kolkata as epoch ms
 function istDayBounds(date = new Date()) {
-  // Use Intl API to format to IST date components
   const opts: any = { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" };
   const parts = new Intl.DateTimeFormat("en-CA", opts).formatToParts(date);
   const y = parts.find(p => p.type === "year")?.value ?? "1970";
@@ -53,7 +50,7 @@ function istDayBounds(date = new Date()) {
   return { startIst, endIst };
 }
 
-function isWithin19WindowIST(now = new Date(), windowMin = 10) {
+function isWithin19WindowIST(now = new Date(), windowMin = 15) {
   const fmt: any = new Intl.DateTimeFormat("en-IN", {
     timeZone: "Asia/Kolkata",
     hour12: false,
@@ -74,10 +71,9 @@ export async function POST(req: NextRequest) {
     const base = baseUrlFrom(req);
     const supa = await getAdmin();
 
-    // Time guards (IST)
     const now = new Date();
     const { startIst, endIst } = istDayBounds(now);
-    const withinWindow = isWithin19WindowIST(now, 15); // allow 15 min window
+    const withinWindow = isWithin19WindowIST(now, 15);
     if (!force && !withinWindow) {
       return json(200, {
         ok: true,
@@ -86,7 +82,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 1) Read today's ACCEPTED intents
+    // Read today's ACCEPTED intents
     const { data: accepted, error: accErr } = await supa
       .from("Events")
       .select("id, ts, provider_id, source")
@@ -94,7 +90,6 @@ export async function POST(req: NextRequest) {
       .gte("ts", startIst)
       .lt("ts", endIst)
       .order("ts", { ascending: true });
-
     if (accErr) return json(500, { ok: false, error: "read_accepted_failed", detail: accErr.message });
 
     const results: any[] = [];
@@ -103,16 +98,30 @@ export async function POST(req: NextRequest) {
       const provider_id = row.provider_id;
       const src = (row.source || {}) as any;
       const when = String(src.when || "19:00");
-      const tz = String(src.tz || "Asia/Kolkata");
+      const tz = String(src.tz || "Asia/Kolkata").trim();
       const slug = String(src.provider_slug || "").trim();
 
-      // Only consider 19:00 Asia/Kolkata
+      // window/param guard
       if (!force) {
-        if (tz !== "Asia/Kolkata") continue;
-        if (when !== "19:00") continue;
+        if (tz !== "Asia/Kolkata") { results.push({ provider_id, slug, skipped: "tz_mismatch" }); continue; }
+        if (when !== "19:00") { results.push({ provider_id, slug, skipped: "when_mismatch" }); continue; }
       }
 
-      // 2) Idempotency: skip if executed today already
+      // Skip if a CANCEL exists today
+      const { data: cancelled } = await supa
+        .from("Events")
+        .select("id")
+        .eq("event", "journey.pulse.cancelled")
+        .eq("provider_id", provider_id)
+        .gte("ts", startIst)
+        .lt("ts", endIst)
+        .limit(1);
+      if (cancelled && cancelled.length > 0) {
+        results.push({ provider_id, slug, skipped: "cancelled_today" });
+        continue;
+      }
+
+      // Idempotency: skip if already executed today
       const { data: executed } = await supa
         .from("Events")
         .select("id")
@@ -121,29 +130,25 @@ export async function POST(req: NextRequest) {
         .gte("ts", startIst)
         .lt("ts", endIst)
         .limit(1);
-
       if (executed && executed.length > 0) {
         results.push({ provider_id, slug, skipped: "already_executed" });
         continue;
       }
 
-      // 3) Trigger reactivation playbook (existing infra)
-      // lead_id null is acceptable (batch mode)
+      // Trigger playbook
       const sendRes = await fetch(`${base}/api/playbooks/send?slug=${encodeURIComponent(slug)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
         body: JSON.stringify({ lead_id: null, playbook: "reactivation" }),
       });
-
       if (!sendRes.ok) {
         const detail = await sendRes.text().catch(() => "");
         results.push({ provider_id, slug, ok: false, error: "playbook_send_failed", detail });
-        // do not log executed
         continue;
       }
 
-      // 4) Log executed telemetry
+      // Log executed
       const telemetry = {
         event: "journey.pulse.executed",
         ts: Date.now(),
@@ -157,26 +162,19 @@ export async function POST(req: NextRequest) {
           action: "reactivation_batch_execute",
         },
       };
-
       const tRes = await fetch(`${base}/api/events/log`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
         body: JSON.stringify(telemetry),
       });
-
       if (!tRes.ok) {
         const detail = await tRes.text().catch(() => "");
         results.push({ provider_id, slug, ok: false, error: "event_log_failed", detail });
         continue;
       }
 
-      results.push({
-        ok: true,
-        event: "journey.pulse.executed",
-        provider_id,
-        slug,
-      });
+      results.push({ ok: true, event: "journey.pulse.executed", provider_id, slug });
     }
 
     return json(200, { ok: true, results });
