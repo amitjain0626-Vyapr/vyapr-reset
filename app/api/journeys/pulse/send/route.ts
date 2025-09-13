@@ -11,8 +11,9 @@ import { NextRequest, NextResponse } from "next/server";
 // Flow:
 //  1) Compose preview via /api/journeys/pulse/compose (single source).
 //  2) Build a clean text message.
-//  3) Try POST /api/wa/send {to,text}; if 405/!ok, fallback to GET /api/wa/send?to=..&text=..
-//  4) Log STRICT telemetry: {event:"journey.pulse.sent", ts, provider_id, lead_id:null, source:{via,to,provider_slug}}
+//  3) Try POST /api/wa/send {to,text}; if 405/!ok, fallback to GET /api/wa/send?phone=&text=
+//     - Accept 301/302/303/307/308 as success (redirect to WA).
+//  4) Log STRICT telemetry: {event:"journey.pulse.sent", ts, provider_id, lead_id:null, source:{via,to,provider_slug,transport}}
 // Inputs: POST /api/journeys/pulse/send?slug=...  body: { to:"+91..." }
 // Verify (use www until domain cutover):
 //   BASE="https://www.vyapr.com"; \
@@ -51,6 +52,13 @@ function buildText(preview: any) {
   return `${heading}${bullet}${tail}`;
 }
 
+function normalizePhoneForQuery(to: string) {
+  // /api/wa/send expects `phone` without '+' and numeric only
+  const digits = String(to).replace(/\D/g, "");
+  // Fallback: if empty, just return original stripped
+  return digits || String(to).replace(/^\+/, "");
+}
+
 async function waSend(base: string, to: string, text: string) {
   // Try POST first
   try {
@@ -65,16 +73,19 @@ async function waSend(base: string, to: string, text: string) {
       return { ok: false, mode: "POST", status: r.status, body: await r.text().catch(() => "") };
     }
   } catch (_) {
-    // swallow and try GET
+    // ignore and try GET
   }
 
-  // Fallback: GET with query params
-  const url = `${base}/api/wa/send?to=${encodeURIComponent(to)}&text=${encodeURIComponent(text)}`;
-  const g = await fetch(url, { method: "GET", cache: "no-store" });
-  if (!g.ok) {
-    return { ok: false, mode: "GET", status: g.status, body: await g.text().catch(() => "") };
+  // Fallback: GET with `phone` (not `to`); accept redirect as success
+  const phone = normalizePhoneForQuery(to);
+  const url = `${base}/api/wa/send?phone=${encodeURIComponent(phone)}&text=${encodeURIComponent(text)}`;
+  const g = await fetch(url, { method: "GET", cache: "no-store", redirect: "manual" as any });
+  const redirectCodes = new Set([301, 302, 303, 307, 308]);
+  if (g.ok || redirectCodes.has(g.status)) {
+    // Do not assume JSON; WA redirect returns HTML after follow
+    return { ok: true, mode: "GET", status: g.status, body: await g.text().catch(() => "") };
   }
-  return { ok: true, mode: "GET", status: g.status, body: await g.json().catch(() => ({})) };
+  return { ok: false, mode: "GET", status: g.status, body: await g.text().catch(() => "") };
 }
 
 export async function POST(req: NextRequest) {
@@ -90,7 +101,7 @@ export async function POST(req: NextRequest) {
     const base = baseUrlFrom(req);
     const provider_id = await resolveProviderId(req, slug);
 
-    // 1) Compose from our previous rung
+    // Compose from our previous rung
     const compRes = await fetch(`${base}/api/journeys/pulse/compose?slug=${encodeURIComponent(slug)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -104,13 +115,13 @@ export async function POST(req: NextRequest) {
     const composed = await compRes.json();
     const text = buildText(composed?.preview || {});
 
-    // 2) Send via existing WA endpoint (POST→GET fallback)
+    // Send via existing WA endpoint (POST→GET fallback; GET handles 3xx as success)
     const wa = await waSend(base, to, text);
     if (!wa.ok) {
       return json(502, { ok: false, error: "wa_send_failed", mode: wa.mode, status: wa.status, detail: wa.body });
     }
 
-    // 3) STRICT telemetry
+    // STRICT telemetry
     const telemetry = {
       event: "journey.pulse.sent",
       ts: Date.now(),
